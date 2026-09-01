@@ -305,7 +305,7 @@ level up:
 | `agentic/driver_prompt.py` | The three prompt builders: `build_system_prompt`, `build_user_brief`, `build_ghost_prompt`, plus the `SupportedQuestion` type. |
 | `agentic/artifact.py` | `render_findings` (the output section) and `detachment_lint`. |
 | `agentic/types.py` | The dataclasses and Pydantic models: `ToolOutcome`, `ToolSpec`, `Finding`, `GhostForecast`, `LoopConfig`, `LoopTelemetry`, `LoopResult`. |
-| `agentic/llm.py` | `build_default_llm_call`, the litellm/OpenRouter binding with donated-key-first routing and personal-key fallback. |
+| `agentic/llm.py` | `build_default_llm_call`, the litellm/OpenRouter binding with primary-key-first routing and fallback-key fallback. |
 | `agentic/__init__.py` | Package exports. |
 
 ## Configuration
@@ -330,10 +330,10 @@ Defaults are deliberately not reproduced here — read them off the definitions 
 | `GAP_FILL_V2_MIN_CONTENT_CHARS` | Extracted-char floor below which `fetch` escalates plain HTTP to headless Chromium. |
 
 The driver and reader run on separate credentials. The driver goes through
-litellm/OpenRouter with donated-key-first routing (all eval candidates were
-OpenAI/Anthropic models). The `read_document` reader uses the personal
+litellm/OpenRouter with primary-key-first routing (all eval candidates were
+OpenAI/Anthropic models). The `read_document` reader uses the fallback
 `GOOGLE_API_KEY` on the native google-genai SDK, and `search_web` (Exa) and
-`search_news` (AskNews) use their own personal keys.
+`search_news` (AskNews) use their own fallback keys.
 
 One caveat worth flagging for operators: `GAP_FILL_V2_READER_MODEL`'s default id
 is noted in the constants file as unverified on the native AI Studio SDK. A wrong

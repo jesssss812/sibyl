@@ -190,10 +190,10 @@ def _redirect_artifact_store(tmp_path_factory: pytest.TempPathFactory, monkeypat
 
 # The verbatim OpenRouter response that cost the 2026-07-26 tournament run two of three
 # forecasters and most of the research stack. Copied character-for-character from the run
-# log (the donated key at $0.00 of its $850 cap): HTTP 403 rather than the 402 OpenRouter's
+# log (the primary key at $0.00 of its $850 cap): HTTP 403 rather than the 402 OpenRouter's
 # docs promise, the phrase "Key limit exceeded (total limit)", and a ``"code":403`` field in
 # the body — which is what the old negative rule matched on, vetoing the fallback and
-# leaving the funded personal key untried.
+# leaving the funded fallback key untried.
 #
 # Shared rather than copied per test file because the exact bytes are the assertion
 # substrate: tests reason about what this string does NOT contain ("credit",

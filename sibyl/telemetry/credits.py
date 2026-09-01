@@ -1,12 +1,12 @@
 """Per-run OpenRouter credit-balance telemetry.
 
-Fetches key balances (donated + personal) at run start and end and emits
+Fetches key balances (primary + fallback) at run start and end and emits
 greppable marker lines — ``CREDIT_BALANCE:`` / ``CREDIT_SPEND:`` — following
 the existing marker-log convention (``EXTRACTION_RUNG:``, ``OPEN_BOUND_PILING:``).
 All four workflow yamls tee stdout+stderr to a ``run_logs/`` artifact, so these
 lines are durably grep-able per run; no extra artifact plumbing is needed.
 
-The end-of-run check also reports whether the DONATED key's remaining balance
+The end-of-run check also reports whether the PRIMARY key's remaining balance
 (``limit_remaining``) fell below ``OPENROUTER_CREDIT_FLOOR_USD``. cli.main uses
 that to exit non-zero AFTER all forecasting/publishing completes — a
 reminder-to-refill signal, never an abort — and only while credit alerting is
@@ -17,23 +17,23 @@ always reports the breach and always logs ``CREDIT_FLOOR_BREACH``.
 
 Field semantics (verified against live /auth/key pulls, 2026-07-17): ``usage``
 counts only spend billed as native OpenRouter credits. Spend routed through
-BYOK provider integrations (the donated Metaculus key routes nearly everything
+BYOK provider integrations (the primary Metaculus key routes nearly everything
 this way) lands in ``byok_usage`` instead, so ``usage`` can sit frozen while
 real money burns. ``limit_remaining = limit - usage - byok_usage`` (when
 ``include_byok_in_limit``), making it the only field that reliably tracks
 total spend on a limit-bearing key. Per-run spend therefore comes from the
 ``limit_remaining`` delta when the key reports one, with the ``usage`` delta
-as the fallback for uncapped keys (personal: ``limit_remaining`` is null and
+as the fallback for uncapped keys (fallback: ``limit_remaining`` is null and
 spend does land in ``usage``).
 
-THE PERSONAL KEY'S PER-RUN DELTA IS A LOWER BOUND, AND THE CAUSE IS SETTLEMENT
+THE FALLBACK KEY'S PER-RUN DELTA IS A LOWER BOUND, AND THE CAUSE IS SETTLEMENT
 LAG — NOT BYOK. Worth stating flatly because the BYOK paragraph above is the
-wrong explanation for it and misled two separate investigations: on the personal
+wrong explanation for it and misled two separate investigations: on the fallback
 key ``usage`` genuinely does climb ($154.58 -> $160.24 over 2026-07-20..27), so
 nothing is hiding in ``byok_usage``. What happens is that OpenRouter has not
 booked the run's spend by the time the end snapshot fires, seconds after the last
 call. Measured over ``backtests/telemetry_archive/credit_balance.jsonl``, 178
-paired personal-key runs: the within-run deltas summed to $3.31 against $5.66 of
+paired fallback-key runs: the within-run deltas summed to $3.31 against $5.66 of
 true lifetime-usage growth (58% captured), and 160 of 178 runs reported exactly
 $0.00. The missing $2.35 is fully accounted for by the gap between each run's
 ``phase=end`` usage and the NEXT run's ``phase=start`` usage — $3.31 + $2.35 =
@@ -42,7 +42,7 @@ $5.66, exactly, to the cent. The money is late, not lost.
 The tightest version of the evidence, restricted to runs that DEMONSTRABLY spent:
 of the 25 paired runs carrying at least one ``extraction_rung`` record (a forecast
 provably happened, and ``gemini-3.1-pro-preview`` — the slot pinned to the
-personal key — produced one in all 25), 7 reported exactly $0.00. That is a 28%
+fallback key — produced one in all 25), 7 reported exactly $0.00. That is a 28%
 false-zero rate on runs that cannot have been free.
 ``sibyl/ops/reconcile_credit_spend.py`` recovers a real figure for all 7
 ($0.10-$0.32 each), which is the direct demonstration that the zeros are lag
@@ -61,9 +61,9 @@ run's start usage against its successor's — the only place the lag is actually
 observable.
 
 This module also owns the DRAINED-vs-REVOKED discriminator
-(``classify_donated_key_state``) that ``fallback_openrouter`` consults when a
-donated-key call fails with OpenRouter's spend-cap 403. Same endpoint, same
-parser, so the "how much is left on the donated key" question has one
+(``classify_primary_key_state``) that ``fallback_openrouter`` consults when a
+primary-key call fails with OpenRouter's spend-cap 403. Same endpoint, same
+parser, so the "how much is left on the primary key" question has one
 implementation.
 
 Telemetry must never fail or block a run: every fetch error is logged as a
@@ -93,7 +93,7 @@ class KeyBalanceSnapshot:
     """One key's balance at a point in time. ``None`` fields = not reported."""
 
     alias: str
-    remaining_usd: float | None  # limit_remaining; None for uncapped keys (personal)
+    remaining_usd: float | None  # limit_remaining; None for uncapped keys (fallback)
     usage_usd: float | None  # lifetime native-credit usage; excludes BYOK-routed spend
 
 
@@ -136,7 +136,7 @@ def _run_delta_usd(start: KeyBalanceSnapshot | None, end: KeyBalanceSnapshot) ->
 
     * ``remaining_delta`` (start - end) — a limit-bearing key's ``limit_remaining``
       drop. Reliable: it is the only field covering BYOK-routed spend, which the
-      donated key routes nearly everything through.
+      primary key routes nearly everything through.
     * ``usage_delta_unsettled`` (end - start) — the fallback for uncapped keys,
       which report no ``limit_remaining``. Systematically UNDER-reports, because
       ``usage`` lags the run (see ``_run_delta_usd``'s settlement note in the module
@@ -195,7 +195,7 @@ def _fetch_snapshot(alias: str, phase: str) -> KeyBalanceSnapshot | None:
 
 
 class CreditTelemetry:
-    """Start/end balance logging + donated-key floor check for one bot run."""
+    """Start/end balance logging + primary-key floor check for one bot run."""
 
     def __init__(self, floor_usd: float = OPENROUTER_CREDIT_FLOOR_USD) -> None:
         self._floor_usd = floor_usd
@@ -215,12 +215,12 @@ class CreditTelemetry:
             )
 
     def log_end_and_check_floor(self) -> bool:
-        """Log end balances + per-run spend; return True iff the donated key's
+        """Log end balances + per-run spend; return True iff the primary key's
         remaining balance is KNOWN and below the floor (unknown never trips it).
 
         Spend delta prefers the ``limit_remaining`` drop (start - end): on
         limit-bearing keys it is the only field covering BYOK-routed spend,
-        which the donated key routes nearly everything through (``usage`` sat
+        which the primary key routes nearly everything through (``usage`` sat
         frozen at $4.16 across a $3.34 run, 2026-07-17). Uncapped keys report
         no ``limit_remaining``, so they fall back to the ``usage`` delta.
 
@@ -234,7 +234,7 @@ class CreditTelemetry:
         (rare; per-run spend is indicative anyway), and OpenRouter caches these
         values briefly — don't build on exact figures.
         """
-        donated_below_floor = False
+        primary_below_floor = False
         for alias in KEY_SPECS:
             snapshot = _fetch_snapshot(alias, phase="end")
             if snapshot is None:
@@ -258,7 +258,7 @@ class CreditTelemetry:
                 # watching the operator's monthly cap on a self-funded key, and a
                 # bare "0.00" reads as "this run was free" when it actually means
                 # "OpenRouter had not settled the spend yet". Measured across 178
-                # archived personal-key runs: the within-run deltas summed to 58% of
+                # archived fallback-key runs: the within-run deltas summed to 58% of
                 # the true growth, and 7 of 25 runs that demonstrably forecast
                 # reported exactly 0.00.
                 logger.warning(
@@ -270,19 +270,19 @@ class CreditTelemetry:
                     _fmt(run_delta),
                     alias,
                 )
-            if alias == "donated" and snapshot.remaining_usd is not None and snapshot.remaining_usd < self._floor_usd:
+            if alias == "primary" and snapshot.remaining_usd is not None and snapshot.remaining_usd < self._floor_usd:
                 logger.warning(
-                    "CREDIT_FLOOR_BREACH: key=donated remaining=%s floor=%s — donated OpenRouter "
+                    "CREDIT_FLOOR_BREACH: key=primary remaining=%s floor=%s — primary OpenRouter "
                     "balance needs a top-up; run completed normally. cli.main logs the exit "
                     "decision unless a higher-priority degradation alert exits first.",
                     _fmt(snapshot.remaining_usd),
                     _fmt(self._floor_usd),
                 )
-                donated_below_floor = True
-        return donated_below_floor
+                primary_below_floor = True
+        return primary_below_floor
 
 
-# --- Drained-vs-revoked discriminator for the donated key -------------------
+# --- Drained-vs-revoked discriminator for the primary key -------------------
 #
 # OpenRouter reports a breached per-key spend cap as HTTP 403 with the text
 # "Key limit exceeded (total limit)", and reports a revoked key as HTTP 401 on
@@ -295,8 +295,8 @@ class CreditTelemetry:
 # like. See ``fallback_openrouter.is_suppressible_credit_error``.
 
 
-class DonatedKeyState(StrEnum):
-    """What ``/auth/key`` says about the donated key, in alerting terms.
+class PrimaryKeyState(StrEnum):
+    """What ``/auth/key`` says about the primary key, in alerting terms.
 
     Only ``DRAINED`` is the expected empty wallet. Every other state means the
     "expected empty wallet" explanation does NOT hold, so the run stays alertable
@@ -321,55 +321,55 @@ class DonatedKeyState(StrEnum):
 # than the read timeout resets the clock on every chunk and the call can run many multiples
 # of this budget (measured against a local trickling server, a one-second timeout took ten
 # seconds to return twenty bytes). The hard total cap lives at the latency-sensitive call
-# site (``fallback_openrouter.record_donated_key_fallback`` wraps the probe in
+# site (``fallback_openrouter.record_primary_key_fallback`` wraps the probe in
 # ``asyncio.wait_for``), because that is the only hop where the promise has to hold.
-DONATED_KEY_PROBE_TIMEOUT_S: float = 5.0
+PRIMARY_KEY_PROBE_TIMEOUT_S: float = 5.0
 
 # One probe per process, lock-guarded so concurrent callers share one verdict. A run that
-# loses every donated-key call would otherwise fire one HTTP request per failure, and
+# loses every primary-key call would otherwise fire one HTTP request per failure, and
 # caching failures matters as much as caching verdicts (a dead endpoint would otherwise
 # cost one timeout per failed call). ``None`` means "never probed", which cli renders
 # differently from any verdict.
 #
 # ``threading``, not ``asyncio``: every production caller arrives on an
-# ``asyncio.to_thread`` worker (see ``fallback_openrouter.record_donated_key_fallback``),
+# ``asyncio.to_thread`` worker (see ``fallback_openrouter.record_primary_key_fallback``),
 # so the contention is between real OS threads. The lock is what makes the ONE VERDICT
 # part true, which matters more than the one-request part — without it each caller keeps
 # its own probe result, so an intermittently failing ``/auth/key`` splits a single
 # drained-key incident into some suppressed and some alertable events, and cli then exits
 # red on the very condition the suppression window exists for.
-_probed_donated_key_state: DonatedKeyState | None = None
+_probed_primary_key_state: PrimaryKeyState | None = None
 _PROBE_LOCK = threading.Lock()
 
 
-def get_probed_donated_key_state() -> DonatedKeyState | None:
+def get_probed_primary_key_state() -> PrimaryKeyState | None:
     """The cached verdict, or ``None`` if nothing this run needed to probe."""
-    return _probed_donated_key_state
+    return _probed_primary_key_state
 
 
-def reset_donated_key_state_cache() -> None:
+def reset_primary_key_state_cache() -> None:
     """Clear the cached verdict. Used by tests; not for production code."""
-    global _probed_donated_key_state
-    _probed_donated_key_state = None
+    global _probed_primary_key_state
+    _probed_primary_key_state = None
 
 
-def _probe_donated_key_state() -> DonatedKeyState:
-    """One ``/auth/key`` read on the donated key, classified.
+def _probe_primary_key_state() -> PrimaryKeyState:
+    """One ``/auth/key`` read on the primary key, classified.
 
     Returns UNKNOWN on any failure and logs the exception. UNKNOWN is the fail-safe
     direction: it keeps the run alertable, so a probe that cannot answer never greens a red
     run. ``fallback_openrouter`` guards its own call site too (an escape there would abort
     the fallback it is annotating), but the contract has to hold here for the next caller.
     """
-    env_var, _ = KEY_SPECS["donated"]
+    env_var, _ = KEY_SPECS["primary"]
     api_key = os.getenv(env_var)
     if not api_key:
-        # No donated key configured, so there is no donated wallet to be empty.
+        # No primary key configured, so there is no primary wallet to be empty.
         # Returning early also keeps this probe free of network I/O in tests that
         # don't stub it.
-        return DonatedKeyState.UNKNOWN
+        return PrimaryKeyState.UNKNOWN
     try:
-        data = fetch_auth_key(api_key, timeout=DONATED_KEY_PROBE_TIMEOUT_S)
+        data = fetch_auth_key(api_key, timeout=PRIMARY_KEY_PROBE_TIMEOUT_S)
         # Read the fields INSIDE the try for the same reason ``_fetch_snapshot``
         # does: a 200 whose body carries a non-mapping ``data`` makes ``.get``
         # raise AttributeError, and that must degrade to UNKNOWN like any other
@@ -380,66 +380,66 @@ def _probe_donated_key_state() -> DonatedKeyState:
         # 401 = key rejected, 404 = key no longer exists. Anything else (429 on the
         # balance endpoint, a 5xx) tells us nothing about the wallet.
         if exc.response.status_code in (401, 404):
-            return DonatedKeyState.REVOKED
-        return DonatedKeyState.UNKNOWN
+            return PrimaryKeyState.REVOKED
+        return PrimaryKeyState.UNKNOWN
     except Exception:
         # Broad by design: see the docstring. A curated tuple already missed
         # FileNotFoundError (stale SSL_CERT_FILE), httpx.InvalidURL (not an HTTPError
         # subclass) and RuntimeError (the suite's network guard).
-        logger.exception("DONATED_KEY_STATE: /auth/key probe failed; classifying as unknown (stays alertable)")
-        return DonatedKeyState.UNKNOWN
+        logger.exception("PRIMARY_KEY_STATE: /auth/key probe failed; classifying as unknown (stays alertable)")
+        return PrimaryKeyState.UNKNOWN
 
     if limit_usd is None or remaining_usd is None:
         # An uncapped key has no cap to exceed, so a spend-cap failure on one is
         # unexplained rather than expected.
-        return DonatedKeyState.UNKNOWN
+        return PrimaryKeyState.UNKNOWN
     if limit_usd <= 0:
-        return DonatedKeyState.ZEROED
+        return PrimaryKeyState.ZEROED
     if remaining_usd > 0:
-        return DonatedKeyState.FUNDED
+        return PrimaryKeyState.FUNDED
     # OpenRouter clamps ``limit_remaining`` at 0 even when the true arithmetic is
     # negative (live: limit=850, usage=4.39, byok_usage=846.42 → reported 0.00), so
     # ``<= 0`` rather than ``== 0``.
-    return DonatedKeyState.DRAINED
+    return PrimaryKeyState.DRAINED
 
 
-def classify_donated_key_state() -> DonatedKeyState:
-    """Whether the donated key is genuinely drained, or broken in some other way.
+def classify_primary_key_state() -> PrimaryKeyState:
+    """Whether the primary key is genuinely drained, or broken in some other way.
 
     Blocking HTTP, so callers on the event loop should hand this to a thread. Probes at
     most once per process (lock-guarded, so concurrent callers share one verdict); every
     subsequent call reads the cache.
     """
-    global _probed_donated_key_state
-    cached = _probed_donated_key_state
+    global _probed_primary_key_state
+    cached = _probed_primary_key_state
     if cached is not None:
         return cached
 
     with _PROBE_LOCK:
         # Re-check inside the lock: a caller that queued behind the winner must take the
         # winner's verdict rather than probe again with its own.
-        cached = _probed_donated_key_state
+        cached = _probed_primary_key_state
         if cached is not None:
             return cached
 
-        state = _probe_donated_key_state()
-        _probed_donated_key_state = state
+        state = _probe_primary_key_state()
+        _probed_primary_key_state = state
         # Logged inside the lock so the marker line appears exactly once per run — N copies
         # of one verdict would read as N separate probes to whoever greps the run log.
-        if state is DonatedKeyState.DRAINED:
+        if state is PrimaryKeyState.DRAINED:
             logger.info(
-                "DONATED_KEY_STATE: state=%s — the donated OpenRouter key spent its whole allocation "
+                "PRIMARY_KEY_STATE: state=%s — the primary OpenRouter key spent its whole allocation "
                 "with the cap itself intact. Expected while the operator self-funds the season, so "
-                "credit-caused personal-key fallbacks are exempt from alerting until %s.",
+                "credit-caused fallback-key fallbacks are exempt from alerting until %s.",
                 state.value,
                 CREDIT_ALERT_RESUME_DATE.isoformat(),
             )
         else:
             logger.warning(
-                "DONATED_KEY_STATE: state=%s — a credit-shaped donated-key failure that is NOT an "
+                "PRIMARY_KEY_STATE: state=%s — a credit-shaped primary-key failure that is NOT an "
                 "expected drained wallet (zeroed = cap set to 0, revoked = key rejected, funded = the "
                 "key still has money so the failure was not about credit, unknown = the probe could "
-                "not answer). Personal-key fallbacks stay alertable, so this run will exit non-zero.",
+                "not answer). Fallback-key fallbacks stay alertable, so this run will exit non-zero.",
                 state.value,
             )
         return state

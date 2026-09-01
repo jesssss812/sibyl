@@ -115,7 +115,7 @@ PYTHON_BUG_NO_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
 # of the tree, matching nothing in ``PERMANENT_NO_RETRY_EXCEPTIONS``.
 # (``PermissionDeniedError`` is listed there and reads as though it covers 403, but it
 # subclasses a different openai branch that litellm never raises for OpenRouter, so it
-# contributes no real coverage.) In the 2026-07-26 run a drained-donated-key 403 —
+# contributes no real coverage.) In the 2026-07-26 run a drained-primary-key 403 —
 # deterministic, 35ms — passed the elapsed gate, which only screens SLOW failures, and
 # the AskNews summarizer burned the full ``DEFAULT_TRANSIENT_BACKOFFS`` ladder against a
 # key that could not succeed. Mostly redundant for 400/401/404/422 (already typed

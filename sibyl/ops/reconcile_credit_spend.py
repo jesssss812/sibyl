@@ -2,14 +2,14 @@
 
 Why this exists
 ---------------
-``CREDIT_SPEND: key=personal`` is a LOWER BOUND, and often reads ``0.00`` on a run
-that spent real money. The personal key reports no ``limit_remaining``, so the
+``CREDIT_SPEND: key=fallback`` is a LOWER BOUND, and often reads ``0.00`` on a run
+that spent real money. The fallback key reports no ``limit_remaining``, so the
 per-run delta falls back to the lifetime ``usage`` field — and OpenRouter has
 typically not settled a run's spend by the time the end snapshot fires, seconds
 after the last call.
 
 Measured over ``backtests/telemetry_archive/credit_balance.jsonl`` (178 paired
-personal-key runs, 2026-07-20 to 2026-07-27): within-run deltas summed to $3.31
+fallback-key runs, 2026-07-20 to 2026-07-27): within-run deltas summed to $3.31
 against $5.66 of true lifetime-usage growth, so the marker captured 58%. The
 missing $2.35 is fully recovered by the gap between each run's ``phase=end`` usage
 and the NEXT run's ``phase=start`` usage — $3.31 + $2.35 = $5.66 exactly. The money
@@ -27,7 +27,7 @@ want the archive current (that pull is also free).
 Usage
 -----
     uv run python sibyl/ops/reconcile_credit_spend.py
-    uv run python sibyl/ops/reconcile_credit_spend.py --key donated --since 2026-07-20
+    uv run python sibyl/ops/reconcile_credit_spend.py --key primary --since 2026-07-20
 """
 
 import argparse
@@ -123,7 +123,7 @@ def _fmt(value: float | None) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, default=ARCHIVE_PATH, help="credit_balance.jsonl")
-    parser.add_argument("--key", default="personal", choices=("personal", "donated"), help="which key")
+    parser.add_argument("--key", default="fallback", choices=("fallback", "primary"), help="which key")
     parser.add_argument("--since", default="", help="only runs whose run_date starts at/after this (YYYY-MM-DD)")
     args = parser.parse_args()
 

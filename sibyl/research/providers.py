@@ -365,11 +365,11 @@ def _perplexity_provider(use_open_router: bool = False, is_benchmarking: bool = 
         # No explicit api_key, unlike the near-identical builder in
         # ``ResearchOrchestrator._call_perplexity`` which passes
         # ``get_openrouter_api_key(model_name)``. Equivalent TODAY and only by
-        # coincidence: perplexity is not in ``DONATED_KEY_PROVIDERS``, so that helper
+        # coincidence: perplexity is not in ``OPENROUTER_PRIMARY_KEY_PROVIDERS``, so that helper
         # returns ``OPENROUTER_API_KEY``, which litellm also reads straight from the
         # environment. It stops being equivalent the moment perplexity becomes
-        # donated-key-eligible, at which point this call site silently keeps billing
-        # the personal key while the orchestrator's switches. The real fix is to
+        # primary-key-eligible, at which point this call site silently keeps billing
+        # the fallback key while the orchestrator's switches. The real fix is to
         # collapse the two builders (forge flagged the duplication); until then, don't
         # "clean up" this asymmetry by deleting the orchestrator's api_key argument.
         model = GeneralLlm(model=model_name, temperature=None, allowed_tries=1)
@@ -470,10 +470,10 @@ def build_native_search_llm(
     if verbosity_value:
         kwargs["verbosity"] = verbosity_value
 
-    # Route through the donated-key wrapper. For openrouter/openai/* slugs this
-    # prefers the Metaculus-donated OAI_ANTH_OPENROUTER_KEY (OpenAI now enabled
-    # on it as of 2026-05-29) with automatic fallback to the personal
-    # OPENROUTER_API_KEY on credential/credit/guardrail errors. Non-donated
+    # Route through the primary-key wrapper. For openrouter/openai/* slugs this
+    # prefers the Metaculus-primary OAI_ANTH_OPENROUTER_KEY (OpenAI now enabled
+    # on it as of 2026-05-29) with automatic fallback to the fallback
+    # OPENROUTER_API_KEY on credential/credit/guardrail errors. Non-primary
     # providers (x-ai, etc.) get a plain GeneralLlm — same as before.
 
     return build_llm_with_openrouter_fallback(**kwargs)

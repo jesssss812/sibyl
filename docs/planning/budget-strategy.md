@@ -13,9 +13,9 @@
 > 1,000 searches, capped at 15/question ≈ $0.15 worst case).
 >
 > Two further premises have also moved:
-> * **The donated OpenRouter key is spent** for this season and unset, so the
->   "donated key covers OpenAI/Anthropic/Google" routing below is inactive — every
->   OpenRouter call bills the personal key.
+> * **The primary OpenRouter key is spent** for this season and unset, so the
+>   "primary key covers OpenAI/Anthropic/Google" routing below is inactive — every
+>   OpenRouter call bills the fallback key.
 > * **The Anthropic slots bill Anthropic directly** since 2026-08-31, and
 >   `CREDIT_SPEND` does not see that spend at all, so every per-question figure in this
 >   document is now a **lower bound**.
@@ -132,7 +132,7 @@ the repo's measured ensemble screening:
 
 | Slot | Why | Est. cost |
 |---|---|---:|
-| **gemini-3.1-pro-preview** | Measured **#2 individual member** (+48.4 mean log, n=42). Removing it hurts: −2.14 [−3.62, −0.62], binary Brier +0.0127 [+0.0039, +0.0238] — CI excludes zero. Already pinned to the **personal** key, so it works without a donated key. | ~$0.11 |
+| **gemini-3.1-pro-preview** | Measured **#2 individual member** (+48.4 mean log, n=42). Removing it hurts: −2.14 [−3.62, −0.62], binary Brier +0.0127 [+0.0039, +0.0238] — CI excludes zero. Already pinned to the **fallback** key, so it works without a primary key. | ~$0.11 |
 | **claude-opus-4.8** at `high` (not xhigh) | Measured **#1 individual member** (+50.5). Dropping to `high` follows the author's own sol precedent — the xhigh premium is unmeasured. | ~$0.10–0.15 |
 | **One OpenAI 5.6 slot** at `medium`/`high` | The openai-gpt5 family is **the one clearly load-bearing family**: removal hurts in 6 of 8 eras, pooled −2.56 [−3.90, −1.25]. Keep the family, drop the effort tier. | ~$0.15–0.30 |
 
@@ -174,9 +174,9 @@ dollars for missing questions, and nostream lost ~150 points to 10 missing quest
 cannot lift a sub-frontier model to frontier level."* Strong evidence, and the forecaster
 slot is precisely where it applies.
 
-**(c) Plumbing friction.** OpenRouter `:free` slugs 404 on donated keys (their providers
-aren't in `DONATED_KEY_PROVIDERS`), so free models must run as plain `GeneralLlm` on the
-personal key — already documented in `ablation/forecaster_lineup.py`.
+**(c) Plumbing friction.** OpenRouter `:free` slugs 404 on primary keys (their providers
+aren't in `OPENROUTER_PRIMARY_KEY_PROVIDERS`), so free models must run as plain `GeneralLlm` on the
+fallback key — already documented in `ablation/forecaster_lineup.py`.
 
 ### Where free models genuinely belong: the dev/test lane
 

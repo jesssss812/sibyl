@@ -10,14 +10,17 @@ from sibyl.config.settings import (
     CREDIT_ALERT_RESUME_DATE,
     OAI_ANTH_OPENROUTER_KEY_ENV,
     OPENROUTER_API_KEY_ENV,
+    OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV,
+    OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV,
+    _csv_set_env,
     credit_alerts_active,
-    gemini_use_donated_openrouter_key,
+    gemini_use_primary_openrouter_key,
 )
 from sibyl.platform.llm_retry import llm_status_code
 from sibyl.telemetry.credits import (
-    DONATED_KEY_PROBE_TIMEOUT_S,
-    DonatedKeyState,
-    classify_donated_key_state,
+    PRIMARY_KEY_PROBE_TIMEOUT_S,
+    PrimaryKeyState,
+    classify_primary_key_state,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -38,7 +41,7 @@ def _without_prompt_echo(lowercased_msg: str) -> str:
     against the 963-bundle research archive, our own prompts contain "402" in 13.0% of
     bundles, "guardrail" in 1.9%, "unauthorized" in 4.7% and "deprecated" in 0.1% — so
     without this, a benign zero-output blip on a question about a $402M revenue target
-    billed the personal key, counted as an expected empty wallet, and took a degraded run
+    billed the fallback key, counted as an expected empty wallet, and took a degraded run
     green.
 
     The marker itself is KEPT: ``flagged_input`` is OpenRouter's own field name and one of
@@ -63,7 +66,7 @@ def _record_deprecation_if_matched(model: str, error_msg: str) -> bool:
     Returns True iff matched (and recorded). Match is case-insensitive substring
     against ``_DEPRECATION_PATTERNS``. Designed to be called from any LLM call
     site that observes an exception — the ``FallbackOpenRouterLlm`` wrapper for
-    donated-key models, ``_run_providers_parallel`` for plain-GeneralLlm research
+    primary-key models, ``_run_providers_parallel`` for plain-GeneralLlm research
     providers (Grok native search), etc. Idempotent within a single recording —
     every distinct error string adds an entry; cli.py only checks ``len > 0``.
     """
@@ -127,62 +130,62 @@ _DEPRECATION_PATTERNS: tuple[str, ...] = (
 
 
 # Module-level diagnostic counter for the allowed-providers-404 SUBSET of
-# donated->personal fallbacks. Incremented every time the donated key returns a
+# primary->fallback fallbacks. Incremented every time the primary key returns a
 # "no allowed providers / 404" error and we successfully fall back to the general
-# key. This is NOT the alerting input — cli.py folds ``_generic_key_fallback_count``
+# key. This is NOT the alerting input — cli.py folds ``_fallback_key_count``
 # (the all-causes total) into ``alertable``; adding this 404 count too would
 # double-count events already inside that total. cli.py reads this via
-# ``get_donated_404_fallback_count`` only to break it out in the end-of-run log
+# ``get_primary_route_404_fallback_count`` only to break it out in the end-of-run log
 # line ("... of which donated_404=N"), so a stale allowed-providers list upstream
 # is visible without losing the run.
-_donated_404_fallback_count: int = 0
+_primary_route_404_fallback_count: int = 0
 
 
-def get_donated_404_fallback_count() -> int:
-    """Read the module-level counter for donated-key 404 fallback events."""
-    return _donated_404_fallback_count
+def get_primary_route_404_fallback_count() -> int:
+    """Read the module-level counter for primary-key 404 fallback events."""
+    return _primary_route_404_fallback_count
 
 
-def reset_donated_404_fallback_count() -> None:
+def reset_primary_route_404_fallback_count() -> None:
     """Reset the counter to zero. Used by tests; not for production code."""
-    global _donated_404_fallback_count
-    _donated_404_fallback_count = 0
+    global _primary_route_404_fallback_count
+    _primary_route_404_fallback_count = 0
 
 
-# Module-level counter for EVERY successful donated->personal key fallback,
+# Module-level counter for EVERY successful primary->fallback key fallback,
 # regardless of cause (401/402/429/guardrail/404). Distinct from
-# ``_donated_404_fallback_count`` (which counts only the allowed-providers 404
-# subset). The operator pays for every personal-key fallback, so we want a loud,
-# auditable signal whenever the donated key was supposed to cover a call but
+# ``_primary_route_404_fallback_count`` (which counts only the allowed-providers 404
+# subset). The operator pays for every fallback-key fallback, so we want a loud,
+# auditable signal whenever the primary key was supposed to cover a call but
 # didn't — cli.py folds this into the end-of-run alert so a run that quietly
-# leaked spend to the personal key still turns CI red.
-_generic_key_fallback_count: int = 0
+# leaked spend to the fallback key still turns CI red.
+_fallback_key_count: int = 0
 
 
-def get_generic_key_fallback_count() -> int:
-    """Read the module-level counter for donated->personal key fallback events (all causes)."""
-    return _generic_key_fallback_count
+def get_fallback_key_count() -> int:
+    """Read the module-level counter for primary->fallback key fallback events (all causes)."""
+    return _fallback_key_count
 
 
-def reset_generic_key_fallback_count() -> None:
+def reset_fallback_key_count() -> None:
     """Reset the counter to zero. Used by tests; not for production code."""
-    global _generic_key_fallback_count
-    _generic_key_fallback_count = 0
+    global _fallback_key_count
+    _fallback_key_count = 0
 
 
 # Module-level counter for the CREDIT-caused (402 / payment required / insufficient
-# credit) SUBSET of donated->personal fallbacks — the same subset relationship
-# ``_donated_404_fallback_count`` has to the generic total, so it is likewise NOT
+# credit) SUBSET of primary->fallback fallbacks — the same subset relationship
+# ``_primary_route_404_fallback_count`` has to the generic total, so it is likewise NOT
 # added to ``alertable`` on its own. cli.py subtracts it from the generic total
 # while credit alerting is suppressed (constants.credit_alerts_active), because an
-# empty donated key is an expected condition during that window rather than
+# empty primary key is an expected condition during that window rather than
 # breakage; after the resume date the subtraction stops and behavior is exactly
 # what it was before. Every other cause (401/404/429/guardrail) stays alertable.
 _credit_key_fallback_count: int = 0
 
 
 def get_credit_key_fallback_count() -> int:
-    """Read the module-level counter for credit-caused donated->personal fallbacks."""
+    """Read the module-level counter for credit-caused primary->fallback fallbacks."""
     return _credit_key_fallback_count
 
 
@@ -192,57 +195,67 @@ def reset_credit_key_fallback_count() -> None:
     _credit_key_fallback_count = 0
 
 
-# Providers covered by the Metaculus-donated OpenRouter key
-# (``OAI_ANTH_OPENROUTER_KEY``). The donated key has server-side allowed-
+# Providers covered by the Metaculus-primary OpenRouter key
+# (``OAI_ANTH_OPENROUTER_KEY``). The primary key has server-side allowed-
 # providers preferences locked to this set. Models routed through any other
-# provider will 404 on the donated key, so we only prefer the donated key for
+# provider will 404 on the primary key, so we only prefer the primary key for
 # these. The env var name stays ``OAI_ANTH_OPENROUTER_KEY`` for backward
 # compatibility with the operator's GitHub secret — adding ``google`` here
 # does not require changing the secret name.
-DONATED_KEY_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "google"})
+DEFAULT_PRIMARY_KEY_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "google"})
 
-# Google models that must NOT route through the donated key even when the
-# donated-Gemini toggle is ON. Metaculus's donated OpenRouter account serves
+
+def primary_key_providers() -> frozenset[str]:
+    """Providers the primary key is preferred for. Env-overridable, read at call time."""
+    return _csv_set_env(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, DEFAULT_PRIMARY_KEY_PROVIDERS)
+
+
+# Google models that must NOT route through the primary key even when the
+# primary-Gemini toggle is ON. Metaculus's primary OpenRouter account serves
 # these via a FREE-TIER Google AI Studio BYOK key, and gemini-3.x-pro has no
-# Google free tier (quota 0) → every donated-key call 429s (is_byok:true) and
-# falls back to the personal key. Routing them straight to the personal key
-# avoids the wasted donated→429→personal round-trip on every call AND the
+# Google free tier (quota 0) → every primary-key call 429s (is_byok:true) and
+# falls back to the fallback key. Routing them straight to the fallback key
+# avoids the wasted primary→429→fallback round-trip on every call AND the
 # CI-red fallback-counter bump it causes (gemini-3.1-pro-preview is a core
 # forecaster that runs on every question). Matched by prefix (startswith) so the
 # bare GA slug and every suffixed variant (-preview, -preview-customtools,
 # OpenRouter :free/route suffixes) are all covered.
 #
-# TODO(gemini-3.1-pro-donated): gemini-3.1-pro SHOULD work on the donated key.
-# The ONLY blocker is Metaculus's free-tier Google BYOK routing. Once Metaculus
-# enables Cloud billing on that BYOK key (Tier 1), removes the Google BYOK
-# integration so it uses native OpenRouter Google credits, or disables "Always
-# use for this provider" on it — REMOVE the matching entry here so Pro rejoins
-# the donated subsidy. Re-verify with one live call: the 429 should no longer
-# carry is_byok:true + free-tier limit 0. See bottega:FUTURE.md "Gemini on the donated
-# OpenRouter key".
-DONATED_KEY_BLOCKED_GOOGLE_MODELS: frozenset[str] = frozenset({"gemini-3.1-pro"})
+# The default entry is a workaround for Metaculus's free-tier Google BYOK routing, and
+# it is no longer a TODO: clearing it is a config change, not a code change. Drop
+# gemini-3.1-pro from OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS once Metaculus enables Cloud
+# billing on that BYOK key (Tier 1), removes the Google BYOK integration so native
+# OpenRouter Google credits are used, or disables "Always use for this provider" on it.
+# Re-verify with one live call: the 429 should no longer carry is_byok:true + free-tier
+# limit 0. See bottega:FUTURE.md "Gemini on the primary OpenRouter key".
+DEFAULT_PRIMARY_KEY_BLOCKED_MODELS: frozenset[str] = frozenset({"gemini-3.1-pro"})
 
 
-def should_route_via_donated_key(model: str) -> bool:
-    """Whether ``model`` should prefer the Metaculus-donated key (with paid-key fallback).
+def primary_key_blocked_models() -> frozenset[str]:
+    """Model prefixes pinned off the primary key. Env-overridable, read at call time."""
+    return _csv_set_env(OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV, DEFAULT_PRIMARY_KEY_BLOCKED_MODELS)
+
+
+def should_route_via_primary_key(model: str) -> bool:
+    """Whether ``model`` should prefer the Metaculus-primary key (with paid-key fallback).
 
     Matches OpenRouter model slugs of the form ``openrouter/<provider>/<model>``
-    against ``DONATED_KEY_PROVIDERS``. Returns False for non-OpenRouter slugs
+    against ``OPENROUTER_PRIMARY_KEY_PROVIDERS``. Returns False for non-OpenRouter slugs
     (e.g. ``perplexity/sonar``) and unrecognized providers (e.g. ``x-ai`` for Grok).
 
     Special case: Google routing is gated on ``GEMINI_USE_DONATED_OPENROUTER_KEY``,
-    which defaults to ON (see ``gemini_use_donated_openrouter_key``). After
-    Metaculus raised the Google rate limits (2026-06-16), the donated key serves
+    which defaults to ON (see ``gemini_use_primary_openrouter_key``). After
+    Metaculus raised the Google rate limits (2026-06-16), the primary key serves
     most Gemini models (e.g. ``gemini-3.5-flash``, ``gemini-3.1-flash-lite``).
 
-    EXCEPTION: models matching ``DONATED_KEY_BLOCKED_GOOGLE_MODELS``
-    (``gemini-3.1-pro``) are pinned to the personal key — no donated attempt, no
+    EXCEPTION: models matching ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS``
+    (``gemini-3.1-pro``) are pinned to the fallback key — no primary attempt, no
     429, no fallback-counter bump. They run through a free-tier Google AI Studio
-    BYOK key on the donated account that has no Pro free tier (limit 0 → 429), so
-    a donated attempt would always fail over to personal anyway. The pin is a
-    temporary workaround; see the ``TODO(gemini-3.1-pro-donated)`` tag on that
-    constant and bottega:FUTURE.md — remove the entry once Metaculus fixes the BYOK
-    routing. Set the env var to a false-y value to force personal-key-only routing
+    BYOK key on the primary account that has no Pro free tier (limit 0 → 429), so
+    a primary attempt would always fail over to fallback anyway. The pin is a
+    temporary workaround; see the note on
+    ``DEFAULT_PRIMARY_KEY_BLOCKED_MODELS`` and bottega:FUTURE.md — drop the entry from
+    ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`` once Metaculus fixes the BYOK routing. Set the env var to a false-y value to force fallback-key-only routing
     for ALL Gemini.
     """
     if not isinstance(model, str):
@@ -253,13 +266,13 @@ def should_route_via_donated_key(model: str) -> bool:
     if len(parts) < 2:
         return False
     provider = parts[1]
-    if provider not in DONATED_KEY_PROVIDERS:
+    if provider not in primary_key_providers():
         return False
     if provider == "google":
-        if not gemini_use_donated_openrouter_key():
+        if not gemini_use_primary_openrouter_key():
             return False
         model_name = "/".join(parts[2:])
-        if any(model_name.startswith(blocked) for blocked in DONATED_KEY_BLOCKED_GOOGLE_MODELS):
+        if any(model_name.startswith(blocked) for blocked in primary_key_blocked_models()):
             return False
     return True
 
@@ -268,7 +281,7 @@ def should_route_via_donated_key(model: str) -> bool:
 # not the 402 its own error docs document. Verified against the 2026-07-26
 # production failure, where litellm surfaced it as a bare ``APIError`` (litellm has
 # no 403 branch for OpenRouter) whose body carried ``"code":403``. The old negative
-# rule below vetoed any message containing "403", so the operator's funded personal
+# rule below vetoed any message containing "403", so the operator's funded fallback
 # key was never tried and two of three forecasters plus most of the research stack
 # died on a key that was merely empty.
 #
@@ -297,7 +310,7 @@ _GENERIC_CREDIT_PHRASES: tuple[str, ...] = (
 # an OpenRouter moderation 403 body carries ``flagged_input``: up to ~100 characters
 # of OUR OWN PROMPT replayed back. A forecasting prompt full of dollar figures and
 # bill numbers can easily contain the token "402", which would otherwise read as an
-# empty wallet — billing the personal key for a call that will refuse again AND
+# empty wallet — billing the fallback key for a call that will refuse again AND
 # exempting a real moderation block from alerting.
 #
 # Word cues only, deliberately: a genuine 402 links to a key hash with a small but
@@ -315,8 +328,8 @@ _MODERATION_CUES: tuple[str, ...] = ("moderation", "forbidden", "flagged_input",
 _RATE_LIMIT_TEXT_CUES: tuple[str, ...] = ("too many requests", "rate limit", "rate-limited upstream")
 _BAD_CREDENTIAL_TEXT_CUES: tuple[str, ...] = ("unauthorized", "invalid api key", "disabled api key")
 
-# Blocks that are scoped to the KEY'S ROUTING rather than to the request, so the personal
-# key genuinely can serve the same call. Two donated-key quirks: server-side
+# Blocks that are scoped to the KEY'S ROUTING rather than to the request, so the fallback
+# key genuinely can serve the same call. Two primary-key quirks: server-side
 # allowed-providers preferences ("no allowed providers"), and the Metaculus
 # data-collection guardrail that excludes OpenAI's native-search endpoint ("No endpoints
 # available matching your guardrail restrictions and data policy") — see bottega:FUTURE.md
@@ -363,8 +376,8 @@ def _is_status(reported_status: int | None, code: int, lowercased_msg: str) -> b
 def _is_credit_failure(reported_status: int | None, lowercased_msg: str) -> bool:
     """Whether this failure means "the key is out of money". The one credit arbiter.
 
-    ``should_retry_with_general_key`` (routing) and ``is_credit_caused_error`` → the
-    credit-subset counter in ``record_donated_key_fallback`` (alerting) both reach the
+    ``should_retry_with_fallback_key`` (routing) and ``is_credit_caused_error`` → the
+    credit-subset counter in ``record_primary_key_fallback`` (alerting) both reach the
     answer through here, so a cue edit cannot make them disagree.
 
     Three guards, in an order the real bodies force:
@@ -402,7 +415,7 @@ def is_credit_caused_error(exc: Exception) -> bool:
     """Whether ``exc`` is a credit shortfall (402, spend-cap 403, insufficient credit).
 
     The public form of ``_is_credit_failure``, so the routing decision in
-    ``should_retry_with_general_key`` and the alerting decision in
+    ``should_retry_with_fallback_key`` and the alerting decision in
     ``is_suppressible_credit_error`` answer "was this about money?" the same way. They
     used to disagree: routing became status-aware while this stayed text-only, so a
     terse reported-402 (``APIError(status_code=402, message="wallet empty")``) fell
@@ -413,11 +426,11 @@ def is_credit_caused_error(exc: Exception) -> bool:
 
 
 def is_suppressible_credit_error(exc: Exception) -> bool:
-    """Whether ``exc`` is the EXPECTED drained donated key, not some other breakage.
+    """Whether ``exc`` is the EXPECTED drained primary key, not some other breakage.
 
     Only this narrower class is exempt from CI alerting during the suppression
     window (``constants.credit_alerts_active``). The distinction matters because a
-    donated key Metaculus revoked, or re-capped to zero, returns the SAME
+    primary key Metaculus revoked, or re-capped to zero, returns the SAME
     "Key limit exceeded" text as one that simply spent its allocation — so the text
     cue alone would have exempted genuine breakage from alerting for six weeks. We
     ask OpenRouter's free, read-only ``/auth/key`` endpoint instead (once per run,
@@ -428,7 +441,7 @@ def is_suppressible_credit_error(exc: Exception) -> bool:
     unreachable balance endpoint cannot change long-standing behavior.
 
     Note this governs ALERTING only. Fallback ROUTING never consults the probe (see
-    ``should_retry_with_general_key``) so a stale or cached balance read can never
+    ``should_retry_with_fallback_key``) so a stale or cached balance read can never
     strand the ensemble on a dry key — the failure mode this whole change exists to
     fix.
     """
@@ -436,22 +449,22 @@ def is_suppressible_credit_error(exc: Exception) -> bool:
         return False
     if KEY_LIMIT_EXCEEDED_CUE not in _without_prompt_echo(str(exc).lower()):
         return True
-    return classify_donated_key_state() is DonatedKeyState.DRAINED
+    return classify_primary_key_state() is PrimaryKeyState.DRAINED
 
 
-def should_retry_with_general_key(exc: Exception) -> bool:
+def should_retry_with_fallback_key(exc: Exception) -> bool:
     """
     Decide whether a failure likely indicates a key-scoped issue where falling back is appropriate.
 
     Triggers fallback on:
-    - 429 Too Many Requests (rate limit) — donated and personal keys have
+    - 429 Too Many Requests (rate limit) — primary and fallback keys have
       independent BYOK quotas per-provider, so a 429 on the primary key does
       NOT imply the secondary is also throttled. Fall back immediately; the
       SDK already retried internally before raising, so no wrapper-level retry.
     - 401 Unauthorized (invalid/disabled key),
     - 402 Payment Required (insufficient credits),
-    - 404 with "no allowed providers" — donated key has server-side
-      allowed-providers preferences; a 404 there means the donated key cannot
+    - 404 with "no allowed providers" — primary key has server-side
+      allowed-providers preferences; a 404 there means the primary key cannot
       route this model, but the general key (no preferences) can. Treated as
       key-scoped so callers fall through to the secondary key.
     - 403 carrying spend-cap wording ("Key limit exceeded"), which is how
@@ -513,7 +526,7 @@ def should_retry_with_general_key(exc: Exception) -> bool:
     # or "unauthorized" for entirely ordinary reasons, and each of those would otherwise
     # send a content block to the paid key for a call it will refuse just the same.
     # OpenRouter uses 403 for refusals, so only two shapes deserve a key swap: the
-    # spend-cap phrase, and a route-scoped block the personal key genuinely can route.
+    # spend-cap phrase, and a route-scoped block the fallback key genuinely can route.
     if status == 403:
         return KEY_LIMIT_EXCEEDED_CUE in provider_text or any(cue in provider_text for cue in _ROUTE_SCOPED_TEXT_CUES)
 
@@ -538,8 +551,8 @@ def should_retry_with_general_key(exc: Exception) -> bool:
     return False
 
 
-def _is_donated_404(exc: Exception) -> bool:
-    """Whether this exception is the donated-key allowed-providers 404 specifically.
+def _is_primary_route_404(exc: Exception) -> bool:
+    """Whether this exception is the primary-key allowed-providers 404 specifically.
 
     Used to bump the alerting counter only on this fallback class — not for
     401/402 (those are credit/key issues, not the allowed-providers quirk).
@@ -555,7 +568,7 @@ def _fallback_alert_note(*, suppressible: bool) -> str:
     greps this line. Every other cause still exits non-zero.
 
     ``suppressible`` is the caller's already-computed
-    ``is_suppressible_credit_error`` verdict — it has paid for the donated-key
+    ``is_suppressible_credit_error`` verdict — it has paid for the primary-key
     probe, and re-deriving it here would either duplicate that HTTP call or key the
     note on the text cue alone and promise a green run a revoked key won't deliver.
     """
@@ -567,10 +580,10 @@ def _fallback_alert_note(*, suppressible: bool) -> str:
     return "Run will complete, then exit non-zero to alert."
 
 
-async def record_donated_key_fallback(model: str, exc: Exception) -> None:
-    """Count and log ONE donated -> personal-key fallback that is about to happen.
+async def record_primary_key_fallback(model: str, exc: Exception) -> None:
+    """Count and log ONE primary -> fallback-key fallback that is about to happen.
 
-    The shared accounting seam for every donated-first call path: the
+    The shared accounting seam for every primary-first call path: the
     ``FallbackOpenRouterLlm.invoke`` wrapper and gap-fill v2's hand-rolled
     raw-litellm retry in ``research/agentic/llm.py``, which shared the retry
     PREDICATE but not the accounting and so fell over silently — no counter, no
@@ -578,9 +591,9 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
     despite firing on every question in all four prod workflows. That was the
     ``TODO(unify-fallback-routing)``.
 
-    Every successful donated -> personal fallback means a paid personal-key call
-    happened where the free donated key was expected to cover it, so all of them
-    are counted and logged loudly: silent personal-key spend must not accumulate
+    Every successful primary -> fallback fallback means a paid fallback-key call
+    happened where the free primary key was expected to cover it, so all of them
+    are counted and logged loudly: silent fallback-key spend must not accumulate
     unnoticed.
 
     Counting invariant (see the AGENTS.md credit-suppression note): each event is
@@ -592,17 +605,17 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
 
     Async because the probe below must leave the event loop; the counting must not.
     """
-    # Only the EXPECTED drained-donated-key subset is exempt from alerting. A key that
+    # Only the EXPECTED drained-primary-key subset is exempt from alerting. A key that
     # was revoked or re-capped to zero produces identical "Key limit exceeded" text, so
     # this asks OpenRouter rather than trusting the cue — otherwise the suppression
     # window would have hidden genuine breakage for six weeks.
     #
     # Threaded because on the spend-cap 403 path it reaches
-    # ``credit_telemetry.classify_donated_key_state``, which does blocking httpx. Called
+    # ``credit_telemetry.classify_primary_key_state``, which does blocking httpx. Called
     # inline from these coroutines it stalled EVERY concurrently in-flight forecaster and
     # research task, not just the call that hit the 403, eating into per-question soft
     # deadlines. Probing first also keeps the accounting below free of any await.
-    # Bounded because ``DONATED_KEY_PROBE_TIMEOUT_S`` is a PER-OPERATION httpx timeout, not
+    # Bounded because ``PRIMARY_KEY_PROBE_TIMEOUT_S`` is a PER-OPERATION httpx timeout, not
     # a cap on elapsed time: a server trickling bytes slower than the read timeout resets
     # the clock on every chunk, so the probe can run many multiples of it (measured against
     # a local trickling server, a one-second timeout took ten seconds to return twenty
@@ -615,13 +628,13 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
     #
     # Guarded because ANY failure in alerting bookkeeping must leave routing untouched. The
     # probe promises "never raises" and now catches broadly enough to keep that promise, but
-    # an escape here aborted the fallback and left the funded personal key untried — the
+    # an escape here aborted the fallback and left the funded fallback key untried — the
     # production incident reached through the exception path instead of a stale balance read.
     # A timeout is likewise inconclusive, so both degrade to "not suppressible" (stay
     # alertable) exactly like UNKNOWN does.
     try:
         suppressible = await asyncio.wait_for(
-            asyncio.to_thread(is_suppressible_credit_error, exc), timeout=DONATED_KEY_PROBE_TIMEOUT_S
+            asyncio.to_thread(is_suppressible_credit_error, exc), timeout=PRIMARY_KEY_PROBE_TIMEOUT_S
         )
     except Exception:
         # Deliberately swallowed rather than re-raised, against the usual fail-fast rule:
@@ -629,11 +642,11 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
         # was already made textually, so ANY failure in it must leave routing untouched.
         # The event is still loud (exception logged with traceback) and still alertable.
         logger.exception(
-            "DONATED_KEY_PROBE_FAILED: model=%s — the /auth/key probe raised or outlasted its %.1fs "
-            "budget, so this fallback stays ALERTABLE. The personal-key call proceeds regardless; "
+            "PRIMARY_KEY_PROBE_FAILED: model=%s — the /auth/key probe raised or outlasted its %.1fs "
+            "budget, so this fallback stays ALERTABLE. The fallback-key call proceeds regardless; "
             "alerting bookkeeping must not gate recovery.",
             model,
-            DONATED_KEY_PROBE_TIMEOUT_S,
+            PRIMARY_KEY_PROBE_TIMEOUT_S,
         )
         suppressible = False
 
@@ -644,17 +657,17 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
     # forecasters failing on one dry key — the exact 2026-07-26 shape — race the
     # increment, undercount the generic total, and take a degraded run GREEN. That is the
     # failure this whole change exists to prevent.
-    global _generic_key_fallback_count
-    _generic_key_fallback_count += 1
+    global _fallback_key_count
+    _fallback_key_count += 1
     if suppressible:
         global _credit_key_fallback_count
         _credit_key_fallback_count += 1
-    if _is_donated_404(exc):
-        global _donated_404_fallback_count
-        _donated_404_fallback_count += 1
+    if _is_primary_route_404(exc):
+        global _primary_route_404_fallback_count
+        _primary_route_404_fallback_count += 1
         logger.warning(
-            "Donated OpenRouter key returned 404 'no allowed providers' for model=%s; "
-            "falling back to general (paid personal) key. This means the donated key's "
+            "Primary OpenRouter key returned 404 'no allowed providers' for model=%s; "
+            "falling back to general (paid fallback) key. This means the primary key's "
             "server-side allowed-providers list does not cover this model's upstream "
             "provider. Run will complete, then exit non-zero to alert. error=%s: %s",
             model,
@@ -663,8 +676,10 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
         )
     else:
         logger.warning(
+            # Wording frozen: the ``paid_personal_key_fallback`` MarkerSpec matches this
+            # literal, so the old vocabulary stays here even though it moved everywhere else.
             "PAID PERSONAL-KEY FALLBACK: donated OpenRouter key failed for model=%s, so this "
-            "call billed to the personal OPENROUTER_API_KEY instead of the free donated key. "
+            "call billed to the fallback OPENROUTER_API_KEY instead of the free primary key. "
             "%s error=%s: %s",
             model,
             _fallback_alert_note(suppressible=suppressible),
@@ -674,9 +689,9 @@ async def record_donated_key_fallback(model: str, exc: Exception) -> None:
 
 
 class FallbackOpenRouterLlm(GeneralLlm):
-    """A GeneralLlm wrapper that prefers a Metaculus-donated OpenRouter key, falling back to the
+    """A GeneralLlm wrapper that prefers a Metaculus-primary OpenRouter key, falling back to the
     operator's general key on credential/credit/allowed-providers errors. Used for models routed
-    through providers covered by the donated key (see ``DONATED_KEY_PROVIDERS``).
+    through providers covered by the primary key (see ``OPENROUTER_PRIMARY_KEY_PROVIDERS``).
     """
 
     def __init__(
@@ -695,23 +710,23 @@ class FallbackOpenRouterLlm(GeneralLlm):
     async def invoke(self, prompt: Any, system_prompt: str | None = None) -> str:  # type: ignore[override]
         # system_prompt widened in to match 0.2.92's GeneralLlm.invoke signature
         # (invoke(prompt, system_prompt=None)); threaded through both key paths so a
-        # system prompt survives a donated->personal fallback unchanged.
+        # system prompt survives a primary->fallback fallback unchanged.
         try:
             return await self._invoke_once_using_primary(prompt, system_prompt)
         except Exception as e:
-            # Re-record with the actual model slug. should_retry_with_general_key
+            # Re-record with the actual model slug. should_retry_with_fallback_key
             # also calls the matcher with "<unknown>" — duplicates are fine since
             # cli.py only checks list non-empty for the exit decision, but the
             # log is clearer with the slug.
             _record_deprecation_if_matched(self.model, str(e))
-            if self._secondary_llm is not None and should_retry_with_general_key(e):
+            if self._secondary_llm is not None and should_retry_with_fallback_key(e):
                 # ASYNC120 (both awaits): a checkpoint inside `except` can drop the
                 # active exception if the task is cancelled mid-await. That's the
                 # correct behavior here — on success we return the secondary's
                 # output; on cancellation the secondary is cancelled too. The
                 # primary's exception is intentionally discarded because the
                 # caller asked for a fallback, not a re-raise.
-                await record_donated_key_fallback(self.model, e)  # noqa: ASYNC120
+                await record_primary_key_fallback(self.model, e)  # noqa: ASYNC120
                 return await self._invoke_once_using_secondary(prompt, system_prompt)  # noqa: ASYNC120
             raise
 
@@ -726,33 +741,33 @@ class FallbackOpenRouterLlm(GeneralLlm):
 
 def build_llm_with_openrouter_fallback(model: str, **kwargs: Any) -> GeneralLlm:
     """
-    Construct a GeneralLlm that automatically falls back from the Metaculus-donated OpenRouter
-    key to the operator's general key for providers covered by the donated key (see
-    ``DONATED_KEY_PROVIDERS``). For other models, returns a plain GeneralLlm.
+    Construct a GeneralLlm that automatically falls back from the Metaculus-primary OpenRouter
+    key to the operator's general key for providers covered by the primary key (see
+    ``OPENROUTER_PRIMARY_KEY_PROVIDERS``). For other models, returns a plain GeneralLlm.
     """
-    if should_route_via_donated_key(model):
+    if should_route_via_primary_key(model):
         special_key = os.getenv(OAI_ANTH_OPENROUTER_KEY_ENV)
-        general_key = os.getenv(OPENROUTER_API_KEY_ENV)
+        fallback_key = os.getenv(OPENROUTER_API_KEY_ENV)
 
         # If both keys exist and are distinct, use the fallback wrapper
-        if special_key and general_key and special_key != general_key:
+        if special_key and fallback_key and special_key != fallback_key:
             return FallbackOpenRouterLlm(
                 model=model,
                 primary_api_key=special_key,
-                secondary_api_key=general_key,
+                secondary_api_key=fallback_key,
                 **kwargs,
             )
 
         # Else fall back to whichever key is available (no runtime fallback possible)
-        api_key = special_key or general_key
+        api_key = special_key or fallback_key
         return GeneralLlm(model=model, api_key=api_key, **kwargs)
 
-    # OpenRouter models that bypass the donated wrapper: plain GeneralLlm.
-    # Covers (a) providers not in DONATED_KEY_PROVIDERS (x-ai, qwen, etc.),
+    # OpenRouter models that bypass the primary wrapper: plain GeneralLlm.
+    # Covers (a) providers not in OPENROUTER_PRIMARY_KEY_PROVIDERS (x-ai, qwen, etc.),
     # (b) Google when GEMINI_USE_DONATED_OPENROUTER_KEY is explicitly off (the
     # default is now ON), and (c) blocklisted Google models
-    # (DONATED_KEY_BLOCKED_GOOGLE_MODELS, e.g. gemini-3.1-pro) which are pinned to
-    # the personal key even when the toggle is ON.
+    # (OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS, e.g. gemini-3.1-pro) which are pinned to
+    # the fallback key even when the toggle is ON.
     # No api_key passed — litellm picks up OPENROUTER_API_KEY from env. This
     # mirrors how Grok-via-OpenRouter has always worked in production.
     return GeneralLlm(model=model, **kwargs)

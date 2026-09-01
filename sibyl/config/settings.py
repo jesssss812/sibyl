@@ -27,32 +27,32 @@ TOURNAMENT_HARD_STOP_WEEKS: int = 2  # ~2 weeks of wiggle room past close before
 METACULUS_CUP_ID: str = "metaculus-cup"  # Uses slug, auto-resolves to current cup
 
 
-def gemini_use_donated_openrouter_key() -> bool:
-    """Whether OpenRouter Gemini calls should route through the Metaculus-donated key.
+def gemini_use_primary_openrouter_key() -> bool:
+    """Whether OpenRouter Gemini calls should route through the Metaculus-primary key.
 
     Default is now True: after Metaculus raised the Google rate limits
-    (2026-06-16), the donated OpenRouter key (``OAI_ANTH_OPENROUTER_KEY``) serves
+    (2026-06-16), the primary OpenRouter key (``OAI_ANTH_OPENROUTER_KEY``) serves
     most Gemini models — e.g. ``gemini-3.5-flash`` and ``gemini-3.1-flash-lite``
-    both succeed on the donated key (verified by live call this session). Set the
+    both succeed on the primary key (verified by live call this session). Set the
     env var to a false-y value (``"false"`` / ``"0"`` / ``"no"``) to force
-    personal-key-only routing.
+    fallback-key-only routing.
 
     KNOWN EXCEPTION: ``gemini-3.1-pro-preview`` (our forecaster slot) is PINNED to
-    the personal key — not merely "falls back". It's on the
-    ``DONATED_KEY_BLOCKED_GOOGLE_MODELS`` blocklist in ``fallback_openrouter``, so
-    ``should_route_via_donated_key`` returns False for it even when this toggle is
-    True: no donated attempt, no 429, no personal-key-fallback-counter bump (which
-    would otherwise redden CI on every question). That model 429s on the donated
+    the fallback key — not merely "falls back". It's on the
+    ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`` blocklist in ``fallback_openrouter``, so
+    ``should_route_via_primary_key`` returns False for it even when this toggle is
+    True: no primary attempt, no 429, no fallback-key-fallback-counter bump (which
+    would otherwise redden CI on every question). That model 429s on the primary
     key because it routes through a free-tier Google AI Studio BYOK key with no
     Pro free tier (quota 0). Temporary workaround pending the Metaculus-side BYOK
-    fix; see the ``TODO(gemini-3.1-pro-donated)`` tag on that constant.
+    fix; see the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS default.
 
     Read at call time (not import) so workflow env changes take effect without
     re-importing.
 
     Scope: this toggle only affects OpenRouter routing (``fallback_openrouter``).
-    The google-genai grounded-search provider has no donated path — it always
-    reads the operator's personal GOOGLE_API_KEY.
+    The google-genai grounded-search provider has no primary path — it always
+    reads the operator's fallback GOOGLE_API_KEY.
     """
     return env_flag_enabled(GEMINI_USE_DONATED_OPENROUTER_KEY_ENV, default=True)
 
@@ -141,9 +141,17 @@ TEST_QUESTIONS_OVERRIDE_ENV: str = "TEST_QUESTIONS_OVERRIDE"
 # strings aren't duplicated across api_key_utils / fallback_openrouter /
 # research_providers / research_orchestrator — that duplication is exactly the
 # typo risk the convention exists to prevent. See AGENTS.md "API keys & secrets"
-# for which of these are shared (donated) vs. personal.
+# for which of these are shared (primary) vs. fallback.
 OPENROUTER_API_KEY_ENV: str = "OPENROUTER_API_KEY"
 OAI_ANTH_OPENROUTER_KEY_ENV: str = "OAI_ANTH_OPENROUTER_KEY"
+# Which OpenRouter providers the PRIMARY key is preferred for, and which models are
+# pinned off it, as configuration rather than a literal in key_fallback.py. Both were
+# frozensets in code; the routing policy they encode is an operator decision about one
+# specific key's server-side settings, and it changed twice in three months. The env var
+# names are new (the key names they govern are not), so an unset var reproduces today's
+# behaviour exactly. Comma-separated, case-insensitive.
+OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV: str = "OPENROUTER_PRIMARY_KEY_PROVIDERS"
+OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV: str = "OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS"
 ASKNEWS_CLIENT_ID_ENV: str = "ASKNEWS_CLIENT_ID"
 ASKNEWS_SECRET_ENV: str = "ASKNEWS_SECRET"
 EXA_API_KEY_ENV: str = "EXA_API_KEY"
@@ -192,6 +200,26 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _csv_set_env(name: str, default: frozenset[str]) -> frozenset[str]:
+    """Parse a comma-separated env var into a lowercased set, falling back on garbage.
+
+    Read at CALL time, never at import, for the same reason ``credit_alerts_active``
+    is: a long-lived process picks up a change without a redeploy, and a test can set
+    the var with ``monkeypatch`` instead of reloading the module.
+
+    An env var set to an empty string yields the DEFAULT, not the empty set. Emptying a
+    routing list is a real thing an operator might want, but "" is far more often an
+    unset secret or a stray ``export FOO=``, and silently routing everything to the
+    fallback key is not a failure mode worth inferring from a typo. To genuinely empty
+    one, name a provider that does not exist.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    entries = frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
+    return entries or default
+
+
 def _date_env(name: str, default: date) -> date:
     """Parse an ISO ``YYYY-MM-DD`` env var into a date, falling back on garbage."""
     raw = os.getenv(name)
@@ -228,18 +256,18 @@ ASKNEWS_BACKOFF_SECS: float = max(0.0, _float_env("ASKNEWS_BACKOFF_SECS", 2.0))
 ASKNEWS_WALL_TIMEOUT: int = 300
 
 # --- OpenRouter credit telemetry ---
-# End-of-run floor for the DONATED key's remaining balance (limit_remaining).
+# End-of-run floor for the PRIMARY key's remaining balance (limit_remaining).
 # Below this, cli.main logs a loud warning and exits non-zero AFTER all
 # forecasting/publishing completes — a reminder-to-refill signal, not an abort.
-# The floor is meaningless for the personal key (no limit_remaining), so it is
-# only checked against the donated key. See sibyl/telemetry/credits.py.
+# The floor is meaningless for the fallback key (no limit_remaining), so it is
+# only checked against the primary key. See sibyl/telemetry/credits.py.
 OPENROUTER_CREDIT_FLOOR_USD: float = _float_env("OPENROUTER_CREDIT_FLOOR_USD", 1.0)
 
 # Dated suppression of the credit ALERTS (not the logs). The operator is funding
-# the rest of the season out of pocket, so an empty donated key is expected
+# the rest of the season out of pocket, so an empty primary key is expected
 # rather than a defect, and the two paths that turn a credit shortfall into a
 # non-zero exit — the floor breach in cli.main and the credit-caused
-# donated->personal fallbacks folded into ``alertable`` — must not redden CI
+# primary->fallback fallbacks folded into ``alertable`` — must not redden CI
 # until this date. The tournament closes on TOURNAMENT_END_DATE (2026-09-06);
 # alerting resumes a few days later so a stale suppression can't outlive the
 # season. Every CREDIT_* log line, including CREDIT_FLOOR_BREACH, keeps firing
@@ -495,22 +523,22 @@ RESOLUTION_SOURCE_GLOBAL_CONCURRENCY: int = 5  # TCPConnector limit; per-host se
 # genuinely new search index to the ensemble.
 GEMINI_SEARCH_ENABLED_ENV: str = "GEMINI_SEARCH_ENABLED"
 GEMINI_SEARCH_MODEL_ENV: str = "GEMINI_SEARCH_MODEL"
-# GOOGLE_API_KEY is the operator's personal Google AI Studio key (in CI it's
+# GOOGLE_API_KEY is the operator's fallback Google AI Studio key (in CI it's
 # stored as ``secrets.GEMINI_API_KEY`` and surfaced as GOOGLE_API_KEY for the
 # google-genai SDK). The grounded-search provider always reads this — it has
-# no donated/shared-key path because Google AI Studio doesn't offer one.
+# no primary/shared-key path because Google AI Studio doesn't offer one.
 GOOGLE_API_KEY_ENV: str = "GOOGLE_API_KEY"
 # Toggle for OpenRouter Gemini routing only. Controls whether models like
 # ``openrouter/google/gemini-3.1-pro-preview`` flow through the Metaculus-
-# donated OpenRouter key (``OAI_ANTH_OPENROUTER_KEY``) with paid-key fallback,
-# or skip the donated wrapper entirely and route through the operator's
-# personal ``OPENROUTER_API_KEY``. Does NOT affect the google-genai grounded
-# search provider — that always uses the personal GOOGLE_API_KEY. Default ON
-# (2026-06-16): after Metaculus raised the Google rate limits, the donated key
+# primary OpenRouter key (``OAI_ANTH_OPENROUTER_KEY``) with paid-key fallback,
+# or skip the primary wrapper entirely and route through the operator's
+# fallback ``OPENROUTER_API_KEY``. Does NOT affect the google-genai grounded
+# search provider — that always uses the fallback GOOGLE_API_KEY. Default ON
+# (2026-06-16): after Metaculus raised the Google rate limits, the primary key
 # serves most Gemini models (gemini-3.5-flash, gemini-3.1-flash-lite). The known
-# exception is gemini-3.1-pro-preview, which is PINNED to the personal key via the
-# DONATED_KEY_BLOCKED_GOOGLE_MODELS blocklist (no donated attempt, no 429) pending
-# the Metaculus-side BYOK fix — see TODO(gemini-3.1-pro-donated) in fallback_openrouter.
+# exception is gemini-3.1-pro-preview, which is PINNED to the fallback key via the
+# OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist (no primary attempt, no 429) pending
+# the Metaculus-side BYOK fix — see OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS in key_fallback.
 GEMINI_USE_DONATED_OPENROUTER_KEY_ENV: str = "GEMINI_USE_DONATED_OPENROUTER_KEY"
 # Gemini 3 Flash preview model with grounding support. Requires billing enabled
 # on the Google AI Studio project to unlock; falls back to gemini-2.5-flash on
@@ -546,7 +574,7 @@ ANTHROPIC_SEARCH_ENABLED_ENV: str = "ANTHROPIC_SEARCH_ENABLED"
 ANTHROPIC_SEARCH_MODEL_ENV: str = "ANTHROPIC_SEARCH_MODEL"
 # The operator's Anthropic API key (console.anthropic.com). NOTE: this is NOT a
 # Claude.ai Pro/Max subscription — those are separate products and a subscription
-# grants no API access. Same no-donated-key situation as GOOGLE_API_KEY.
+# grants no API access. Same no-primary-key situation as GOOGLE_API_KEY.
 ANTHROPIC_API_KEY_ENV: str = "ANTHROPIC_API_KEY"
 # Sonnet 5 ($2/$10 per 1M) is the deliberate middle tier, matching the role the
 # gemini-3-flash slot played: this provider RETRIEVES and synthesises, it does not
@@ -621,10 +649,10 @@ GAP_FILL_ANALYZER_WALL_TIMEOUT: int = 135
 # gap-fill would just hallucinate gaps or burn quota.
 GAP_FILL_MIN_RESEARCH_CHARS: int = 200
 # 2026-06-25: migrated the per-gap RESOLVER off direct-Google grounded Gemini
-# (google-genai, personal GOOGLE_API_KEY) to OpenAI native web search via
-# OpenRouter, which bills the Metaculus-donated key. The resolver fanned out up
+# (google-genai, fallback GOOGLE_API_KEY) to OpenAI native web search via
+# OpenRouter, which bills the Metaculus-primary key. The resolver fanned out up
 # to GAP_FILL_MAX_GAPS parallel grounded calls per question — a per-gap cost
-# multiplier on the personal Google bill, the dominant unwanted spend. The
+# multiplier on the fallback Google bill, the dominant unwanted spend. The
 # single first-pass grounded Gemini call stays on google-genai (operator is fine
 # paying for 1 call/question, and it uses url_context which OpenRouter can't
 # replicate). No "openrouter/" prefix here — build_native_search_llm adds it.
@@ -654,7 +682,7 @@ GAP_FILL_V2_ENABLED_ENV: str = "GAP_FILL_V2_ENABLED"
 # (fetch-verified grounding, best source mix, 30s wall, $0.36/q), terra-medium
 # 2nd; sol-low burned budget on near-duplicate searches (5th); sonnet-5 cited
 # unfetched URLs (disqualifying for a researcher). All candidates were
-# openai/anthropic, so the loop's litellm binding routes via the donated
+# openai/anthropic, so the loop's litellm binding routes via the primary
 # OpenRouter key.
 GAP_FILL_V2_DRIVER_MODEL: str = os.getenv("GAP_FILL_V2_DRIVER_MODEL") or "openai/gpt-5.6-terra"
 GAP_FILL_V2_DRIVER_EFFORT: str = os.getenv("GAP_FILL_V2_DRIVER_EFFORT") or "low"

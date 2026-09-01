@@ -15,7 +15,7 @@ import litellm
 import pytest
 
 from sibyl.config.models import FORECASTER_LLMS, STACKER_LLM
-from sibyl.platform.key_fallback import should_route_via_donated_key
+from sibyl.platform.key_fallback import should_route_via_primary_key
 
 # Every live LLM slot that is expected to speak to Anthropic directly.
 _DIRECT_ANTHROPIC_SLOTS = [
@@ -30,8 +30,8 @@ _ALL_LIVE_SLOTS = [("forecaster", llm) for llm in FORECASTER_LLMS] + [("stacker"
 def test_no_live_slot_routes_anthropic_through_openrouter(label: str, llm: object) -> None:
     model = llm.model  # type: ignore[attr-defined]
     assert not model.startswith("openrouter/anthropic/"), (
-        f"{label} slot {model!r} still routes Anthropic via OpenRouter; the donated key is "
-        "exhausted and the personal OpenRouter balance cannot cover the max_tokens reservation"
+        f"{label} slot {model!r} still routes Anthropic via OpenRouter; the primary key is "
+        "exhausted and the fallback OpenRouter balance cannot cover the max_tokens reservation"
     )
 
 
@@ -41,14 +41,14 @@ def test_direct_slots_use_anthropic_prefix(label: str, llm: object) -> None:
 
 
 @pytest.mark.parametrize(("label", "llm"), _DIRECT_ANTHROPIC_SLOTS, ids=lambda v: v if isinstance(v, str) else "")
-def test_direct_slots_bypass_the_donated_key_wrapper(label: str, llm: object) -> None:
+def test_direct_slots_bypass_the_primary_key_wrapper(label: str, llm: object) -> None:
     """A bare ``anthropic/`` slug must fall through to a plain GeneralLlm.
 
-    ``should_route_via_donated_key`` gates on an ``openrouter/`` prefix, so this
+    ``should_route_via_primary_key`` gates on an ``openrouter/`` prefix, so this
     also documents WHY calling ``build_llm_with_openrouter_fallback`` on a direct
     slug is safe rather than accidental.
     """
-    assert should_route_via_donated_key(llm.model) is False  # type: ignore[attr-defined]
+    assert should_route_via_primary_key(llm.model) is False  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize(("label", "llm"), _DIRECT_ANTHROPIC_SLOTS, ids=lambda v: v if isinstance(v, str) else "")

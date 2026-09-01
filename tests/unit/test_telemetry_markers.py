@@ -116,23 +116,23 @@ MARKET_RANKING_FAILOPEN_LINE = (
 MARKET_RANKING_UNTRACEABLE_INDEX_LINE = (
     PFX + "MARKET_RANKING: question=44620 pool=4 outcome=ranked rows=1 prompt_chars=36412 rendered=manifold:-1@0"
 )
-CREDIT_BALANCE_LINE = PFX + "CREDIT_BALANCE: key=donated phase=start remaining=123.45 usage=4.16"
+CREDIT_BALANCE_LINE = PFX + "CREDIT_BALANCE: key=primary phase=start remaining=123.45 usage=4.16"
 CREDIT_BALANCE_SKIP_LINE = (
-    PFX_WARN + "CREDIT_BALANCE: key=personal phase=start skipped (env var OPENROUTER_API_KEY not set)"
+    PFX_WARN + "CREDIT_BALANCE: key=fallback phase=start skipped (env var OPENROUTER_API_KEY not set)"
 )
 # Pre-2026-07-27 shape: no source= field. Kept verbatim because re-harvesting
 # replays these older logs, and they must still parse.
-CREDIT_SPEND_LINE = PFX + "CREDIT_SPEND: key=donated run_delta_usd=3.34 remaining=120.11"
-CREDIT_SPEND_NA_LINE = PFX + "CREDIT_SPEND: key=personal run_delta_usd=n/a remaining=n/a"
+CREDIT_SPEND_LINE = PFX + "CREDIT_SPEND: key=primary run_delta_usd=3.34 remaining=120.11"
+CREDIT_SPEND_NA_LINE = PFX + "CREDIT_SPEND: key=fallback run_delta_usd=n/a remaining=n/a"
 # Current shape, verbatim from credit_telemetry.log_end_and_check_floor.
 CREDIT_SPEND_REMAINING_SOURCE_LINE = (
-    PFX + "CREDIT_SPEND: key=donated run_delta_usd=3.34 remaining=120.11 source=remaining_delta"
+    PFX + "CREDIT_SPEND: key=primary run_delta_usd=3.34 remaining=120.11 source=remaining_delta"
 )
 CREDIT_SPEND_UNSETTLED_SOURCE_LINE = (
-    PFX + "CREDIT_SPEND: key=personal run_delta_usd=0.00 remaining=n/a source=usage_delta_unsettled"
+    PFX + "CREDIT_SPEND: key=fallback run_delta_usd=0.00 remaining=n/a source=usage_delta_unsettled"
 )
 CREDIT_FLOOR_BREACH_LINE = (
-    PFX_WARN + "CREDIT_FLOOR_BREACH: key=donated remaining=45.00 floor=50.00 — donated OpenRouter "
+    PFX_WARN + "CREDIT_FLOOR_BREACH: key=primary remaining=45.00 floor=50.00 — primary OpenRouter "
     "balance needs a top-up; run completed normally. cli.main logs the resulting "
     "exit decision (non-zero unless credit alerting is currently suppressed)."
 )
@@ -466,14 +466,14 @@ class TestCredit:
     def test_balance(self):
         rec = _parse_one(CREDIT_BALANCE_LINE)
         assert rec["marker"] == "credit_balance"
-        assert rec["key"] == "donated"
+        assert rec["key"] == "primary"
         assert rec["phase"] == "start"
         assert rec["remaining"] == 123.45
         assert rec["usage"] == 4.16
 
     def test_balance_skip_line_has_no_balance(self):
         rec = _parse_one(CREDIT_BALANCE_SKIP_LINE)
-        assert rec["key"] == "personal"
+        assert rec["key"] == "fallback"
         assert rec["phase"] == "start"
         assert rec["remaining"] is None
         assert rec["usage"] is None
@@ -481,7 +481,7 @@ class TestCredit:
     def test_spend(self):
         rec = _parse_one(CREDIT_SPEND_LINE)
         assert rec["marker"] == "credit_spend"
-        assert rec["key"] == "donated"
+        assert rec["key"] == "primary"
         assert rec["run_delta_usd"] == 3.34
         assert rec["remaining"] == 120.11
 
@@ -513,7 +513,7 @@ class TestCredit:
     def test_floor_breach(self):
         rec = _parse_one(CREDIT_FLOOR_BREACH_LINE)
         assert rec["marker"] == "credit_floor_breach"
-        assert rec["key"] == "donated"
+        assert rec["key"] == "primary"
         assert rec["remaining"] == 45.00
         assert rec["floor"] == 50.00
 
@@ -870,25 +870,25 @@ class TestProviderDegradation:
         assert "qid" not in rec
 
 
-# The per-CALL donated->personal key fallback WARN (fallback_openrouter.py
+# The per-CALL primary->fallback key fallback WARN (fallback_openrouter.py
 # _log_fallback). Its counters already ride degradation_counters and the cli
 # summary, but only this line names WHICH model fell back — the difference between
 # one flaky Gemini call and every forecaster running on the operator's paid key.
 PAID_FALLBACK_LINE = (
     PFX_WARN + "PAID PERSONAL-KEY FALLBACK: donated OpenRouter key failed for model=openai/gpt-5.6-sol, "
-    "so this call billed to the personal OPENROUTER_API_KEY instead of the free donated key. "
+    "so this call billed to the fallback OPENROUTER_API_KEY instead of the free primary key. "
     "Run will complete, then exit non-zero to alert. error=APIError: litellm.APIError: "
     'OpenrouterException - {"error":{"message":"Key limit exceeded (total limit)","code":403}}'
 )
 PAID_FALLBACK_SUPPRESSED_LINE = (
     PFX_WARN + "PAID PERSONAL-KEY FALLBACK: donated OpenRouter key failed for model=anthropic/claude-opus-4.8, "
-    "so this call billed to the personal OPENROUTER_API_KEY instead of the free donated key. "
+    "so this call billed to the fallback OPENROUTER_API_KEY instead of the free primary key. "
     "Cause is a credit shortfall, so it is NOT counted as alertable until 2026-09-10 "
     "(operator is self-funding the season). error=APIError: insufficient credit"
 )
 
 
-class TestPaidPersonalKeyFallback:
+class TestPaidFallbackKeyFallback:
     def test_model_and_error_are_captured(self):
         rec = _parse_one(PAID_FALLBACK_LINE)
         assert rec["marker"] == "paid_personal_key_fallback"
@@ -908,11 +908,11 @@ class TestPaidPersonalKeyFallback:
     def test_the_404_variant_is_not_captured_as_this_marker(self):
         """The 404 no-allowed-providers branch logs a DIFFERENT line with no
         ``PAID PERSONAL-KEY FALLBACK`` token, and it means something else (the
-        donated key's provider list doesn't cover the model, not a spend problem),
+        primary key's provider list doesn't cover the model, not a spend problem),
         so it must not be harvested here."""
         line = (
-            PFX_WARN + "Donated OpenRouter key returned 404 'no allowed providers' for model=x-ai/grok-4.5; "
-            "falling back to general (paid personal) key. error=APIError: 404"
+            PFX_WARN + "Primary OpenRouter key returned 404 'no allowed providers' for model=x-ai/grok-4.5; "
+            "falling back to general (paid fallback) key. error=APIError: 404"
         )
         harvested = parse_log_text(line + "\n", **_META)
         assert harvested["paid_personal_key_fallback"] == []
@@ -948,7 +948,7 @@ class TestRunAlertableSummary:
         assert rec["donated_key"] is None
 
     def test_suppressed_green_run_carries_the_probe_verdict(self):
-        """The shape the drained-donated-key incident produced: alertable=0 with seven
+        """The shape the drained-primary-key incident produced: alertable=0 with seven
         real fallbacks. The verdict is what tells a reader why nothing was counted."""
         rec = _parse_one(RUN_ALERTABLE_SUPPRESSED_LINE)
         assert rec["alertable"] == 0

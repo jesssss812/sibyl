@@ -37,8 +37,8 @@ Seams covered:
   that a ``GeneralLlm`` invoke leaves the process-wide flag set.
 
 * **FallbackOpenRouterLlm key swap** (``TestFallbackOpenRouterKeySwap``): a
-  donated-key credential failure (401) must construct/route to a *second*
-  ``GeneralLlm`` on the personal key and succeed; a 403 must NOT fall back. These
+  primary-key credential failure (401) must construct/route to a *second*
+  ``GeneralLlm`` on the fallback key and succeed; a 403 must NOT fall back. These
   drive the fake all the way down at the ``acompletion`` boundary (not at
   ``_invoke_once_using_primary``) so the real two-instance key funnel is
   exercised.
@@ -82,7 +82,7 @@ from sibyl.platform.key_fallback import FallbackOpenRouterLlm
 from sibyl.research.agentic import llm as agentic_llm
 from sibyl.research.agentic.types import LoopConfig
 from sibyl.research.providers import build_native_search_llm
-from sibyl.telemetry.credits import reset_donated_key_state_cache
+from sibyl.telemetry.credits import reset_primary_key_state_cache
 from tests.conftest import PRODUCTION_KEY_LIMIT_403
 
 # Our production reasoning-config shapes, pinned literally so a reader sees the
@@ -120,7 +120,7 @@ def _install_acompletion(
     With ``script`` unset every call returns a canned success. With ``script``
     set, call ``i`` raises (if the element is an ``Exception``) or returns a
     canned response carrying that text (if it is a ``str``) — used to drive the
-    donated-key-fails-then-personal-key-succeeds fallback path.
+    primary-key-fails-then-fallback-key-succeeds fallback path.
     """
     calls: list[dict[str, Any]] = []
     script_iter = iter(script) if script is not None else None
@@ -357,39 +357,39 @@ class TestDropParamsGlobal:
 
 
 class TestFallbackOpenRouterKeySwap:
-    """FallbackOpenRouterLlm's donated->personal key swap, exercised at the acompletion boundary."""
+    """FallbackOpenRouterLlm's primary->fallback key swap, exercised at the acompletion boundary."""
 
-    async def test_401_falls_back_to_personal_key_via_second_general_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A donated-key 401 constructs/uses the personal-key GeneralLlm and succeeds."""
+    async def test_401_falls_back_to_fallback_key_via_second_general_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A primary-key 401 constructs/uses the fallback-key GeneralLlm and succeeds."""
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
-            primary_api_key="donated-key",
-            secondary_api_key="personal-key",
+            primary_api_key="primary-key",
+            secondary_api_key="fallback-key",
             temperature=None,
             timeout=480,
             allowed_tries=1,
         )
-        # The fallback secondary is a real, separate GeneralLlm carrying the personal key.
+        # The fallback secondary is a real, separate GeneralLlm carrying the fallback key.
         assert isinstance(llm._secondary_llm, GeneralLlm)  # noqa: SLF001  # pinning the two-instance funnel
-        assert llm._secondary_llm.litellm_kwargs["api_key"] == "personal-key"  # noqa: SLF001
+        assert llm._secondary_llm.litellm_kwargs["api_key"] == "fallback-key"  # noqa: SLF001
 
         calls = _install_acompletion(
             monkeypatch,
-            script=[Exception("401 Unauthorized: invalid api key"), "PERSONAL-KEY ANSWER"],
+            script=[Exception("401 Unauthorized: invalid api key"), "FALLBACK-KEY ANSWER"],
         )
 
         out = await llm.invoke("hi")
 
-        assert out == "PERSONAL-KEY ANSWER"
-        # Two calls: donated key raised 401, then the personal-key instance succeeded.
-        assert [c["api_key"] for c in calls] == ["donated-key", "personal-key"]
+        assert out == "FALLBACK-KEY ANSWER"
+        # Two calls: primary key raised 401, then the fallback-key instance succeeded.
+        assert [c["api_key"] for c in calls] == ["primary-key", "fallback-key"]
 
     async def test_403_does_not_fall_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Negative control: a 403 (moderation/blocked) propagates — both keys would refuse."""
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
-            primary_api_key="donated-key",
-            secondary_api_key="personal-key",
+            primary_api_key="primary-key",
+            secondary_api_key="fallback-key",
             temperature=None,
             timeout=480,
             allowed_tries=1,
@@ -402,67 +402,67 @@ class TestFallbackOpenRouterKeySwap:
         with pytest.raises(Exception, match="403 Forbidden moderation"):
             await llm.invoke("hi")
 
-        # Only the primary was tried — no personal-key fallback on a 403.
-        assert [c["api_key"] for c in calls] == ["donated-key"]
+        # Only the primary was tried — no fallback-key fallback on a 403.
+        assert [c["api_key"] for c in calls] == ["primary-key"]
 
     async def test_429_does_fall_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A 429 rate-limit DOES fall back — BYOK quotas are per-key, so the personal key may serve it.
+        """A 429 rate-limit DOES fall back — BYOK quotas are per-key, so the fallback key may serve it.
 
-        (This pins the real ``should_retry_with_general_key`` contract: 429 is a
+        (This pins the real ``should_retry_with_fallback_key`` contract: 429 is a
         fall-back trigger, distinct from the 403/502/503 non-fallback cases.)
         """
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
-            primary_api_key="donated-key",
-            secondary_api_key="personal-key",
+            primary_api_key="primary-key",
+            secondary_api_key="fallback-key",
             temperature=None,
             timeout=480,
             allowed_tries=1,
         )
         calls = _install_acompletion(
             monkeypatch,
-            script=[Exception("429 Too Many Requests"), "PERSONAL-KEY ANSWER"],
+            script=[Exception("429 Too Many Requests"), "FALLBACK-KEY ANSWER"],
         )
 
         out = await llm.invoke("hi")
 
-        assert out == "PERSONAL-KEY ANSWER"
-        assert [c["api_key"] for c in calls] == ["donated-key", "personal-key"]
+        assert out == "FALLBACK-KEY ANSWER"
+        assert [c["api_key"] for c in calls] == ["primary-key", "fallback-key"]
 
-    async def test_key_limit_exceeded_403_falls_back_to_personal_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_key_limit_exceeded_403_falls_back_to_fallback_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The 2026-07-26 production failure, driven at the acompletion boundary.
 
         OpenRouter reports a drained per-key spend cap as HTTP 403 with
         "Key limit exceeded (total limit)" — not the 402 its docs promise — and
         litellm has no 403 branch for OpenRouter, so it arrives as a bare
         ``APIError``. The old rule vetoed any message containing "403", which the
-        ``"code":403`` field in the body supplied, so the funded personal key was
+        ``"code":403`` field in the body supplied, so the funded fallback key was
         never tried and two of three forecasters died.
 
-        The donated key env var is cleared so the wrapper's drained-vs-revoked probe
+        The primary key env var is cleared so the wrapper's drained-vs-revoked probe
         classifies as UNKNOWN without touching the network. UNKNOWN is the pessimistic
         verdict (the run stays alertable), which makes this the strictest version of
-        the assertion: routing to the personal key must not depend on the probe.
+        the assertion: routing to the fallback key must not depend on the probe.
         """
         monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
-        reset_donated_key_state_cache()
+        reset_primary_key_state_cache()
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
-            primary_api_key="donated-key",
-            secondary_api_key="personal-key",
+            primary_api_key="primary-key",
+            secondary_api_key="fallback-key",
             temperature=None,
             timeout=480,
             allowed_tries=1,
         )
         calls = _install_acompletion(
             monkeypatch,
-            script=[Exception(PRODUCTION_KEY_LIMIT_403), "PERSONAL-KEY ANSWER"],
+            script=[Exception(PRODUCTION_KEY_LIMIT_403), "FALLBACK-KEY ANSWER"],
         )
 
         out = await llm.invoke("hi")
 
-        assert out == "PERSONAL-KEY ANSWER"
-        assert [c["api_key"] for c in calls] == ["donated-key", "personal-key"]
+        assert out == "FALLBACK-KEY ANSWER"
+        assert [c["api_key"] for c in calls] == ["primary-key", "fallback-key"]
 
 
 def _forward_to_real_litellm_with_mock(mock_text: str) -> tuple[Callable[..., Any], list[dict[str, Any]]]:
@@ -507,10 +507,10 @@ class TestAgenticToolsPathExecutesUnderLitellm:
         # kwarg handling; a GeneralLlm invoke sets it globally in prod, but this
         # test never constructs one, so set it here (monkeypatch auto-restores).
         monkeypatch.setattr(litellm, "drop_params", True)
-        # Personal-key-only routing keeps the wrapper on a single deterministic
-        # acompletion call (no donated->personal fallback branch to reason about).
+        # Fallback-key-only routing keeps the wrapper on a single deterministic
+        # acompletion call (no primary->fallback fallback branch to reason about).
         monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
-        monkeypatch.setenv("OPENROUTER_API_KEY", "dummy-personal-key")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "dummy-fallback-key")
         # Forward to the REAL litellm so the tools=-gated MCP import actually runs.
         wrapper, forwarded_calls = _forward_to_real_litellm_with_mock("MOCKED")
         monkeypatch.setattr(agentic_llm, "acompletion", wrapper)

@@ -21,8 +21,8 @@ Reads canonical (qid, model_slug) cache entries written by
 
 Default stacker is ``openrouter/anthropic/claude-opus-4.5`` (with a
 ``gpt-5.6-sol`` fallback) routed through ``build_llm_with_openrouter_fallback``
-so the Metaculus-donated OpenRouter key absorbs cost ahead of the operator's
-paid key. The wrapper handles donated→paid fallback on
+so the Metaculus-primary OpenRouter key absorbs cost ahead of the operator's
+paid key. The wrapper handles primary→paid fallback on
 credit/auth/allowed-providers errors internally, so the outer primary→fallback
 chain in ``run_stacker_for_arm`` is a defense-in-depth backstop rather than a
 primary cost-control mechanism.
@@ -32,7 +32,7 @@ Cost note (rough order of magnitude — for the operator's mental model only):
 * A frontier stacker with ``reasoning={"effort": "high"}`` runs ~$0.05–0.10 per call.
 * 20-question intermediate sweep (40 stacker calls) ≈ $2–4 if everything pays.
 * 60-question medium sweep (120 stacker calls) ≈ $6–12 worst case.
-* In practice the donated key absorbs almost everything, so the actual
+* In practice the primary key absorbs almost everything, so the actual
   paid spend is usually a small fraction of the worst-case figure.
 """
 
@@ -76,16 +76,16 @@ ARM_MEDIAN = "median"  # deterministic median over base predictions, no LLM (see
 ARM_MEAN = "mean"  # deterministic mean over base predictions, no LLM (see sibyl.eval.ablation.run_simple_agg)
 
 # Default stacker intentionally uses claude-opus-4.5 as primary for local
-# donated-key compatibility (see the History note below), independent of the
+# primary-key compatibility (see the History note below), independent of the
 # current prod ``STACKER_LLM`` primary (claude-opus-4.8 in ``llm_configs.py``
 # since 2026-07-20, when fable-5 was pulled from both roles).
 # gpt-5.6-sol as fallback matches prod STACKER_FALLBACK_LLM (different provider
 # so an Anthropic stall doesn't take both attempts down). Both are routed through
-# ``build_llm_with_openrouter_fallback`` for the donated→paid key fallback the
+# ``build_llm_with_openrouter_fallback`` for the primary→paid key fallback the
 # wrapper provides on credit/auth/data-policy errors.
 #
 # History note: a previous iteration tried gpt-5.5 as primary, but the
-# operator's local-`.env` donated key returns 404 "no endpoints available"
+# operator's local-`.env` primary key returns 404 "no endpoints available"
 # (data-policy guardrail) on every gpt-5.5 request. Production with a
 # different `OAI_ANTH_OPENROUTER_KEY` GitHub-secret value works, but local
 # couldn't. claude-opus-4.5 sidesteps the issue entirely.
@@ -98,7 +98,7 @@ DEFAULT_PARSER_MODEL = "openrouter/openai/gpt-oss-120b:free"
 # medium reasoning effort, no sampling params): ``temperature=None`` keeps litellm
 # from injecting a temperature, and top_p / max_tokens are deliberately unset.
 # Selected by --lineup prod in the --plain-llm path (a plain GeneralLlm, no
-# donated-key wrapper). Does NOT replace DEFAULT_STACKER_MODEL, which mirrors prod
+# primary-key wrapper). Does NOT replace DEFAULT_STACKER_MODEL, which mirrors prod
 # / free-tier compatibility.
 PROD_STACKER_MODEL = "openrouter/anthropic/claude-opus-4.8"
 _PROD_STACKER_KWARGS: dict[str, Any] = {
@@ -135,11 +135,11 @@ _OPENAI_STACKER_KWARGS: dict[str, Any] = {
 
 
 def _build_default_stacker_llm() -> GeneralLlm:
-    """Primary ablation stacker (claude-opus-4.5 via donated-key wrapper).
+    """Primary ablation stacker (claude-opus-4.5 via primary-key wrapper).
 
     Mirrors production STACKER_LLM. Anthropic models work cleanly on the
-    donated key. ``allowed_tries=1`` so we don't double-bill the donated key
-    on transient stalls — the wrapper's donated→paid handling is the safety
+    primary key. ``allowed_tries=1`` so we don't double-bill the primary key
+    on transient stalls — the wrapper's primary→paid handling is the safety
     net.
     """
     return build_llm_with_openrouter_fallback(model=DEFAULT_STACKER_MODEL, **_OPUS_STACKER_KWARGS)
@@ -150,7 +150,7 @@ def _build_default_fallback_stacker_llm() -> GeneralLlm:
 
     Mirrors production STACKER_FALLBACK_LLM. Different provider on purpose —
     if Anthropic is thrashing, retrying against Anthropic rarely recovers.
-    Goes through the donated-key wrapper too; if the donated key data-policy
+    Goes through the primary-key wrapper too; if the primary key data-policy
     blocks the OpenAI model (operator-specific), the wrapper's fallback to the
     paid key catches it.
     """
@@ -504,7 +504,7 @@ async def run_stacker_for_arm(
     # Provide defaults for any LLMs the caller didn't pass. Tests always pass
     # all three; production callers may rely on the defaults below. The
     # default stacker LLMs go through ``build_llm_with_openrouter_fallback``
-    # so the Metaculus-donated key absorbs cost ahead of the operator's paid
+    # so the Metaculus-primary key absorbs cost ahead of the operator's paid
     # key; see module docstring for cost expectations.
     if stacker_llm is None:
         stacker_llm = _build_default_stacker_llm()

@@ -61,11 +61,11 @@ def _cached_client_for_key(api_key: str) -> genai.Client:
 
 
 def build_gemini_client() -> genai.Client:
-    """Return the cached google-genai Client for the operator's personal Gemini key.
+    """Return the cached google-genai Client for the operator's fallback Gemini key.
 
-    Reads GOOGLE_API_KEY (the operator's personal Google AI Studio key — in CI
-    populated from ``secrets.GEMINI_API_KEY``). There is no Metaculus-donated
-    Gemini key on the google-genai side; the donated path only exists for
+    Reads GOOGLE_API_KEY (the operator's fallback Google AI Studio key — in CI
+    populated from ``secrets.GEMINI_API_KEY``). There is no Metaculus-primary
+    Gemini key on the google-genai side; the primary path only exists for
     OpenRouter-routed Gemini models. Raises ValueError if the key is missing
     so misconfiguration is loud.
     """

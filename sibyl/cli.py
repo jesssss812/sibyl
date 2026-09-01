@@ -33,12 +33,12 @@ from sibyl.platform.fetch_hardening import apply_fetch_hardening
 from sibyl.platform.key_fallback import (
     check_deprecation_alerts_and_exit,
     get_credit_key_fallback_count,
-    get_donated_404_fallback_count,
-    get_generic_key_fallback_count,
+    get_fallback_key_count,
+    get_primary_route_404_fallback_count,
 )
 from sibyl.platform.metaculus_preflight import verify_metaculus_api_identity
 from sibyl.platform.publish_hardening import apply_publish_hardening
-from sibyl.telemetry.credits import CreditTelemetry, get_probed_donated_key_state
+from sibyl.telemetry.credits import CreditTelemetry, get_probed_primary_key_state
 
 logger = logging.getLogger(__name__)
 
@@ -141,12 +141,12 @@ def main() -> None:
 
     # Credit-balance telemetry: CREDIT_BALANCE/CREDIT_SPEND marker lines land in
     # the run_logs/ artifact via the workflows' stdout tee, making per-run spend
-    # on the shared donated key durably grep-able. The end fetch runs in a
+    # on the shared primary key durably grep-able. The end fetch runs in a
     # finally so a crashed run still logs its spend; the floor check result is
     # consumed AFTER forecasting/publishing below (reminder signal, not abort).
     credit_telemetry = CreditTelemetry()
     credit_telemetry.log_start()
-    donated_below_floor = False
+    primary_below_floor = False
     try:
         if run_mode == "tournament":
             check_tournament_dates(logging.getLogger(__name__))  # Warn/error if tournament dates are stale
@@ -193,7 +193,7 @@ def main() -> None:
         else:
             raise ValueError(f"Invalid run mode: {run_mode}")
     finally:
-        donated_below_floor = credit_telemetry.log_end_and_check_floor()
+        primary_below_floor = credit_telemetry.log_end_and_check_floor()
         # Flush inside the finally: records accumulate in memory for the whole run,
         # so an exception escaping asyncio.run (an OSError, the invalid-run-mode
         # ValueError above, a KeyboardInterrupt, the 300-minute timeout-minutes
@@ -214,35 +214,35 @@ def main() -> None:
     # usage, research provider failures, etc. — see
     # `forecaster.py` `alertable_count`).
     bot_alertable = template_bot.alertable_count
-    # Donated->personal key fallback: counted in fallback_openrouter at the
+    # Primary->fallback key fallback: counted in fallback_openrouter at the
     # wrapper level (process-global, since the wrapper has no link back to the
     # bot). Each fallback was successful — the run completed using the paid
-    # personal key — but a call that should have hit the free donated key
+    # fallback key — but a call that should have hit the free primary key
     # billed to the operator instead, so the operator should investigate.
-    # ``generic_fallback`` counts ALL fallback causes (401/402/429/guardrail/
-    # 404); ``donated_404`` and ``credit_fallback`` are two disjoint subsets of
-    # that total, broken out for diagnostics. Add only ``generic_fallback`` to
+    # ``fallback_count`` counts ALL fallback causes (401/402/429/guardrail/
+    # 404); ``primary_route_404`` and ``credit_fallback`` are two disjoint subsets of
+    # that total, broken out for diagnostics. Add only ``fallback_count`` to
     # ``alertable`` — adding either subset too would double-count events already
     # inside that total.
     #
     # Credit suppression (until CREDIT_ALERT_RESUME_DATE): the operator is
-    # self-funding the rest of the season, so an empty donated key is expected
+    # self-funding the rest of the season, so an empty primary key is expected
     # and its fallbacks are SUBTRACTED back out of the total. Every other cause
     # keeps its full weight, because 401/404/429/guardrail each mean real
     # breakage. Each event is still counted exactly once: generic adds it, and at
     # most one subset subtracts it.
     #
     # ``credit_fallback`` counts only the SUPPRESSIBLE credit subset — the
-    # donated key genuinely drained. A key that was revoked or re-capped to zero
+    # primary key genuinely drained. A key that was revoked or re-capped to zero
     # returns the same "Key limit exceeded" text but is classified separately by
     # ``fallback_openrouter.is_suppressible_credit_error`` (which probes
     # /auth/key), so it stays inside the generic total and keeps this run red.
     alerts_active = credit_alerts_active()
-    generic_fallback = get_generic_key_fallback_count()
-    donated_404 = get_donated_404_fallback_count()
+    fallback_count = get_fallback_key_count()
+    primary_route_404 = get_primary_route_404_fallback_count()
     credit_fallback = get_credit_key_fallback_count()
     suppressed_credit_fallback = 0 if alerts_active else credit_fallback
-    alertable = bot_alertable + generic_fallback - suppressed_credit_fallback
+    alertable = bot_alertable + fallback_count - suppressed_credit_fallback
 
     suppression_note = (
         ""
@@ -251,41 +251,46 @@ def main() -> None:
         f"{CREDIT_ALERT_RESUME_DATE.isoformat()}"
     )
     # Only rendered when a spend-cap failure actually made the wrapper probe the
-    # donated key. Omitted otherwise, because "unknown" would read as a failed
+    # primary key. Omitted otherwise, because "unknown" would read as a failed
     # probe rather than "no run this shape ever needed one".
-    probed_donated_key_state = get_probed_donated_key_state()
-    donated_key_note = "" if probed_donated_key_state is None else f", donated_key={probed_donated_key_state.value}"
+    probed_primary_key_state = get_probed_primary_key_state()
+    primary_key_note = "" if probed_primary_key_state is None else f", donated_key={probed_primary_key_state.value}"
     # One breakdown, both exit paths. The green path needs it as much as the red
-    # one: when every donated-key call fell back and the credit subset cancels the
+    # one: when every primary-key call fell back and the credit subset cancels the
     # whole generic total, ``alertable`` is 0 — the exact shape of the 2026-07-26
     # drained-key run — and gating this line on the exit status would leave that
     # run's degradation and probe verdict entirely unrecorded.
+    # The FIELD NAMES here keep the old donated/personal vocabulary on purpose, even
+    # though every identifier around them is now primary/fallback. This line is parsed by
+    # the ``run_alertable_summary`` MarkerSpec, whose capture groups become field names in
+    # the telemetry archive; renaming them would orphan every archived record and break
+    # harvesting on re-run. Same stance markers.py takes about its own key names.
     breakdown = (
         f"Run completed with {alertable} alertable degradation event(s) "
-        f"(bot={bot_alertable}, personal_key_fallback={generic_fallback} of which "
-        f"donated_404={donated_404}, credit={credit_fallback}{suppression_note}{donated_key_note});"
+        f"(bot={bot_alertable}, personal_key_fallback={fallback_count} of which "
+        f"donated_404={primary_route_404}, credit={credit_fallback}{suppression_note}{primary_key_note});"
     )
     if alertable > 0:
         logger.warning("%s exiting non-zero so CI marks this run red.", breakdown)
         sys.exit(1)
-    if generic_fallback > 0:
+    if fallback_count > 0:
         # Reachable only under suppression with every fallback credit-caused (the
         # subtraction can't otherwise reach zero from a positive total), so state
         # that rather than leaving a reader to derive it from the arithmetic.
         logger.info("%s every fallback was a suppressed credit event, so this run stays green.", breakdown)
 
-    # Donated-key balance below the refill floor (CREDIT_FLOOR_BREACH warning
+    # Primary-key balance below the refill floor (CREDIT_FLOOR_BREACH warning
     # already logged by credit_telemetry). The run completed and published
     # normally; exiting non-zero here is purely the reminder-to-refill signal —
     # and it is suppressed until CREDIT_ALERT_RESUME_DATE, since a drained
-    # donated key is the expected state while the operator self-funds. The INFO
+    # primary key is the expected state while the operator self-funds. The INFO
     # line keeps the log self-explanatory: a reader who sees the breach WARNING
     # but a green run should not have to guess why.
-    if donated_below_floor:
+    if primary_below_floor:
         if alerts_active:
             sys.exit(1)
         logger.info(
-            "Donated-key credit floor breached, but credit alerting is suppressed until %s "
+            "Primary-key credit floor breached, but credit alerting is suppressed until %s "
             "(operator is self-funding the rest of the season), so this run exits zero.",
             CREDIT_ALERT_RESUME_DATE.isoformat(),
         )

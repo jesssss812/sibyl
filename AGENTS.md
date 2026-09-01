@@ -26,6 +26,11 @@ they are not negotiable.
    `docs/roadmap.md`.
 6. **Never** re-enable a `schedule:` block, dispatch a workflow, commit a secret, or commit
    on `main`. Work on `clean-fork`, a feature branch per phase.
+7. **Keep commits small.** One reviewable change each — a rename, a test, an extraction —
+   not a whole phase in one blob. A phase is a branch and a PR; it is not a commit. Small
+   commits are what make `git bisect` and `git log --follow` worth having after a
+   restructure this large, and what let a reviewer see a rename separately from a
+   behaviour change.
 
 ## Naming
 

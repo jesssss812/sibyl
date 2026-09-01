@@ -453,7 +453,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Construct stacker LLMs via plain GeneralLlm (no donated-key wrapper, no "
+            "Construct stacker LLMs via plain GeneralLlm (no primary-key wrapper, no "
             "fallback wrapping). Intended for paid benchmark-mode runs where fail-fast "
             "is preferred over cost absorption."
         ),
@@ -1246,7 +1246,7 @@ def _active_stacker_slug(args: argparse.Namespace) -> str:
 
     * ``--plain-llm --lineup prod`` → opus-4.8 (``PROD_STACKER_MODEL``).
     * ``--plain-llm`` other lineups → opus-4.5 (``DEFAULT_STACKER_MODEL``).
-    * No ``--plain-llm`` → the default donated-key wrapper, whose primary is also
+    * No ``--plain-llm`` → the default primary-key wrapper, whose primary is also
       ``DEFAULT_STACKER_MODEL`` (opus-4.5).
 
     All three callers (``_stage_llm_stacker`` write/read, ``_stage_score`` read,
@@ -1418,7 +1418,7 @@ async def _stage_llm_stacker(
             if not getattr(args, "no_stacker_fallback", False):
                 fallback_llm_kwarg = GeneralLlm(model=DEFAULT_STACKER_FALLBACK_MODEL, **_OPENAI_STACKER_KWARGS)
         elif getattr(args, "no_stacker_fallback", False):
-            # No fallback but still use the donated-key wrapper for primary.
+            # No fallback but still use the primary-key wrapper for primary.
             fallback_llm_kwarg = None
 
         batch_kwargs: dict[str, Any] = {

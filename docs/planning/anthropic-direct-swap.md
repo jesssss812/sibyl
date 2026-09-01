@@ -33,12 +33,12 @@ missing one.
 
 `openrouter/anthropic/claude-opus-5` → `anthropic/claude-opus-5` (forecaster) and
 `openrouter/anthropic/claude-opus-4.8` → `anthropic/claude-opus-4-8` (stacker).
-**Models are unchanged; only the transport is.** With the donated Metaculus key
-exhausted until next season and the personal OpenRouter balance unable to cover a
+**Models are unchanged; only the transport is.** With the primary Metaculus key
+exhausted until next season and the fallback OpenRouter balance unable to cover a
 reservation, the OpenRouter hop was a middleman on a key with no credit.
 
 `build_llm_with_openrouter_fallback` is deliberately still the constructor:
-`should_route_via_donated_key` gates on an `openrouter/` prefix, so a bare
+`should_route_via_primary_key` gates on an `openrouter/` prefix, so a bare
 `anthropic/` slug already falls through to a plain `GeneralLlm` and litellm reads
 `ANTHROPIC_API_KEY`. Routing back is a one-token change.
 
