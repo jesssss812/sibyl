@@ -2,28 +2,10 @@ name: Forecast on new Minibench questions
 
 on:
   workflow_dispatch:
-  # ---------------------------------------------------------------------------
-  # SCHEDULES DISABLED 2026-08-27.
-  #
-  # These crons ran ~2x/hour and failed every time — the repo has no Actions secrets
-  # configured, so every run reached "Run bot" with an empty METACULUS_TOKEN and died.
-  # Across all workflows that was ~97 no-op runs/day, which very likely exhausted the
-  # private-repo Actions minutes and is why CI stopped starting on pull requests.
-  #
-  # `workflow_dispatch` is deliberately left in place: manual runs still work, so nothing
-  # is lost except the automatic firing.
-  #
-  # TO RE-ENABLE: delete the `#` from the `schedule:` block below. Do that only AFTER the
-  # secrets are set and you have watched one manual `workflow_dispatch` run succeed —
-  # otherwise this just resumes burning quota. Note the first successful scheduled run
-  # will forecast every currently-open question and PUBLISH to Metaculus.
-  # ---------------------------------------------------------------------------
-  # schedule:
-  # # Split across multiple cron entries to avoid GitHub Actions silently dropping
-  # # */N schedules under runner load. Offsets staggered off the tournament workflow's
-  # # :03/:23/:43 to spread runner pickup. Make sure to skip already forecasted questions!
-  # - cron: "8 * * * *"  # every hour at :08
-  # - cron: "38 * * * *" # every hour at :38
+  # Manual dispatch only. No `schedule:` block exists here, deliberately: this fork was
+  # imported with every automatic trigger already off, and a schedule is something the
+  # operator adds when there is a season to run and the secrets are set. The first
+  # scheduled run of this workflow would forecast every open question and PUBLISH.
 
 # Add concurrency group to prevent parallel runs
 concurrency:
@@ -70,7 +52,7 @@ jobs:
         # a bare `run:` (bash -e, no pipefail) would swallow it as tee's exit 0.
         run: |
           mkdir -p run_logs
-          uv run --frozen --no-dev python main.py --mode minibench 2>&1 | tee "run_logs/run_${GITHUB_RUN_ID}_$(date -u +%Y%m%dT%H%M%SZ).log"
+          uv run --frozen --no-dev python -m sibyl --mode minibench 2>&1 | tee "run_logs/run_${GITHUB_RUN_ID}_$(date -u +%Y%m%dT%H%M%SZ).log"
         # this reads the environment variables from the github repository.
         # Store under Settings --> Secrets and variables --> Actions
         env:
@@ -94,8 +76,8 @@ jobs:
           # Disable litellm's aiohttp transport (default since v1.71.x): under
           # concurrent async bursts it raises near-instant connection failures
           # litellm re-wraps as a 1ms Timeout (litellm #14895; see
-          # scratch_docs_and_planning/transient_retry_fix.md). Code already sets
-          # this default in metaculus_bot/__init__.py; pinned here for parity.
+          # bottega:scratch_docs_and_planning/transient_retry_fix.md). Code already sets
+          # this default in sibyl/__init__.py; pinned here for parity.
           DISABLE_AIOHTTP_TRANSPORT: 'true'
           # Native search runs in parallel with AskNews; model defaults to
           # openai/gpt-5.6-terra (low effort, verbosity=low, 360s) per constants.py.
@@ -149,7 +131,7 @@ jobs:
           RESOLUTION_SOURCE_ENABLED: 'true'
           # Time-series anchor: deterministic empirical P10/P50/P90 band from a
           # question's own resolution series (FRED/yfinance). Text anchor ON since
-          # 2026-07-17 (post smoke validation; see FUTURE.md "Time-series anchor").
+          # 2026-07-17 (post smoke validation; see bottega:FUTURE.md "Time-series anchor").
           TS_ANCHOR_ENABLED: 'true'
           # Reference-class retrieval (M9). Metaculus API + one ranker call.
           # Backtest-safe: candidates are filtered to those resolved strictly
@@ -162,7 +144,7 @@ jobs:
           # one-line change when it becomes an experiment's control arm.
           RESOLUTION_STATE_GUARD_ENABLED: 'true'
           # TS anchor chart image side-channel (vision message to base models).
-          # OFF pending the text-vs-image A/B (see FUTURE.md "TS anchor chart image").
+          # OFF pending the text-vs-image A/B (see bottega:FUTURE.md "TS anchor chart image").
           TS_ANCHOR_CHART_ENABLED: 'false'
           # Stacking disabled on all types (ablation: stacker <= median on binary,
           # hurts numeric CRPS; stacker base model is a weak binary forecaster).

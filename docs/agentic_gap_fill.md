@@ -11,8 +11,8 @@ alongside the older v1 gap-fill pass (`research/targeted.py`), not instead of
 it. Both are on in production as of 2026-07-21 (v2 was authored 2026-07-17 and reached
 `main` in merge `b4e9df0` four days later), and both feed the same bundle.
 
-The code lives under `metaculus_bot/research/agentic/`, with a thin seam at
-`metaculus_bot/research/agentic_gap_fill.py` that wires it into the research
+The code lives under `sibyl/research/agentic/`, with a thin seam at
+`sibyl/research/agentic_gap_fill.py` that wires it into the research
 orchestrator.
 
 ## Why it exists
@@ -202,7 +202,7 @@ concluded explicitly (not when the deadline cut it off) and is bounded by its ow
 `_run_ghost_phase` logs the parsed result twice: a lossy human-readable
 `GHOST_FORECAST` line kept byte-identical for the already-harvested archive, and
 an additive `GHOST_FORECAST_JSON` line carrying the complete forecast (every
-percentile, not just the median) so `scripts/score_ghosts.py` can score numeric
+percentile, not just the median) so `sibyl/ops/score_ghosts.py` can score numeric
 ghosts. The JSON line is suppressed when no structured block parsed. The turn-one
 plan emits the same pair as `GHOST_PRE` / `GHOST_PRE_JSON`
 (`_set_research_plan_tool`) from the driver's pre-research dry run, so the
@@ -282,7 +282,7 @@ soft-fail and is `None` on both a healthy run and a deadline hit, which makes it
 the one field that separates a step-zero crash from an idle run — the two emit
 otherwise byte-identical `steps=0 tool_calls=0 findings=0` lines. Everything from
 `provenance_rejections` onward postdates the original marker, so
-`scripts/telemetry/markers.py` wraps that tail in optional regex groups and still
+`sibyl/telemetry/markers.py` wraps that tail in optional regex groups and still
 harvests pre-branch archived logs that end at `lint_rejections`. This marker is
 grep-able in the durable `run_logs/` artifacts every workflow tees, so the driver
 can be vibe-evaluated after the fact without pulling any research-archive JSON.
@@ -294,7 +294,7 @@ runs, whose telemetry is still worth keeping.
 
 ## Module layout
 
-Everything lives under `metaculus_bot/research/agentic/`, with one seam file one
+Everything lives under `sibyl/research/agentic/`, with one seam file one
 level up:
 
 | File | What's in it |

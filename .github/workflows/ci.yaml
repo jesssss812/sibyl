@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --dev --frozen
       - name: Run tests
-        run: uv run --frozen pytest --cov=metaculus_bot
+        run: uv run --frozen pytest --cov=sibyl
 
   # Scan uv.lock for known vulnerabilities. osv-scanner is a Go binary (not a
   # PyPI package), so it runs via Google's published container action rather

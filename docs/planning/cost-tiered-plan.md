@@ -101,7 +101,7 @@ cheap tier (3 free/cheap models)
   disagreement; cheap-tier spread has a different distribution and needs its own values,
   taken from the Phase 0 data rather than guessed.
 - Emit an `ESCALATION` telemetry marker per question (tier used, spread, threshold) and
-  register it in `scripts/telemetry/markers.py`. **The escalation rate is the headline
+  register it in `sibyl/telemetry/markers.py`. **The escalation rate is the headline
   number of this whole design** — without it there is no way to state what the policy bought.
 - Ship it **off by default** behind `TIERED_ROUTING_ENABLED`, so the frontier-only arm stays
   available as the control.

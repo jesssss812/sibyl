@@ -27,8 +27,8 @@
 
 
 > Brainstorm, 2026-08-24. Grounded in the repo's own **measured** cost data:
-> `scratch/smoke_cost_breakdown_2026-07-17.md`, `scratch/bundle_token_audit_2026-07-17/`,
-> and `scratch/ensemble_composition_2026-07-15/`. Numbers below are measured unless
+> `bottega:scratch/smoke_cost_breakdown_2026-07-17.md`, `bottega:scratch/bundle_token_audit_2026-07-17/`,
+> and `bottega:scratch/ensemble_composition_2026-07-15/`. Numbers below are measured unless
 > marked as estimates.
 >
 > Resolves the open decision in `vision.md`: *"Search-provider costs — confirm which
@@ -255,7 +255,7 @@ Why it's strictly better:
 - **Leakage cancels exactly.** Both arms are the *same model*, so memorization is
   identical on both sides of the paired difference. This is Rule 3's ideal case rather
   than its failure case.
-- **It's a genuinely open question.** `FUTURE.md` carries *"Price the high→xhigh
+- **It's a genuinely open question.** `bottega:FUTURE.md` carries *"Price the high→xhigh
   reasoning-effort premium"* as an open item, and the 2026-07-20 audit found
   default→high worth it but **high→xhigh unmeasured**. The author of the 10th-place bot
   doesn't know the answer either.

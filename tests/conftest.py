@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from forecasting_tools import BinaryQuestion, GeneralLlm, MultipleChoiceQuestion, NumericQuestion
 
-from scripts import gha_artifacts
+from sibyl.ops import gha_artifacts
 
 _OPEN = datetime(2026, 1, 1)
 _RESOLVE = datetime(2026, 5, 1)
@@ -16,7 +16,7 @@ _RESOLVE = datetime(2026, 5, 1)
 # Feature-flag isolation (hermeticity backstop)
 # ---------------------------------------------------------------------------
 
-# ``metaculus_bot/config.py`` calls ``load_dotenv()``, so a developer's real ``.env``
+# ``sibyl/config/env.py`` calls ``load_dotenv()``, so a developer's real ``.env``
 # leaks into the test process. Every provider flag it sets silently changes what
 # ``_select_research_providers`` returns, which made six tests pass only on machines
 # where the bot had NOT been configured.
@@ -40,7 +40,7 @@ def _feature_flags_owned_elsewhere() -> set[str]:
     silently undo that (autouse ordering makes it a coin toss which lands last) and
     reads as "stacking mysteriously stopped firing" at the assertion site.
     """
-    from metaculus_bot import constants as _constants
+    from sibyl.config import settings as _constants
 
     return {
         _constants.BINARY_STACKING_ENABLED_ENV,
@@ -56,7 +56,7 @@ def _feature_flag_env_names() -> list[str]:
     is covered automatically. The exclusion set is the only hand-maintained part, and it
     is far more stable than an inclusion list would be.
     """
-    from metaculus_bot import constants as _constants
+    from sibyl.config import settings as _constants
 
     excluded = _feature_flags_owned_elsewhere()
     return [
@@ -129,7 +129,7 @@ def _block_network_egress(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     calls those tests exist to make. So the ``live`` exemption is load-bearing for
     ``make test_live``, not merely belt-and-suspenders.
 
-    See also ``metaculus_bot.ablation.offline_replay.no_network()`` — a scoped
+    See also ``sibyl.eval.ablation.offline_replay.no_network()`` — a scoped
     context manager (ablation replay only) that blocks ``socket.getaddrinfo`` at
     the DNS level; this autouse guard is complementary, blocking ``connect`` /
     ``connect_ex`` at the socket level so it also catches literal-IP connects that
@@ -177,7 +177,7 @@ def _redirect_artifact_store(tmp_path_factory: pytest.TempPathFactory, monkeypat
     a fixture artifact named ``research-2`` there, and the next real offline harvest
     ingested its one-line log into the live telemetry archive as an ``unknown`` run.
 
-    ``scripts.gha_artifacts._resolve_store_dir`` reads this module attribute at CALL time
+    ``sibyl.ops.gha_artifacts._resolve_store_dir`` reads this module attribute at CALL time
     precisely so this redirect works; a signature default would be captured at import and
     leave the omission unprotected. Tests that pass ``store_dir`` explicitly are
     unaffected.
@@ -209,9 +209,9 @@ PRODUCTION_KEY_LIMIT_403 = (
 
 
 def gather_predictions_stub(result: tuple[Any, Any, Any]) -> AsyncMock:
-    """An ``AsyncMock`` stand-in for ``TemplateForecaster._gather_predictions_with_wall_clock``.
+    """An ``AsyncMock`` stand-in for ``SibylBot._gather_predictions_with_wall_clock``.
 
-    ``_research_and_make_predictions`` (``metaculus_bot/forecaster.py``) builds one
+    ``_research_and_make_predictions`` (``sibyl/forecasting/bot.py``) builds one
     coroutine per forecaster by CALLING ``_forecaster_with_soft_deadline``, then hands
     the whole list to ``_gather_predictions_with_wall_clock``, which owns them from
     that point on. Tests that stub the forecaster with an ``AsyncMock`` make each of
@@ -366,7 +366,7 @@ def _clear_gemini_client_cache():
     cost is negligible — leaving the autouse global is the simpler,
     safer choice.
     """
-    from metaculus_bot.research import gemini_search as gsp
+    from sibyl.research import gemini_search as gsp
 
     gsp._cached_client_for_key.cache_clear()
     yield
@@ -376,7 +376,7 @@ def _clear_gemini_client_cache():
 @pytest.fixture
 def test_llms():
     """Shared LLM config with a mock default and real parser/researcher/summarizer."""
-    from metaculus_bot.llm_configs import PARSER_LLM, RESEARCHER_LLM, SUMMARIZER_LLM
+    from sibyl.config.models import PARSER_LLM, RESEARCHER_LLM, SUMMARIZER_LLM
 
     return {
         "default": MagicMock(),
@@ -410,7 +410,7 @@ def make_mock_question():
     return _build_mock_question
 
 
-# Shared TemplateForecaster mocks.
+# Shared SibylBot mocks.
 #
 # Shared rather than per-file because the forecaster's own tests are split across
 # three modules by responsibility (the bot itself, drop attribution, degradation

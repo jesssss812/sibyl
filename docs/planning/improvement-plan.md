@@ -68,7 +68,7 @@ long, careful cost-discipline section. See Finding 3 for why that is the weak po
 anywhere**," and scopes your contribution as a ~200-line inference layer.
 `nostreambot-reading-guide.md` repeats it as a table of ❌s.
 
-That is not what is in the repo. `metaculus_bot/ablation/` — **which the reading guide
+That is not what is in the repo. `sibyl/eval/ablation/` — **which the reading guide
 put on the skip list** — already contains:
 
 | Claimed missing | Actually present |
@@ -146,7 +146,7 @@ ships `FREE_FORECASTER_MODELS` (`:free` OpenRouter slugs on the personal key) pr
 so a 100-question backtest doesn't burn budget on the forecaster stage.
 
 Study note #2 is also confirmed: `AGENTS.md` is 74KB (~20k tokens per agent invocation)
-and `FUTURE.md` is 127KB.
+and `bottega:FUTURE.md` is 127KB.
 
 ---
 

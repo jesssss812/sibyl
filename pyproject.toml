@@ -1,10 +1,13 @@
 [project]
-name = "metaculus-bot"
+name = "sibyl"
 version = "0.1.0"
 description = "Multi-LLM ensemble forecasting bot for Metaculus."
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "Vasile Popescu", email = "elisescu@elisescu.com" }]
+authors = [
+    { name = "Vasile Popescu", email = "elisescu@elisescu.com" },
+    { name = "Jess Sun", email = "jesssss812@gmail.com" },
+]
 dependencies = [
     "requests>=2.32.3",
     "asknews>=0.11.2",
@@ -59,7 +62,7 @@ exclude-dependencies = [
     # app_session._handle_git_information_request, reached only by a browser message
     # to a running streamlit server (which we never start) and swallowed into a debug
     # log. Verified unreachable via an import tripwire over `import forecasting_tools`
-    # + `import metaculus_bot.forecaster`, and the suite passes with git absent.
+    # + `import sibyl.forecasting.bot`, and the suite passes with git absent.
     # It shipped 5 High argument-injection advisories at 3.1.52 across 4 releases in
     # 6 days, so excluding it drops the CVE class instead of tracking that treadmill.
     # streamlit itself must STAY: forecasting_tools/__init__.py imports
@@ -75,10 +78,10 @@ requires = ["uv_build>=0.9,<0.12"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-# Flat layout: the importable package lives at the repo root (metaculus_bot/),
+# Flat layout: the importable package lives at the repo root (sibyl/),
 # not under src/. uv_build's default discovery expects src/<name>/, so both
 # settings are required here.
-module-name = "metaculus_bot"
+module-name = "sibyl"
 module-root = ""
 
 [tool.ruff]
@@ -89,10 +92,10 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
-# pythonpath=["."] lets tests import the remaining repo-root module (main) and the
-# scripts package once metaculus_bot is installed
-# editable. backtest and analyze_correlations moved into their own packages on
-# 2026-08-26, so they no longer need it.
+# pythonpath=["."] puts the repo root on sys.path so `tests.helpers` and the other
+# intra-suite imports resolve when pytest is invoked from anywhere. The former reasons
+# for it are gone: main.py was replaced by `python -m sibyl` and the scripts package
+# moved under sibyl.ops, both of which are importable from the installed package.
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
@@ -105,8 +108,8 @@ addopts = "-m 'not live'"
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["metaculus_bot"]
-omit = ["*/__pycache__/*", "metaculus_bot/check_openrouter_credits.py"]
+source = ["sibyl"]
+omit = ["*/__pycache__/*", "sibyl/telemetry/check_credits.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -118,10 +121,8 @@ venv = ".venv"
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 include = [
-    "metaculus_bot",
+    "sibyl",
     "tests",
-    "scripts",
-    "main.py",
 ]
 exclude = [
     "**/__pycache__",
@@ -137,5 +138,5 @@ exclude = [
 # (argument/return/attribute/call/optional/override) without the "type is
 # partially unknown" annotation toil that strict adds at every untyped
 # third-party (forecasting-tools) boundary for little bug yield. Promoting the
-# core pipeline to strict is a tracked follow-on (see FUTURE.md) — best done
+# core pipeline to strict is a tracked follow-on (see bottega:FUTURE.md) — best done
 # on an already-clean base rather than fighting ~900 errors at once.

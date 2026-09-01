@@ -38,7 +38,7 @@ bug — check the dates before treating any of it as current.
 | [planning/eval-strategy.md](planning/eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
 | [planning/calibration-primer.md](planning/calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
 | [planning/budget-strategy.md](planning/budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
-| [planning/nostreambot-reading-guide.md](planning/nostreambot-reading-guide.md) | Reading order for this codebase, written when it was still an external reference. *Partly superseded — see its header.* |
+| `bottega:docs/planning/nostreambot-reading-guide.md` | Reading order for this codebase, written when it was still an external reference. Not carried into this repo; *partly superseded* — see its header, in bottega. |
 | [planning/improvement-plan.md](planning/improvement-plan.md) | *Audit, 2026-08-24.* What the fork already had vs. what was genuinely missing. |
 | [planning/leverage-not-cost-share.md](planning/leverage-not-cost-share.md) | *2026-08-27.* Where to spend model capability: leverage over cost share, why the summarizer is the highest-leverage slot, and what was deliberately not changed. |
 | [planning/cost-tiered-plan.md](planning/cost-tiered-plan.md) | *Plan, 2026-08-27.* Cost-tiered escalation, MC shuffling and extremization — sequenced so the assumption each rests on is tested before it is built on. |
@@ -52,13 +52,13 @@ bug — check the dates before treating any of it as current.
 - [README.md](../README.md) — install, configure, run.
 - [AGENTS.md](../AGENTS.md) — always-true rules and hard prohibitions for coding agents.
   Detail lives in the guides above rather than inline.
-- [FUTURE.md](../FUTURE.md) — the branch design log: shipped, planned, and rejected
+- [bottega:FUTURE.md](../FUTURE.md) — the branch design log: shipped, planned, and rejected
   ideas. Read it for the "why", never for the current state. Expect dead paths in it.
 
-Subsystem drivers live inside their packages: `python -m metaculus_bot.backtest`,
-`python -m metaculus_bot.ensemble_analysis`, `python -m metaculus_bot.performance_analysis`,
-and `metaculus_bot/ablation/cli.py`. The first two moved off the repo root on
+Subsystem drivers live inside their packages: `python -m sibyl.eval.backtest`,
+`python -m sibyl.eval.ensemble`, `python -m sibyl.eval.performance`,
+and `sibyl/eval/ablation/cli.py`. The first two moved off the repo root on
 2026-08-26 to match the other three.
 
-For the authoritative model roster, read `metaculus_bot/llm_configs.py`. It rotates
+For the authoritative model roster, read `sibyl/config/models.py`. It rotates
 often, so the guides describe it rather than pin names.

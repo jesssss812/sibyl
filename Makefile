@@ -40,7 +40,7 @@ typecheck_ty:
 	uv run ty check
 
 cov:
-	$(call RUN_UNBUFFERED,-m pytest --cov=metaculus_bot --cov-report=term-missing)
+	$(call RUN_UNBUFFERED,-m pytest --cov=sibyl --cov-report=term-missing)
 
 # Scan uv.lock for known vulnerabilities. osv-scanner is a Go binary (not a
 # PyPI package), so it can't be run via uvx — install it with
@@ -78,7 +78,7 @@ test_verbose:
 all: format lint typecheck test_verbose
 
 run:
-	$(call RUN_UNBUFFERED,main.py)
+	$(call RUN_UNBUFFERED,-m sibyl)
 
 # The community-benchmark path is GONE (removed 2026-08-31). Metaculus dropped the
 # `aggregations` field from their list API, which permanently broke baseline scoring; the
@@ -94,60 +94,60 @@ run:
 # Use it to exercise and validate the eval path. Its scores measure the PIPELINE, never
 # forecasting skill; do not report them as accuracy.
 backtest_fixture:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --fixture --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --fixture --num-questions 8)
 
 # Two identical arms must score identically — the A/A null test. A non-zero paired
 # difference here means the harness is broken, not that an arm is better.
 backtest_fixture_aa:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --fixture --fixture-seed 0 --num-questions 8)
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --fixture --fixture-seed 0 --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --fixture --fixture-seed 0 --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --fixture --fixture-seed 0 --num-questions 8)
 
 analyze_correlations:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ensemble_analysis $(if $(FILE),$(FILE),benchmarks/))
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ensemble $(if $(FILE),$(FILE),benchmarks/))
 
 analyze_correlations_latest:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ensemble_analysis $$(ls -t benchmarks/benchmarks_*.jsonl | head -1))
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ensemble $$(ls -t benchmarks/benchmarks_*.jsonl | head -1))
 
 analyze_correlations_latest_excluding:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ensemble_analysis $$(ls -t benchmarks/benchmarks_*.jsonl | head -1) --exclude-models grok-4 gemini-2.5-pro)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ensemble $$(ls -t benchmarks/benchmarks_*.jsonl | head -1) --exclude-models grok-4 gemini-2.5-pro)
 
 backtest_smoke_test:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --num-questions 4)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 4)
 
 backtest_small:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --num-questions 12)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 12)
 
 backtest_medium:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --num-questions 32)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 32)
 
 backtest_large:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --num-questions 100)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 100)
 
 # Probabilistic-tools ablation benchmark.
-# CLI: metaculus_bot/ablation/cli.py (entry point: python -m metaculus_bot.ablation.cli).
+# CLI: sibyl/eval/ablation/cli.py (entry point: python -m sibyl.eval.ablation.cli).
 # Tournaments default in the CLI (spring-aib-2026 + other 2026 slugs); not pinned here.
 ablation_qa_research:
 	# Runs only fetch + research + leakage screen + QA dump, then halts.
 	# Uses 3/3/3 question mix. No forecasting, no stacking.
 	# Config-in-code: --no-gap-fill (gap-fill amplifies leakage on resolved Qs);
 	# --gemini-model gemini-2.5-flash (free tier, no Tier 1 billing required).
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ablation.cli --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash --qa-research)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash --qa-research)
 
 ablation_smoke:
 	# 9 questions: 3 binary, 3 MC, 3 numeric. Full pipeline through scoring.
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ablation.cli --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
 
 ablation_small:
 	# 15 questions: 5/5/5.
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ablation.cli --num-binary 5 --num-multiple-choice 5 --num-numeric 5 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 5 --num-multiple-choice 5 --num-numeric 5 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
 
 ablation_medium:
 	# 60 questions: 20/20/20. PENDING USER SIGN-OFF — do not run without explicit go-ahead.
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ablation.cli --num-binary 20 --num-multiple-choice 20 --num-numeric 20 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 20 --num-multiple-choice 20 --num-numeric 20 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
 
 ablation_score:
 	# Re-runs scoring against existing caches (no API spend).
-	$(call RUN_UNBUFFERED,-m metaculus_bot.ablation.cli --stages score)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --stages score)
 
 test_e2e:
 	$(call RUN_UNBUFFERED,-m pytest -m e2e -v --tb=short)
@@ -168,7 +168,7 @@ test_fast:
 # 90 days the artifact is deleted FOREVER, so backtests/research_archive/ is the
 # only durable copy. download_research.py enumerates EVERY research-* artifact via
 # the complete, paginated artifacts REST endpoint (no run-list cap). Schedule it
-# WEEKLY (well inside 90 days); see scripts/research_sync/ for the launchd job.
+# WEEKLY (well inside 90 days); see bottega:scripts/research_sync/ for the launchd job.
 #
 # ORDERING IS LOAD-BEARING: the comment backfill runs FIRST so it writes
 # comments_backfill.jsonl into the backfill dir, then download_research.py does ONE
@@ -180,10 +180,10 @@ test_fast:
 # rather than destructive — but there is no reason to run two builds.
 sync_research:
 	@echo "=== Backfilling from Metaculus comments (historical; non-fatal — see sync_all) ==="
-	-uv run python scripts/backfill_research_from_comments.py
+	-uv run python sibyl/ops/backfill_research_from_comments.py
 	@echo ""
 	@echo "=== Downloading GHA artifacts + building archive (artifacts + backfill) ==="
-	uv run python scripts/download_research.py $(ARGS)
+	uv run python sibyl/ops/download_research.py $(ARGS)
 	@echo ""
 	@echo "Archive ready at backtests/research_archive/latest/"
 
@@ -195,19 +195,19 @@ sync_research:
 # the weekly schedule. Pass ARGS="--since-days N" to scope the pull.
 sync_telemetry:
 	@echo "=== Harvesting run-log telemetry from GHA artifacts ==="
-	uv run python scripts/download_run_logs.py $(ARGS)
+	uv run python sibyl/ops/download_run_logs.py $(ARGS)
 	@echo ""
 	@echo "Telemetry archive ready at backtests/telemetry_archive/"
 
 # Archive the raw research-provider payload logs (raw_research_<run_id>.jsonl) that
-# metaculus_bot.research.raw_log appends to run_logs/. Pulls both artifact families
+# sibyl.research.raw_log appends to run_logs/. Pulls both artifact families
 # (every bot run bundles run_logs/ inside research-*; the test workflows used a separate
 # logs-* before 2026-08-03),
 # harvests the raw JSONL, and writes one file per run to backtests/research_archive/raw/
 # (replace-by-run, idempotent). Read-only + free; safe on the weekly schedule.
 sync_raw_research:
 	@echo "=== Archiving raw research-provider payload logs from GHA artifacts ==="
-	uv run python scripts/download_raw_research.py $(ARGS)
+	uv run python sibyl/ops/download_raw_research.py $(ARGS)
 	@echo ""
 	@echo "Raw-research archive ready at backtests/research_archive/raw/"
 
@@ -217,7 +217,7 @@ sync_raw_research:
 #
 # SINGLE-PASS: unlike running the three sync_* targets in sequence (which each
 # re-enumerate every artifact and re-download the overlapping research-*/logs-* families
-# — ~300 downloads for ~100 artifacts), scripts/sync_all.py enumerates ONCE over the
+# — ~300 downloads for ~100 artifacts), sibyl/ops/sync_all.py enumerates ONCE over the
 # union family and downloads each artifact ONCE into the PERSISTED STORE
 # (backtests/gha_artifact_store/), then runs all three harvests over those persisted run
 # dirs. An artifact already in the store is never re-downloaded. The Metaculus-comment
@@ -229,7 +229,7 @@ sync_raw_research:
 # THE BACKFILL IS NON-FATAL (leading `-`), and that asymmetry is the whole point.
 # The two halves have opposite deadlines: comments live on Metaculus forever, while GHA
 # artifacts are deleted at 90 days, so the GHA pull is the only half that can lose data
-# permanently. Under `set -euo pipefail` (scripts/research_sync/run_sync.sh) a bare
+# permanently. Under `set -euo pipefail` (bottega:scripts/research_sync/run_sync.sh) a bare
 # backfill failure aborted the recipe before sync_all.py downloaded a single artifact —
 # which is exactly what happened on all five scheduled runs from 2026-06-28 to 2026-07-26:
 # launchd fires at the first wake after Sun 03:00, the laptop's network is not up yet, the
@@ -240,10 +240,10 @@ sync_raw_research:
 # reads the previous run's file.
 sync_all:
 	@echo "=== Backfilling from Metaculus comments (historical; non-fatal — see comment above) ==="
-	-uv run python scripts/backfill_research_from_comments.py
+	-uv run python sibyl/ops/backfill_research_from_comments.py
 	@echo ""
 	@echo "=== Single-pass GHA sync: research + telemetry + raw-research (one download pass) ==="
-	uv run python scripts/sync_all.py $(ARGS)
+	uv run python sibyl/ops/sync_all.py $(ARGS)
 	@echo ""
 	@echo "=== sync_all complete: research + telemetry + raw-research archives refreshed ==="
 
@@ -256,7 +256,7 @@ sync_all:
 # build loads it. Free, and safe to run repeatedly (every archive build is replace-by-run).
 resync_from_store:
 	@echo "=== Offline re-harvest of all three archives from backtests/gha_artifact_store/ ==="
-	uv run python scripts/sync_all.py --from-store $(ARGS)
+	uv run python sibyl/ops/sync_all.py --from-store $(ARGS)
 	@echo ""
 	@echo "=== resync_from_store complete (no network was used) ==="
 
@@ -265,29 +265,29 @@ resync_from_store:
 # scoreable today (v2 shipped 2026-07-17); pass ARGS="--tournament <slug>" for a live
 # read-only resolutions pull, or ARGS="--perf-json <path>" for a pre-built dataset.
 score_ghosts:
-	uv run python scripts/score_ghosts.py $(ARGS)
+	uv run python sibyl/ops/score_ghosts.py $(ARGS)
 
 # Weekly close-margin watch over the CLOSE_MARGIN telemetry archive: p50/p10/min of
 # window-remaining-at-submit per ISO week + questions under the 30% red line. Read-only
 # + free (reads backtests/telemetry_archive/close_margin.jsonl; run sync_telemetry first).
 # ARGS="--red-line 0.5" for a tighter line, ARGS="--output <path>" to dump the summary JSON.
 close_margin_watch:
-	uv run python scripts/close_margin_watch.py $(ARGS)
+	uv run python sibyl/ops/close_margin_watch.py $(ARGS)
 
 # Download run-log artifacts + harvest telemetry only (no research sync). Same script
 # as sync_telemetry; kept as a named target for parity with download_research.
 download_run_logs:
-	uv run python scripts/download_run_logs.py $(ARGS)
+	uv run python sibyl/ops/download_run_logs.py $(ARGS)
 
 # Download artifacts + archive raw research-provider logs only (no other sync). Same
 # script as sync_raw_research; kept as a named target for parity with download_research.
 download_raw_research:
-	uv run python scripts/download_raw_research.py $(ARGS)
+	uv run python sibyl/ops/download_raw_research.py $(ARGS)
 
 # Backfill research from existing GitHub Actions logs (Nov 2025 onward).
 # Pass ARGS="--limit 100 --status completed" to customize.
 backfill_research:
-	uv run python scripts/backfill_research_from_logs.py $(ARGS)
+	uv run python sibyl/ops/backfill_research_from_logs.py $(ARGS)
 
 # Download research artifacts into the local archive + rebuild. Enumerates EVERY
 # research-* artifact (all run-workflows) via the complete paginated artifacts REST
@@ -295,17 +295,17 @@ backfill_research:
 # scope, or ARGS="--rebuild-only" to rebuild from local data with no artifact fetch
 # (by_qid/ + backfill/ — offline and free, and it keeps the artifact records).
 download_research:
-	uv run python scripts/download_research.py $(ARGS)
+	uv run python sibyl/ops/download_research.py $(ARGS)
 
 # Backfill from Metaculus bot comments (historical, covers full tournament).
 backfill_comments:
-	uv run python scripts/backfill_research_from_comments.py $(ARGS)
+	uv run python sibyl/ops/backfill_research_from_comments.py $(ARGS)
 
 # Run backtest using cached (non-leaky) research from the archive.
 backtest_with_cache:
-	$(call RUN_UNBUFFERED,-m metaculus_bot.backtest --num-questions 20 --research-dir backtests/research_archive/latest $(ARGS))
+	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 20 --research-dir backtests/research_archive/latest $(ARGS))
 
 # Check OpenRouter key balances. Pass ARGS="--key donated" or ARGS="--key personal"
 # to limit which key is queried (default: both).
 check_credits:
-	@uv run python -m metaculus_bot.check_openrouter_credits $(ARGS)
+	@uv run python -m sibyl.telemetry.check_credits $(ARGS)

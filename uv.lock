@@ -2063,99 +2063,6 @@ wheels = [
 ]
 
 [[package]]
-name = "metaculus-bot"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "anthropic" },
-    { name = "asknews" },
-    { name = "exa-py" },
-    { name = "forecasting-tools" },
-    { name = "fredapi" },
-    { name = "google-genai" },
-    { name = "ijson" },
-    { name = "json-repair" },
-    { name = "litellm" },
-    { name = "numpy" },
-    { name = "openai" },
-    { name = "pandas" },
-    { name = "playwright" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "rapidfuzz" },
-    { name = "requests" },
-    { name = "scipy" },
-    { name = "tqdm" },
-    { name = "trafilatura" },
-    { name = "typeguard" },
-    { name = "yfinance" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "basedpyright" },
-    { name = "hypothesis" },
-    { name = "matplotlib" },
-    { name = "pandas-stubs" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pyyaml" },
-    { name = "ruff" },
-    { name = "scipy-stubs" },
-    { name = "ty" },
-    { name = "types-requests" },
-    { name = "types-tqdm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.12.15" },
-    { name = "anthropic", specifier = ">=1.2.0" },
-    { name = "asknews", specifier = ">=0.11.2" },
-    { name = "exa-py", specifier = ">=1.16.0" },
-    { name = "forecasting-tools", specifier = "==0.2.92" },
-    { name = "fredapi", specifier = ">=0.5.2" },
-    { name = "google-genai", specifier = ">=1.74.0" },
-    { name = "ijson", specifier = ">=3.5.1" },
-    { name = "json-repair", specifier = ">=0.61.1" },
-    { name = "litellm", specifier = ">=1.84.0,<2.0.0" },
-    { name = "numpy", specifier = ">=2.3.0" },
-    { name = "openai", specifier = ">=1.57.4" },
-    { name = "pandas", specifier = ">=2.2.3" },
-    { name = "playwright", specifier = ">=1.54.0" },
-    { name = "pydantic", specifier = ">=2.9.2,<3.0.0" },
-    { name = "python-dotenv", specifier = ">=1.0.1" },
-    { name = "rapidfuzz", specifier = ">=3.14.3" },
-    { name = "requests", specifier = ">=2.32.3" },
-    { name = "scipy", specifier = ">=1.12.0" },
-    { name = "tqdm", specifier = ">=4.66" },
-    { name = "trafilatura", specifier = ">=2.1.0" },
-    { name = "typeguard", specifier = ">=4.5" },
-    { name = "yfinance", specifier = ">=0.2.48" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "basedpyright", specifier = ">=1.25" },
-    { name = "hypothesis", specifier = ">=6.156.1" },
-    { name = "matplotlib", specifier = ">=3.11.0" },
-    { name = "pandas-stubs", specifier = ">=3.0.3.260530" },
-    { name = "pre-commit", specifier = ">=4.3.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-asyncio", specifier = ">=1.0.0" },
-    { name = "pytest-cov", specifier = ">=5.0.0" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "ruff", specifier = ">=0.15.1" },
-    { name = "scipy-stubs", specifier = ">=1.17.1.5" },
-    { name = "ty" },
-    { name = "types-requests", specifier = ">=2.33.0.20260518" },
-    { name = "types-tqdm", specifier = ">=4.68.0.20260608" },
-]
-
-[[package]]
 name = "multidict"
 version = "6.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3685,6 +3592,99 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/02/30/7a2e621918d1317ab972f797161131f2635648ad5d92baf0695dd009e4f9/scipy_stubs-1.17.1.5.tar.gz", hash = "sha256:284b1dd1dd46107a614971d170030d310cd88b2ac6b483f85285ee0ff87720bd", size = 399933, upload-time = "2026-05-25T21:34:33.6Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/26/d4bc2ba3427a623f79a6c10c8f427c7a55b56eb8b3eddc369319d97f741b/scipy_stubs-1.17.1.5-py3-none-any.whl", hash = "sha256:58ebf054a86c000c72e8982e121c4ead0d3d9ba7a6c38aa5fa71b07f96a427fd", size = 607388, upload-time = "2026-05-25T21:34:32.073Z" },
+]
+
+[[package]]
+name = "sibyl"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "anthropic" },
+    { name = "asknews" },
+    { name = "exa-py" },
+    { name = "forecasting-tools" },
+    { name = "fredapi" },
+    { name = "google-genai" },
+    { name = "ijson" },
+    { name = "json-repair" },
+    { name = "litellm" },
+    { name = "numpy" },
+    { name = "openai" },
+    { name = "pandas" },
+    { name = "playwright" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "rapidfuzz" },
+    { name = "requests" },
+    { name = "scipy" },
+    { name = "tqdm" },
+    { name = "trafilatura" },
+    { name = "typeguard" },
+    { name = "yfinance" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "basedpyright" },
+    { name = "hypothesis" },
+    { name = "matplotlib" },
+    { name = "pandas-stubs" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pyyaml" },
+    { name = "ruff" },
+    { name = "scipy-stubs" },
+    { name = "ty" },
+    { name = "types-requests" },
+    { name = "types-tqdm" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.12.15" },
+    { name = "anthropic", specifier = ">=1.2.0" },
+    { name = "asknews", specifier = ">=0.11.2" },
+    { name = "exa-py", specifier = ">=1.16.0" },
+    { name = "forecasting-tools", specifier = "==0.2.92" },
+    { name = "fredapi", specifier = ">=0.5.2" },
+    { name = "google-genai", specifier = ">=1.74.0" },
+    { name = "ijson", specifier = ">=3.5.1" },
+    { name = "json-repair", specifier = ">=0.61.1" },
+    { name = "litellm", specifier = ">=1.84.0,<2.0.0" },
+    { name = "numpy", specifier = ">=2.3.0" },
+    { name = "openai", specifier = ">=1.57.4" },
+    { name = "pandas", specifier = ">=2.2.3" },
+    { name = "playwright", specifier = ">=1.54.0" },
+    { name = "pydantic", specifier = ">=2.9.2,<3.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "rapidfuzz", specifier = ">=3.14.3" },
+    { name = "requests", specifier = ">=2.32.3" },
+    { name = "scipy", specifier = ">=1.12.0" },
+    { name = "tqdm", specifier = ">=4.66" },
+    { name = "trafilatura", specifier = ">=2.1.0" },
+    { name = "typeguard", specifier = ">=4.5" },
+    { name = "yfinance", specifier = ">=0.2.48" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright", specifier = ">=1.25" },
+    { name = "hypothesis", specifier = ">=6.156.1" },
+    { name = "matplotlib", specifier = ">=3.11.0" },
+    { name = "pandas-stubs", specifier = ">=3.0.3.260530" },
+    { name = "pre-commit", specifier = ">=4.3.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", specifier = ">=1.0.0" },
+    { name = "pytest-cov", specifier = ">=5.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "ruff", specifier = ">=0.15.1" },
+    { name = "scipy-stubs", specifier = ">=1.17.1.5" },
+    { name = "ty" },
+    { name = "types-requests", specifier = ">=2.33.0.20260518" },
+    { name = "types-tqdm", specifier = ">=4.68.0.20260608" },
 ]
 
 [[package]]

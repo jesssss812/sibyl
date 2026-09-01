@@ -78,7 +78,7 @@ provenance the summarizer prompt's trust-ladder vocabulary actively uses.
 the token audit (ranked it #1 to cut, ~$0.55/q, "both do the same job"). The content audit
 one day later found the reverse: **v1 is the most load-bearing section per token — 59%
 unique content**, carrying the decisive single-source fact in most sampled questions,
-numeric novelty mean 37% (range 0–77%). FUTURE.md sets a gate — compare v1 vs v2 on ~20 prod
+numeric novelty mean 37% (range 0–77%). bottega:FUTURE.md sets a gate — compare v1 vs v2 on ~20 prod
 questions where both ran — and that comparison has never been run. Two audits a day apart
 reached opposite conclusions; the content-level one is the stronger evidence.
 

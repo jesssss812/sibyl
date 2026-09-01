@@ -91,7 +91,7 @@ people up is the two OpenRouter keys.
 - **`OPENROUTER_API_KEY` — personal.** Pays for what the donated key can't
   (Grok, Qwen, Perplexity-via-OpenRouter) and serves as the fallback when the
   donated key hits a credential, credit, or allowed-providers error. The
-  fallback wrapper is `metaculus_bot/fallback_openrouter.py`.
+  fallback wrapper is `sibyl/platform/key_fallback.py`.
 - **`GOOGLE_API_KEY` — personal.** The operator's Google AI Studio key. Since
   2026-08-31 its ONLY remaining use is gap-fill v2's document reads
   (`read_document` via url_context); the Gemini grounded-search provider it also
@@ -368,7 +368,7 @@ tee'd from `run_logs/` during the run, alongside the run's
     archived personal-key runs: the markers captured 58% of true spend and 160 of
     178 read exactly `0.00`.
   - For the settled per-run figure, run
-    `uv run python scripts/reconcile_credit_spend.py` (free, offline, reads the
+    `uv run python sibyl/ops/reconcile_credit_spend.py` (free, offline, reads the
     telemetry archive). It differences each run's start usage against the next
     run's, which is the only place the lagged spend is observable. The most
     recent run has no successor yet, so it shows as unsettled until another runs.
@@ -419,7 +419,7 @@ The paid run is the operator's last step.
 
 ### Paid and externally visible
 
-- `uv run python main.py` / `make run` in any live mode (`tournament`,
+- `uv run python -m sibyl` / `make run` in any live mode (`tournament`,
   `minibench`, `metaculus_cup`, `test_questions`) — spends credits and publishes
   to Metaculus. `cli.py` builds the bot with `publish_reports_to_metaculus=True`
   in every mode.
@@ -471,7 +471,7 @@ The paid run is the operator's last step.
   resolutions still come from the read-only Metaculus API, so extraction, the numeric
   pipeline, aggregation, the A3 guard and scoring all run for real against real outcomes.
   Its scores measure the PIPELINE, not forecasting skill — never report them as accuracy.
-  See `metaculus_bot/benchmark/fixture_llm.py`.
+  See `sibyl/eval/benchmark/fixture_llm.py`.
 
 The test suite is safe by construction, not by convention. The `e2e` marker
 means a full-pipeline test with mocked LLMs, and `tests/conftest.py` installs an
@@ -487,7 +487,7 @@ So a plain `make test` cannot reach a paid API even if a new test tries to.
 ## Credit telemetry and the refill floor
 
 Every run logs OpenRouter balances for both keys at start and end, and computes
-per-run spend. The code is `metaculus_bot/credit_telemetry.py`, whose
+per-run spend. The code is `sibyl/telemetry/credits.py`, whose
 `CreditTelemetry` is wired into `cli.py`'s `main`; balances come from the
 `/auth/key` endpoint via `check_openrouter_credits.py`.
 
@@ -500,7 +500,7 @@ stderr), so per-run spend is durably grep-able:
   bound — see the smoke-test grep list above), or `unavailable`.
 - `CREDIT_SPEND_UNSETTLED: key=... run_delta_usd=... is a LOWER BOUND ...` beside
   every `usage_delta_unsettled` figure, so a `0.00` is never mistaken for
-  no-spend. `scripts/reconcile_credit_spend.py` recovers the settled number.
+  no-spend. `sibyl/ops/reconcile_credit_spend.py` recovers the settled number.
 - `CREDIT_FLOOR_BREACH: key=donated remaining=... floor=...` when the donated
   key's remaining balance drops below `OPENROUTER_CREDIT_FLOOR_USD`
   (`constants.py`).
@@ -702,21 +702,21 @@ The old `community_benchmark.py` path was REMOVED on 2026-08-31: Metaculus remov
 `aggregations` field from the list API, so baseline scoring is broken.
 `make benchmark_display` still views old results.
 
-The backtest driver moved from the repo root to `metaculus_bot/backtest/cli.py` on
-2026-08-26 and now runs as `python -m metaculus_bot.backtest`; the correlation
-analyser likewise as `python -m metaculus_bot.ensemble_analysis`. The `make`
+The backtest driver moved from the repo root to `sibyl/eval/backtest/cli.py` on
+2026-08-26 and now runs as `python -m sibyl.eval.backtest`; the correlation
+analyser likewise as `python -m sibyl.eval.ensemble`. The `make`
 targets are unchanged.
 
 ## Performance analysis and the width monitor (read-only, free)
 
-`metaculus_bot/performance_analysis/` evaluates the live bot's calibration
+`sibyl/eval/performance/` evaluates the live bot's calibration
 against actual resolutions. The pull hits only the Metaculus API (resolved
 questions plus the bot's own comments, user id 275109, auth via
 `METACULUS_TOKEN`). It makes no LLM or research calls and does not publish, so
 it is not subject to the cost gate.
 
 ```bash
-uv run python -m metaculus_bot.performance_analysis --tournament <slug> --output <path>
+uv run python -m sibyl.eval.performance --tournament <slug> --output <path>
 ```
 
 The `--tournament` default is `DEFAULT_TOURNAMENT` (`performance_analysis/cli.py`)
@@ -743,12 +743,12 @@ omitted, so while no post-july15-bundle numeric has resolved the `ts_anchor` row
 is absent from the table rather than present-and-empty.
 
 ```bash
-uv run python -m metaculus_bot.performance_analysis.width_monitor --tournament <slug>
+uv run python -m sibyl.eval.performance.width_monitor --tournament <slug>
 # or against a cached dataset:
-uv run python -m metaculus_bot.performance_analysis.width_monitor --cached <path>
+uv run python -m sibyl.eval.performance.width_monitor --cached <path>
 # drop the known open-bound bug pair (43746/43747) from every row; the excluded
 # count is rendered in the table, so the exclusion is never silent:
-uv run python -m metaculus_bot.performance_analysis.width_monitor --cached <path> --exclude-qids known_bug
+uv run python -m sibyl.eval.performance.width_monitor --cached <path> --exclude-qids known_bug
 ```
 
 Before either analysis, run `make sync_all` (also read-only and free) so the
@@ -760,7 +760,7 @@ narrower `sync_*` targets — it is a single download pass over the union of
 artifact families, so it is cheaper than running them in sequence, and GHA
 artifacts expire at 90 days, which makes anything a partial pull skipped
 permanently unrecoverable. The twice-weekly launchd job in
-`scripts/research_sync/` is wired to `sync_all` for the same reason.
+`bottega:scripts/research_sync/` is wired to `sync_all` for the same reason.
 
 ### The persisted artifact store, and re-parsing for free
 
@@ -794,7 +794,8 @@ KiB, mean 44 KiB, largest under 1 MB), and at ~13 artifacts/day that is roughly
 17 MB/month, so about 210 MB after a year. Nothing needs compression, and
 nothing is pruned on purpose — permanence is the whole point.
 
-`uv run python -m scripts.research_sync.verify_completeness` checks store
+The completeness checker (`bottega:scripts/research_sync/verify_completeness.py`, not
+carried into this repo) checks store
 coverage as its own FAIL condition (a live artifact missing from the store is
 research one clock-tick from unrecoverable), separately from archive coverage.
 Read the two signals differently: most artifacts legitimately hold no research at
@@ -844,7 +845,7 @@ the telemetry markers:
   `research_provider_failures` counts any provider exception, not only timeouts —
   it was named `research_provider_timeouts` until 2026-07-26, when
   `prediction_market_platform_failures` also became
-  `prediction_market_source_losses`. `scripts/telemetry/markers.py` matches both
+  `prediction_market_source_losses`. `sibyl/telemetry/markers.py` matches both
   spellings, so archived pre-rename logs still harvest.
   `prediction_market_degraded` kept its name when the counter behind it moved off
   the retired Kalshi `/series` index onto the full events-catalogue pull, so the
@@ -891,7 +892,7 @@ worthwhile follow-up, but it is an editorial pass, not a mechanical one.
 
 The bot uses several API keys; they fall into two buckets and the names don't always make this obvious. Be explicit when reasoning about routing:
 
-- **`OAI_ANTH_OPENROUTER_KEY` — Metaculus-donated OpenRouter key (SHARED).** Despite the name, this is the *only* shared/donated credential in the bot. Metaculus provides credits to bot operators on this key for OpenAI, Anthropic, and Google models routed via OpenRouter. It has server-side allowed-providers preferences locked to `{openai, anthropic, google}`; non-listed providers (e.g. `x-ai` for Grok) 404 on it. Wrapped by `FallbackOpenRouterLlm` (`metaculus_bot/fallback_openrouter.py`) which falls back to `OPENROUTER_API_KEY` on credential / credit / allowed-providers errors.
+- **`OAI_ANTH_OPENROUTER_KEY` — Metaculus-donated OpenRouter key (SHARED).** Despite the name, this is the *only* shared/donated credential in the bot. Metaculus provides credits to bot operators on this key for OpenAI, Anthropic, and Google models routed via OpenRouter. It has server-side allowed-providers preferences locked to `{openai, anthropic, google}`; non-listed providers (e.g. `x-ai` for Grok) 404 on it. Wrapped by `FallbackOpenRouterLlm` (`sibyl/platform/key_fallback.py`) which falls back to `OPENROUTER_API_KEY` on credential / credit / allowed-providers errors.
 - **`OPENROUTER_API_KEY` — operator's personal OpenRouter key.** Pays for everything the donated key can't (Grok via x-ai, Qwen, Perplexity-via-OpenRouter) plus serves as the fallback when the donated key fails.
 - **`GOOGLE_API_KEY` — personal Google AI Studio key.**
   > ⚠ **Corrected 2026-08-31.** Everything below describes the UPSTREAM author's
@@ -910,7 +911,7 @@ The bot uses several API keys; they fall into two buckets and the names don't al
   Historical (upstream project): In CI it's stored as `secrets.GEMINI_API_KEY` and surfaced as `GOOGLE_API_KEY` in the workflow env so the `google-genai` SDK picks it up. **There is NO Metaculus-donated Google AI Studio key.** Billing mechanics (verified against ai.google.dev pricing/billing/google-search docs 2026-07-17 — don't re-litigate without fetching them): Gemini 3.x grounding is paid-tier-ONLY (free-tier column: "Not available") and includes **5,000 free grounded prompts/month shared across all Gemini 3 models per project, then $14/1k individual search queries** (multi-query prompts bill per QUERY on overage — deep-research prompts fire several). Current usage ≈ 100-200 grounded prompts/month ≈ 3% of the allowance. The spring-2026 billing arc, explained: gap-fill's 5x grounded-call multiplier + backtest volume (backtest_large = 600 grounded prompts/run) blew past 5,000/month → per-query overage → prepaid-credit top-up debits ("started getting billed"); the 2026-06-25 resolver migration (`a51617e`) cut the multiplier and new charges stopped, with residual ~$1/month token spend silently drawing down the prepaid balance. **Watch item: prepaid-balance exhaustion produces 429s, not surprise charges** — if Gemini grounded search starts soft-failing across a run, check the AI Studio credit balance FIRST. Also: any future feature multiplying grounded-call counts (or Gemini-grounded backtests at scale) re-eats the same monthly pool. Model note: `gemini-3.5-flash` shares the same grounding pool (grounding = $0 to switch) but its tokens are 3x 3-flash-preview ($1.50/$9 vs $0.50/$3 per M) — a few dollars/month, from prepaid credits. The grounded-search side (`research/gemini_search.py`) and v2's `read_document`/url_context both use this personal key (url_context: no per-request fee; retrieved documents bill as input tokens). Don't confuse the OpenRouter Gemini path (donated route via `OAI_ANTH_OPENROUTER_KEY`, minus whatever `DONATED_KEY_BLOCKED_GOOGLE_MODELS` excepts) with this google-genai path — separate keys, separate billing.
 - **`METACULUS_TOKEN`, `ASKNEWS_*`, `EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — all personal.** No shared variants. The two direct provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) are only used if you bypass OpenRouter; most flows route through OpenRouter and don't need them.
 
-**Toggle: `GEMINI_USE_DONATED_OPENROUTER_KEY`** (default `true`, since 2026-06-16). Only affects OpenRouter Gemini routing; does NOT touch grounded search. On by default because Metaculus raised the Google rate limits — the donated OpenRouter key now serves most Gemini models (verified by live call: `gemini-3.5-flash` and `gemini-3.1-flash-lite` both succeed on the donated key). **Known exception:** the Gemini Pro forecaster slot is **PINNED to the personal key** via the `DONATED_KEY_BLOCKED_GOOGLE_MODELS` blocklist in `fallback_openrouter.py` (read the blocklist for which models it currently covers) — `should_route_via_donated_key` returns `False` for anything on it even with the toggle ON, so there's no donated attempt, no 429, and no personal-key-fallback-counter bump (which would otherwise redden CI on every question). It's pinned (not "falls back") because that model routes through a free-tier Google AI Studio BYOK key on the donated account with no Pro free tier (quota 0 → `is_byok:true` + `FreeTier limit: 0`). This is a **temporary workaround** tagged `TODO(gemini-3.1-pro-donated)` in code — remove the blocklist entry once Metaculus fixes the BYOK routing (enable Cloud billing on the BYOK key's GCP project, remove the Google AI Studio BYOK integration so native OpenRouter Google credits are used, or disable "Always use for this provider" on that BYOK key), then re-verify with one live call. Set this toggle to a false-y value (`false`/`0`/`no`) to force personal-key-only routing for ALL Gemini. The prod workflow yamls (`.github/workflows/run_bot_on_*.yaml`, `test_bot.yaml`) pin it to `'true'` explicitly. See `metaculus_bot/fallback_openrouter.py:should_route_via_donated_key` and `FUTURE.md` "Gemini on the donated OpenRouter key".
+**Toggle: `GEMINI_USE_DONATED_OPENROUTER_KEY`** (default `true`, since 2026-06-16). Only affects OpenRouter Gemini routing; does NOT touch grounded search. On by default because Metaculus raised the Google rate limits — the donated OpenRouter key now serves most Gemini models (verified by live call: `gemini-3.5-flash` and `gemini-3.1-flash-lite` both succeed on the donated key). **Known exception:** the Gemini Pro forecaster slot is **PINNED to the personal key** via the `DONATED_KEY_BLOCKED_GOOGLE_MODELS` blocklist in `fallback_openrouter.py` (read the blocklist for which models it currently covers) — `should_route_via_donated_key` returns `False` for anything on it even with the toggle ON, so there's no donated attempt, no 429, and no personal-key-fallback-counter bump (which would otherwise redden CI on every question). It's pinned (not "falls back") because that model routes through a free-tier Google AI Studio BYOK key on the donated account with no Pro free tier (quota 0 → `is_byok:true` + `FreeTier limit: 0`). This is a **temporary workaround** tagged `TODO(gemini-3.1-pro-donated)` in code — remove the blocklist entry once Metaculus fixes the BYOK routing (enable Cloud billing on the BYOK key's GCP project, remove the Google AI Studio BYOK integration so native OpenRouter Google credits are used, or disable "Always use for this provider" on that BYOK key), then re-verify with one live call. Set this toggle to a false-y value (`false`/`0`/`no`) to force personal-key-only routing for ALL Gemini. The prod workflow yamls (`.github/workflows/run_bot_on_*.yaml`, `test_bot.yaml`) pin it to `'true'` explicitly. See `sibyl/platform/key_fallback.py:should_route_via_donated_key` and `bottega:FUTURE.md` "Gemini on the donated OpenRouter key".
 
 **Diagnosing auth / credit errors**:
 

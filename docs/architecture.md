@@ -14,21 +14,21 @@ combine them into one prediction and publish it as a comment on Metaculus.
 
 Three files form the startup chain:
 
-- `main.py` — a thin shim. It re-exports `TemplateForecaster` (for anything that
+- `main.py` — a thin shim. It re-exports `SibylBot` (for anything that
   imports it) and, when run directly, calls `cli.main()`.
-- `metaculus_bot/cli.py` — the command-line entry point. It parses `--mode`
+- `sibyl/cli.py` — the command-line entry point. It parses `--mode`
   (`tournament`, `minibench`, `metaculus_cup`, `quarterly_cup`, `test_questions`),
-  builds the LLM roster dict from `llm_configs.py`, constructs a `TemplateForecaster`
+  builds the LLM roster dict from `llm_configs.py`, constructs a `SibylBot`
   with `aggregation_strategy=CONDITIONAL_STACKING`, and runs the mode-specific
   forecast loop. It also wires credit telemetry and decides the process exit code:
   the run exits non-zero when any degradation counter fired (`alertable_count` on
-  `TemplateForecaster` sums them: dropped forecasters, questions that failed to
+  `SibylBot` sums them: dropped forecasters, questions that failed to
   publish, stacker fallbacks, research-provider and summarizer failures, gap-fill
   v2 errors, and prediction-market degradation) or the donated OpenRouter key
   dropped below the refill floor. Credit-caused alerts are suppressed until
   2026-09-10 while the operator self-funds the season — see "Credit alerting is
   suppressed" in `docs/operations.md`. See `main` in `cli.py`.
-- `metaculus_bot/forecaster.py` — the bot itself. `TemplateForecaster` subclasses the
+- `sibyl/forecasting/bot.py` — the bot itself. `SibylBot` subclasses the
   framework's `ForecastBot` and owns the per-question pipeline. The method to read
   first is `_research_and_make_predictions`.
 
@@ -144,7 +144,7 @@ questions. The N coroutines are gathered under the shared wall-clock budget by
 forecaster still pending at the deadline and counts the drop.
 
 The ensemble is a handful of forecaster LLMs, one per vendor. The exact roster
-rotates often, so **read `metaculus_bot/llm_configs.py` for the current list** rather
+rotates often, so **read `sibyl/config/models.py` for the current list** rather
 than trusting any names written here. Support models (summarizer, parser, stacker,
 disagreement analyzer) live in the same file.
 
@@ -194,7 +194,7 @@ Spread thresholds live in `constants.py`, one per question type:
 MEDIAN path. In effect, **prod runs MEDIAN of the raw forecasts.** The stacker chain
 stays fully wired and is exercised in
 backtests and ablation runs. The aggregation dispatch, base-combine, and stacker
-fallback ladder all live in `metaculus_bot/aggregation_pipeline.py`
+fallback ladder all live in `sibyl/aggregation/pipeline.py`
 (`AggregationPipeline`). The conditional-stacking path runs the combined result
 through a Platt-calibration hook (`_post_process_final` in
 `aggregation_pipeline.py`), but that hook is gated by `PLATT_CALIBRATION_ENABLED`,
@@ -209,7 +209,7 @@ The **open-vs-resolved guard** (`resolution_state_guard.py`) is binary-only and 
 an extreme probability back to 0.05/0.95 when the question is still open with at least
 a quarter of its open→close window left — the case where near-certainty is more likely
 a misread than earned. Firing is normal operation: it logs a `RESOLUTION_GUARD` marker
-(spec'd in `scripts/telemetry/markers.py`) and bumps no alertable counter.
+(spec'd in `sibyl/telemetry/markers.py`) and bumps no alertable counter.
 
 **Two `_base_combine` returns take a different route.** The single-prediction branch
 (the `MIN_FORECASTERS_TO_PUBLISH = 1` survivor path) and the plain-`STACKING` branch
@@ -238,19 +238,19 @@ record the performance-analysis tooling later parses.
 
 | Concern | Module |
 |---|---|
-| Startup / CLI | `main.py`, `metaculus_bot/cli.py` |
-| Per-question orchestration | `metaculus_bot/forecaster.py` |
-| Post-fan-out aggregation routing | `metaculus_bot/stacking_route.py` |
-| Drop attribution / degradation counters | `metaculus_bot/drop_telemetry.py`, `degradation_counters.py` |
-| Research fan-out | `metaculus_bot/research/orchestrator.py`, `research/providers.py` |
+| Startup / CLI | `main.py`, `sibyl/cli.py` |
+| Per-question orchestration | `sibyl/forecasting/bot.py` |
+| Post-fan-out aggregation routing | `sibyl/aggregation/routing.py` |
+| Drop attribution / degradation counters | `sibyl/telemetry/drops.py`, `degradation_counters.py` |
+| Research fan-out | `sibyl/research/orchestrator.py`, `research/providers.py` |
 | Gap-fill v1 / v2 | `research/targeted.py`, `research/agentic/` |
-| Forecaster runners | `metaculus_bot/forecaster_runners.py` |
-| Value extraction | `metaculus_bot/value_extraction.py` |
-| Numeric CDF | `metaculus_bot/numeric/` |
-| Aggregation + stacking | `metaculus_bot/aggregation_pipeline.py`, `stacking.py` |
-| Model roster (source of truth) | `metaculus_bot/llm_configs.py` |
-| Prompts | `metaculus_bot/prompts.py` |
-| Constants / thresholds / env flags | `metaculus_bot/constants.py` |
+| Forecaster runners | `sibyl/forecasting/runners.py` |
+| Value extraction | `sibyl/forecasting/value_extraction.py` |
+| Numeric CDF | `sibyl/forecasting/numeric/` |
+| Aggregation + stacking | `sibyl/aggregation/pipeline.py`, `stacking.py` |
+| Model roster (source of truth) | `sibyl/config/models.py` |
+| Prompts | `sibyl/forecasting/prompts.py` |
+| Constants / thresholds / env flags | `sibyl/config/settings.py` |
 
 ## Related docs
 
@@ -281,27 +281,27 @@ kept verbatim rather than merged, so nothing is silently lost. Reconciling the t
 worthwhile follow-up, but it is an editorial pass, not a mechanical one.
 ### Ensemble
 
-`FORECASTER_LLMS` in `metaculus_bot/llm_configs.py` is the authoritative roster. It rotates frequently, so read it rather than trusting any copy — this file deliberately does not name the current members outside the dated history below. The standing design is latest-per-vendor: the newest frontier reasoning model from each major vendor, one slot each. Do NOT hardcode model names outside `llm_configs.py`. Providers: **mixed transport since 2026-08-31** — the Anthropic slot calls the Anthropic API directly (`anthropic/...`, billed to `ANTHROPIC_API_KEY`), while the OpenAI and Google slots route via OpenRouter. The donated-key story below is now historical: `OAI_ANTH_OPENROUTER_KEY` is spent for the season and unset, so every OpenRouter slot bills the personal `OPENROUTER_API_KEY`. (Historically: dropping grok (x-ai) ended routine personal-key forecaster spend, leaving only the Google slot pinned by the `DONATED_KEY_BLOCKED_GOOGLE_MODELS` blocklist on the personal key while the rest rode the donated key.) Alongside the roster shrink, `MIN_FORECASTERS_TO_PUBLISH` (constants.py) was lowered 3→2→1 over 2026-07-20; the operator accepts publishing on a single surviving forecaster (median-of-1 = that forecast), with `route_after_forecasts` (`stacking_route.py`) short-circuiting the n==1 case before spread computation + stacking (the `spread_metrics` helpers require ≥2 predictions and raise otherwise). Exception-driven drops stay CI-visible via the alertable counter, so a degraded single-forecaster publish still reddens CI rather than silently withholding the question.
+`FORECASTER_LLMS` in `sibyl/config/models.py` is the authoritative roster. It rotates frequently, so read it rather than trusting any copy — this file deliberately does not name the current members outside the dated history below. The standing design is latest-per-vendor: the newest frontier reasoning model from each major vendor, one slot each. Do NOT hardcode model names outside `llm_configs.py`. Providers: **mixed transport since 2026-08-31** — the Anthropic slot calls the Anthropic API directly (`anthropic/...`, billed to `ANTHROPIC_API_KEY`), while the OpenAI and Google slots route via OpenRouter. The donated-key story below is now historical: `OAI_ANTH_OPENROUTER_KEY` is spent for the season and unset, so every OpenRouter slot bills the personal `OPENROUTER_API_KEY`. (Historically: dropping grok (x-ai) ended routine personal-key forecaster spend, leaving only the Google slot pinned by the `DONATED_KEY_BLOCKED_GOOGLE_MODELS` blocklist on the personal key while the rest rode the donated key.) Alongside the roster shrink, `MIN_FORECASTERS_TO_PUBLISH` (constants.py) was lowered 3→2→1 over 2026-07-20; the operator accepts publishing on a single surviving forecaster (median-of-1 = that forecast), with `route_after_forecasts` (`stacking_route.py`) short-circuiting the n==1 case before spread computation + stacking (the `spread_metrics` helpers require ≥2 predictions and raise otherwise). Exception-driven drops stay CI-visible via the alertable counter, so a degraded single-forecaster publish still reddens CI rather than silently withholding the question.
 
-Roster-change history — **all dates below are AUTHORING dates on the july15 branch; every one of them reached prod together in merge `b4e9df0` at 2026-07-21T17:07:37Z, which is the single era boundary** (see the merge-date rule under era-bucketing): 2026-07-15 — Fable-5 joined the forecaster roster (was stacker-only; stacking disabled in prod made it idle) and opus-4.6 retired, keeping n=6 at a 2 Anthropic / 2 OpenAI / 1 Google / 1 xAI balance. 2026-07-20 (first change) — Fable-5 PULLED from the forecaster roster and the stacker after it returned `message.content=None` on 4/4 attempts for Q14333's numeric forecast + a truncated no-JSON-block output on Q578 in the 2026-07-19 test_bot run (suspected content classifiers refusing certain question content — fast deterministic empty completions, not timeouts); opus-4.7 took the slot, keeping n=6. Reconsidering fable-5 is a tracked follow-up (FUTURE.md). 2026-07-20 (second change, current) — dropped from 6 to the 3-member latest-per-vendor triple, removing gpt-5.5, opus-4.7, and grok-4.5. Two adversarially-verified analyses (`scratch/ensemble_3member_audit_2026-07-20/` + `scratch/ensemble_power_model_2026-07-20/`) found the triple non-inferior on binary/MC and only a fragile numeric lean toward the full roster (+3.24, 95% CI [-2.5, +9.1], P(loss>1pt/Q)=0.80, driven by 2 questions); accepted as a ship-and-watch bet — see FUTURE.md "Frozen-triple numeric watch". This second change supersedes the first as the roster in effect, but both landed in the same merge, so residual analysis sees ONE boundary at 2026-07-21T17:07:37Z — no prod run ever used the intermediate opus-4.7 roster.
+Roster-change history — **all dates below are AUTHORING dates on the july15 branch; every one of them reached prod together in merge `b4e9df0` at 2026-07-21T17:07:37Z, which is the single era boundary** (see the merge-date rule under era-bucketing): 2026-07-15 — Fable-5 joined the forecaster roster (was stacker-only; stacking disabled in prod made it idle) and opus-4.6 retired, keeping n=6 at a 2 Anthropic / 2 OpenAI / 1 Google / 1 xAI balance. 2026-07-20 (first change) — Fable-5 PULLED from the forecaster roster and the stacker after it returned `message.content=None` on 4/4 attempts for Q14333's numeric forecast + a truncated no-JSON-block output on Q578 in the 2026-07-19 test_bot run (suspected content classifiers refusing certain question content — fast deterministic empty completions, not timeouts); opus-4.7 took the slot, keeping n=6. Reconsidering fable-5 is a tracked follow-up (bottega:FUTURE.md). 2026-07-20 (second change, current) — dropped from 6 to the 3-member latest-per-vendor triple, removing gpt-5.5, opus-4.7, and grok-4.5. Two adversarially-verified analyses (`bottega:scratch/ensemble_3member_audit_2026-07-20/` + `bottega:scratch/ensemble_power_model_2026-07-20/`) found the triple non-inferior on binary/MC and only a fragile numeric lean toward the full roster (+3.24, 95% CI [-2.5, +9.1], P(loss>1pt/Q)=0.80, driven by 2 questions); accepted as a ship-and-watch bet — see bottega:FUTURE.md "Frozen-triple numeric watch". This second change supersedes the first as the roster in effect, but both landed in the same merge, so residual analysis sees ONE boundary at 2026-07-21T17:07:37Z — no prod run ever used the intermediate opus-4.7 roster.
 
 Support models (also in `llm_configs.py`):
 
-- **Stacker**: `STACKER_LLM` — the Anthropic slot, since 2026-07-20 when fable-5 was pulled from both roles (see the 2026-07-20 roster-change note above; it uses effort-based adaptive thinking rather than a max_tokens budget; the stacker chain remains configured but prod-disabled. Was `claude-fable-5` from 2026-07-07 to 2026-07-20). Falls back to `STACKER_FALLBACK_LLM`, deliberately a different vendor so an Anthropic stall doesn't take both attempts down; it stays one effort tier below the primary because it fires late on the critical path under `STACKER_FALLBACK_SOFT_DEADLINE`. Both are `allowed_tries=1` — on stall, we fall back rather than burn budget retrying the same provider. OpenRouter's full effort enum (live-verified 2026-07-15): none/minimal/low/medium/high/xhigh/max; the xhigh slots are the Anthropic forecaster and the stacker. The OpenAI forecaster dropped xhigh→high on 2026-07-20 evening (it is ~70% of forecaster reasoning spend and the high→xhigh premium is unmeasured — the Anthropic slot keeps xhigh as the remaining premium bet; see FUTURE.md "Price the high→xhigh reasoning-effort premium"). The Google forecaster has no xhigh tier and runs at provider defaults. "max" is Anthropic-only (one tier above xhigh; OpenAI's ceiling is xhigh and rejects max upstream) — held back on the Anthropic slots for latency.
+- **Stacker**: `STACKER_LLM` — the Anthropic slot, since 2026-07-20 when fable-5 was pulled from both roles (see the 2026-07-20 roster-change note above; it uses effort-based adaptive thinking rather than a max_tokens budget; the stacker chain remains configured but prod-disabled. Was `claude-fable-5` from 2026-07-07 to 2026-07-20). Falls back to `STACKER_FALLBACK_LLM`, deliberately a different vendor so an Anthropic stall doesn't take both attempts down; it stays one effort tier below the primary because it fires late on the critical path under `STACKER_FALLBACK_SOFT_DEADLINE`. Both are `allowed_tries=1` — on stall, we fall back rather than burn budget retrying the same provider. OpenRouter's full effort enum (live-verified 2026-07-15): none/minimal/low/medium/high/xhigh/max; the xhigh slots are the Anthropic forecaster and the stacker. The OpenAI forecaster dropped xhigh→high on 2026-07-20 evening (it is ~70% of forecaster reasoning spend and the high→xhigh premium is unmeasured — the Anthropic slot keeps xhigh as the remaining premium bet; see bottega:FUTURE.md "Price the high→xhigh reasoning-effort premium"). The Google forecaster has no xhigh tier and runs at provider defaults. "max" is Anthropic-only (one tier above xhigh; OpenAI's ceiling is xhigh and rejects max upstream) — held back on the Anthropic slots for latency.
 - **Disagreement analyzer**: `DISAGREEMENT_ANALYZER_LLM` (low-effort crux extractor; quality drives targeted-search query, running under `CRUX_SOFT_DEADLINE`; sol→terra 2026-07-17 per the blind role audit — terra 2nd, sol 3rd, at −49% cost, and the role fires rarely with stacking disabled in prod).
 - **Summarizer / researcher**: `SUMMARIZER_LLM` (aliased as `RESEARCHER_LLM`; low effort, deterministic; sol→terra 2026-07-18 operator decision — AskNews is an auxiliary source per the content audit (16% unique content), the role audit had sol over terra only at "MARGINAL EDGE", and 4/5 audited briefing failures were prompt-era not model-tier; terra −43% cost, ~50s vs ~118s wall). The summarizer prompt carries the 2026-07-18 AskNews-audit rules: a hard per-article relevance gate (off-topic articles DROPPED to a one-line "Screened out as not decision-relevant" list), recency-first ordering (lead with the newest resolution-relevant facts, don't mirror the raw Historical/Recent input structure), supersession + quote-the-deadline-inputs arithmetic transparency, an evidence-age disclosure opening the briefing ("Newest directly-relevant article: ..."), and a proportionality rule (length tracks decision-relevant content, not article count).
 - **Parser**: `PARSER_LLM` (low effort, deterministic; a capability-saturated extraction task, so it sits on the cheapest tier that saturates it — the per-token comparison behind that choice is in the `llm_configs.py` comment).
 
 ### CONDITIONAL_STACKING (default)
 
-`AggregationStrategy.CONDITIONAL_STACKING` (set in `main`, `metaculus_bot/cli.py`). Note: this describes the code default — stacking is currently DISABLED in prod, since all four prod workflow yamls set `BINARY_STACKING_ENABLED`/`MC_STACKING_ENABLED`/`NUMERIC_STACKING_ENABLED` to `'false'` (the chain stays live in backtests/ablation). Behavior:
+`AggregationStrategy.CONDITIONAL_STACKING` (set in `main`, `sibyl/cli.py`). Note: this describes the code default — stacking is currently DISABLED in prod, since all four prod workflow yamls set `BINARY_STACKING_ENABLED`/`MC_STACKING_ENABLED`/`NUMERIC_STACKING_ENABLED` to `'false'` (the chain stays live in backtests/ablation). Behavior:
 
 - Compute spread across the N forecasters via `spread_metrics.compute_spread`.
 - If spread ≤ threshold → return **MEDIAN** of raw per-model predictions (base-combine via `_base_combine`, `aggregation_pipeline.py`).
 - If spread > threshold → extract the **disagreement crux**, run **targeted search** (OpenAI native search on the same `NATIVE_SEARCH_*` model / effort / verbosity / timeout settings as the native-search provider, described under Research providers below), then invoke the **stacker LLM** with the full base-model reasonings + targeted research (`stacking.run_stacking_{binary,mc,numeric}`).
 - Stacker fallback chain: primary `STACKER_LLM` under `STACKER_SOFT_DEADLINE` → `STACKER_FALLBACK_LLM` under `STACKER_FALLBACK_SOFT_DEADLINE` → MEDIAN. (`_stacking_aggregate`, `aggregation_pipeline.py`.)
 
-Thresholds (all in `metaculus_bot/constants.py`):
+Thresholds (all in `sibyl/config/settings.py`):
 
 - Binary: probability range (max − min) ≥ `CONDITIONAL_STACKING_BINARY_PROB_RANGE_THRESHOLD`.
 - MC: max per-option spread ≥ `CONDITIONAL_STACKING_MC_MAX_OPTION_THRESHOLD`.

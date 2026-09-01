@@ -60,7 +60,7 @@ at default effort with nothing in any log to say so. They are converted to
 Also note the id shape: Anthropic uses dashes (`claude-opus-4-8`), OpenRouter uses
 dots (`claude-opus-4.8`). The dotted form 404s upstream.
 
-**Out of scope:** the ablation/backtest harness (`metaculus_bot/ablation/`) still
+**Out of scope:** the ablation/backtest harness (`sibyl/eval/ablation/`) still
 routes Anthropic through OpenRouter. Its cache-key scheme strips the `openrouter/`
 prefix and its lineup constants are offline-replay fixtures — rerouting them would
 break the cache for no benefit on runs that are not being made.
@@ -101,7 +101,7 @@ with fake `[primary]` tags reached the forecasters). A response with zero search
 results is suppressed, and — because an empty section is otherwise byte-identical to
 a healthy call that found nothing — the loss is recorded to Provider Diagnostics and
 emitted as `ANTHROPIC_UNGROUNDED_SUPPRESSED`, registered in
-`scripts/telemetry/markers.py` from day one so the suppression *rate* is directly
+`sibyl/telemetry/markers.py` from day one so the suppression *rate* is directly
 comparable between the two search indexes. That comparison is the evidence for
 whether this swap was like-for-like.
 

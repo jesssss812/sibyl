@@ -1,0 +1,175 @@
+"""Numeric percentile sanitisation and distribution construction helpers."""
+
+from __future__ import annotations
+
+import logging
+
+import numpy as np
+from forecasting_tools.data_models.numeric_report import NumericDistribution, Percentile
+from forecasting_tools.data_models.questions import NumericQuestion
+
+from sibyl.forecasting.numeric.bounds_clamping import (
+    calculate_bounds_buffer,
+    clamp_values_to_bounds,
+    log_cluster_spreading_summary,
+    log_corrections_summary,
+    log_heavy_clamping_diagnostics,
+)
+from sibyl.forecasting.numeric.cluster_processing import (
+    apply_cluster_spreading,
+    apply_jitter_for_duplicates,
+    compute_cluster_parameters,
+    detect_count_like_pattern,
+    ensure_strictly_increasing_bounded,
+)
+from sibyl.forecasting.numeric.config import (
+    PCHIP_CDF_POINTS,
+    TAIL_WIDEN_K_TAIL,
+    TAIL_WIDEN_SPAN_FLOOR_GAMMA,
+    TAIL_WIDEN_TAIL_START,
+    TAIL_WIDENING_ENABLE,
+    grid_step_constraints,
+)
+from sibyl.forecasting.numeric.diagnostics import log_pchip_fallback, validate_cdf_construction
+from sibyl.forecasting.numeric.pchip_cdf import generate_pchip_cdf, percentiles_to_pchip_format
+from sibyl.forecasting.numeric.pchip_processing import (
+    create_fallback_numeric_distribution,
+    create_pchip_numeric_distribution,
+    generate_pchip_cdf_with_smoothing,
+)
+from sibyl.forecasting.numeric.tail_widening import widen_declared_percentiles
+from sibyl.forecasting.numeric.validation import (
+    check_discrete_question_properties,
+    filter_to_standard_percentiles,
+    sort_percentiles_by_value,
+    validate_percentile_count_and_values,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def sanitize_percentiles(
+    percentile_list: list[Percentile],
+    question: NumericQuestion,
+) -> tuple[list[Percentile], float | None]:
+    """Filter, validate, sort, jitter, and optionally widen percentile declarations."""
+
+    filtered = filter_to_standard_percentiles(percentile_list)
+    validate_percentile_count_and_values(filtered)
+    ordered = sort_percentiles_by_value(filtered)
+    adjusted = _apply_jitter_and_clamp(ordered, question)
+    widened = _maybe_widen_tails(adjusted, question)
+
+    _, should_force_zero_point_none = check_discrete_question_properties(question, PCHIP_CDF_POINTS)
+    zero_point = getattr(question, "zero_point", None)
+    if should_force_zero_point_none:
+        zero_point = None
+
+    return widened, zero_point
+
+
+def build_numeric_distribution(
+    percentile_list: list[Percentile],
+    question: NumericQuestion,
+    zero_point: float | None,
+) -> NumericDistribution:
+    """Create a numeric distribution, falling back to a heuristic on failure."""
+
+    try:
+        pchip_cdf, _smoothing_applied, _aggressive = generate_pchip_cdf_with_smoothing(
+            percentile_list,
+            question,
+            zero_point,
+        )
+        prediction = create_pchip_numeric_distribution(pchip_cdf, percentile_list, question, zero_point)
+    except Exception as exc:
+        log_pchip_fallback(question, exc)
+        prediction = create_fallback_numeric_distribution(percentile_list, question, zero_point)
+
+    validate_cdf_construction(prediction, question)
+
+    target_cdf_size = getattr(question, "cdf_size", None)
+    if target_cdf_size is not None and target_cdf_size != PCHIP_CDF_POINTS:
+        min_step, max_step = grid_step_constraints(target_cdf_size)
+        pchip_percentiles = percentiles_to_pchip_format(percentile_list)
+        resampled_cdf, _ = generate_pchip_cdf(
+            percentile_values=pchip_percentiles,
+            open_upper_bound=question.open_upper_bound,
+            open_lower_bound=question.open_lower_bound,
+            upper_bound=question.upper_bound,
+            lower_bound=question.lower_bound,
+            zero_point=zero_point,
+            min_step=min_step,
+            max_step=max_step,
+            num_points=target_cdf_size,
+            question_id=getattr(question, "id_of_question", None),
+            question_url=getattr(question, "page_url", None),
+        )
+        x_disc = np.linspace(question.lower_bound, question.upper_bound, target_cdf_size)
+        declared_percentiles = [Percentile(percentile=float(p), value=float(v)) for v, p in zip(x_disc, resampled_cdf)]
+        prediction = create_pchip_numeric_distribution(
+            pchip_cdf=list(map(float, resampled_cdf)),
+            percentile_list=declared_percentiles,
+            question=question,
+            zero_point=zero_point,
+        )
+        logger.info(
+            "Discrete resample in build_numeric_distribution | Q %s | 201 -> %d points",
+            getattr(question, "id_of_question", None),
+            target_cdf_size,
+        )
+
+    return prediction
+
+
+def _apply_jitter_and_clamp(percentile_list: list[Percentile], question: NumericQuestion) -> list[Percentile]:
+    range_size = question.upper_bound - question.lower_bound
+    buffer = calculate_bounds_buffer(question)
+
+    values = [p.value for p in percentile_list]
+    modified_values = list(values)
+
+    count_like = detect_count_like_pattern(values)
+    span = (max(values) - min(values)) if values else 0.0
+    value_eps, base_delta, spread_delta = compute_cluster_parameters(range_size, count_like, span)
+
+    modified_values, clusters_applied = apply_cluster_spreading(
+        modified_values,
+        question,
+        value_eps,
+        spread_delta,
+        range_size,
+    )
+
+    modified_values = apply_jitter_for_duplicates(modified_values, question, range_size, percentile_list)
+    modified_values, corrections_made = clamp_values_to_bounds(modified_values, percentile_list, question, buffer)
+
+    log_cluster_spreading_summary(
+        modified_values,
+        values,
+        question,
+        clusters_applied,
+        spread_delta,
+        count_like,
+    )
+    log_corrections_summary(modified_values, values, question, corrections_made)
+    log_heavy_clamping_diagnostics(modified_values, values, question, buffer)
+
+    modified_values = ensure_strictly_increasing_bounded(modified_values, question, range_size)
+
+    return [Percentile(value=v, percentile=p.percentile) for v, p in zip(modified_values, percentile_list)]
+
+
+def _maybe_widen_tails(percentile_list: list[Percentile], question: NumericQuestion) -> list[Percentile]:
+    if not TAIL_WIDENING_ENABLE:
+        return percentile_list
+    return widen_declared_percentiles(
+        percentile_list,
+        question,
+        k_tail=TAIL_WIDEN_K_TAIL,
+        tail_start=TAIL_WIDEN_TAIL_START,
+        span_floor_gamma=TAIL_WIDEN_SPAN_FLOOR_GAMMA,
+    )
+
+
+__all__ = ["sanitize_percentiles", "build_numeric_distribution"]

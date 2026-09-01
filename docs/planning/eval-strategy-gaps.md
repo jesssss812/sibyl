@@ -79,8 +79,8 @@ Both halves of the comparison exist. The join key does not.
 ### Structural note
 
 The spec targets a module `sibyl/eval/`. Evaluation code actually lives across
-`metaculus_bot/ablation/`, `metaculus_bot/backtest/`, and
-`metaculus_bot/performance_analysis/`. Minor in itself, but it means the spec's
+`sibyl/eval/ablation/`, `sibyl/eval/backtest/`, and
+`sibyl/eval/performance/`. Minor in itself, but it means the spec's
 implementation section points at nothing, and it is why the rigour split in Rule 1 went
 unnoticed.
 

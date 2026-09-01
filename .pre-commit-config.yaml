@@ -17,7 +17,7 @@ repos:
     hooks:
       - id: pytest-full-suite
         name: pytest (full suite, same command as CI)
-        entry: uv run --frozen pytest --cov=metaculus_bot
+        entry: uv run --frozen pytest --cov=sibyl
         language: system
         stages: [pre-push]
         pass_filenames: false

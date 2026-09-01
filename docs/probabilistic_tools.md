@@ -1,6 +1,6 @@
 # Probabilistic tools
 
-The `metaculus_bot/probabilistic_tools/` package and the tool-runner that exposes it to
+The `sibyl/forecasting/probabilistic_tools/` package and the tool-runner that exposes it to
 forecaster models.
 
 
@@ -15,7 +15,7 @@ now and are read on demand.
 Some of this overlaps the prose above — it was written for a different audience and is
 kept verbatim rather than merged, so nothing is silently lost. Reconciling the two is
 worthwhile follow-up, but it is an editorial pass, not a mechanical one.
-### `metaculus_bot/probabilistic_tools/`
+### `sibyl/forecasting/probabilistic_tools/`
 
 Reusable probability math — pooling, Beta-Binomial Bayes, percentile → parametric fits (normal/lognormal/Student-t), declared-vs-math consistency checks, Dirichlet CIs, Neg-Bin/Poisson discrete percentiles, exponential/Weibull survival, Gamma-conjugate hazard. `prob_event_before`, `linear_pool` / `log_pool` / `satopaa_extremize`, `beta_binomial_update`, `cdf_at_threshold`, `dirichlet_with_other` are wired into `tool_runner` dispatch. (`poisson_at_least_one` is exported and used inside `mc_discrete.py` / `survival.py`, but is NOT itself dispatched by `tool_runner`.)
 

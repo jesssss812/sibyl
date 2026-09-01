@@ -1,0 +1,57 @@
+"""Shared aggregation primitives for binary and MC predictions.
+
+Used by both run_simple_agg.py (PredictedOptionList inputs) and run_pdf.py
+(raw dict inputs). Each caller accumulates its own input format into the
+normalized form these functions accept.
+"""
+
+from __future__ import annotations
+
+import statistics
+from typing import Any, Literal
+
+from forecasting_tools import PredictedOptionList
+from forecasting_tools.data_models.multiple_choice_report import PredictedOption
+
+from sibyl.config.settings import BINARY_PROB_MAX, BINARY_PROB_MIN
+from sibyl.forecasting.multiple_choice import clamp_and_renormalize_probs
+
+__all__ = ["aggregate_binary", "aggregate_mc"]
+
+_AGG_FUNC: dict[str, Any] = {
+    "mean": statistics.mean,
+    "median": statistics.median,
+}
+
+
+def aggregate_binary(predictions: list[float], method: Literal["mean", "median"]) -> float:
+    """Central tendency of binary probabilities, clamped to [BINARY_PROB_MIN, BINARY_PROB_MAX]."""
+    central = _AGG_FUNC[method](predictions)
+    return max(BINARY_PROB_MIN, min(BINARY_PROB_MAX, float(central)))
+
+
+def aggregate_mc(
+    per_option_values: dict[str, list[float]],
+    option_order: list[str],
+    method: Literal["mean", "median"],
+) -> PredictedOptionList:
+    """Option-wise central tendency, then clamp + renormalize.
+
+    Accepts pre-accumulated per-option value lists. Handles missing options
+    with a uniform fallback (1/N).
+    """
+    agg_fn = _AGG_FUNC[method]
+    n_options = len(option_order)
+    ordered_raw: list[float] = []
+    for name in option_order:
+        values = per_option_values.get(name, [])
+        ordered_raw.append(float(agg_fn(values)) if values else 1.0 / n_options)
+
+    # Drift-free clamp + renormalize (the single shared helper build_mc_prediction
+    # uses). Guarantees every option lands in [MC_PROB_MIN, MC_PROB_MAX] summing to
+    # 1.0, so the PredictedOptionList validator is a no-op on construction — unlike
+    # the old manual clamp-then-divide, where renormalization could drag a floored
+    # option back below the floor.
+    normalized = clamp_and_renormalize_probs(ordered_raw)
+    aggregated_options = [PredictedOption(option_name=name, probability=p) for name, p in zip(option_order, normalized)]
+    return PredictedOptionList(predicted_options=aggregated_options)
