@@ -6,7 +6,9 @@ possible to tweak/benchmark models without touching application code.
 
 import logging
 import os
+from dataclasses import dataclass
 from enum import StrEnum
+from functools import cache
 from typing import Any
 
 from forecasting_tools import GeneralLlm
@@ -53,6 +55,12 @@ def active_tier() -> ModelTier:
         raise ValueError(f"{MODEL_TIER_ENV}={raw!r} is not a known model tier (expected one of: {valid})") from None
 
 __all__ = [
+    "ModelTier",
+    "Roster",
+    "active_tier",
+    "get_roster",
+    "FREE_FORECASTER_MODELS",
+    "FREE_UTILITY_MODEL",
     "FORECASTER_LLMS",
     "FORECASTER_MODEL_NAMES",
     "SUMMARIZER_LLM",
@@ -381,3 +389,87 @@ DISAGREEMENT_ANALYZER_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
     reasoning={"effort": "low"},
     **{**UTILITY_MODEL_CONFIG, "allowed_tries": 1},
 )
+
+
+# ---------------------------------------------------------------------------
+# Rosters
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Roster:
+    """Every model slot a run needs, resolved for one tier.
+
+    A dataclass rather than a dict so a missing slot is a construction error here
+    instead of a KeyError deep in a provider halfway through a run, and so adding a
+    slot forces both tiers to answer for it.
+    """
+
+    forecasters: tuple[GeneralLlm, ...]
+    summarizer: GeneralLlm
+    parser: GeneralLlm
+    researcher: GeneralLlm
+    stacker: GeneralLlm
+    stacker_fallback: GeneralLlm
+    analyzer: GeneralLlm
+    market_ranker_config: dict[str, Any]
+    market_query_author_config: dict[str, Any]
+
+
+# The free lineup. Every slug ends in `:free`, which is the property the tests assert --
+# not the specific models, which will rotate as OpenRouter's free offerings change.
+#
+# Built as plain GeneralLlm on OPENROUTER_API_KEY, deliberately NOT through
+# build_llm_with_openrouter_fallback: most `:free` variants are served only by providers
+# outside OPENROUTER_PRIMARY_KEY_PROVIDERS, so the primary key answers 404 "no allowed
+# providers", which wastes a fallback attempt and bumps the alerting counter on every
+# call. eval/ablation/forecaster_lineup.py's docstring has the long version.
+FREE_FORECASTER_MODELS: tuple[str, ...] = (
+    "openrouter/google/gemma-4-31b-it:free",
+    "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+    "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+)
+# One model for every non-forecaster slot. The utility work (summarize, parse, rank,
+# analyze) is capability-saturated rather than reasoning-bound, and a single slug keeps
+# the free tier's failure modes to one provider's rate limit instead of five.
+FREE_UTILITY_MODEL: str = "openrouter/google/gemma-4-31b-it:free"
+
+
+def _free_llm(model: str, config: dict[str, Any]) -> GeneralLlm:
+    return GeneralLlm(model=model, **config)
+
+
+def _free_roster() -> Roster:
+    utility = _free_llm(FREE_UTILITY_MODEL, UTILITY_MODEL_CONFIG)
+    return Roster(
+        forecasters=tuple(_free_llm(model, _FORECASTER_CONFIG) for model in FREE_FORECASTER_MODELS),
+        summarizer=utility,
+        parser=utility,
+        researcher=utility,
+        stacker=utility,
+        stacker_fallback=utility,
+        analyzer=utility,
+        market_ranker_config={**MARKET_RANKER_LLM_CONFIG, "model": FREE_UTILITY_MODEL},
+        market_query_author_config={**MARKET_QUERY_AUTHOR_LLM_CONFIG, "model": FREE_UTILITY_MODEL},
+    )
+
+
+def _prod_roster() -> Roster:
+    """The paid roster, unchanged. Every value is the module constant it always was."""
+    return Roster(
+        forecasters=tuple(FORECASTER_LLMS),
+        summarizer=SUMMARIZER_LLM,
+        parser=PARSER_LLM,
+        researcher=RESEARCHER_LLM,
+        stacker=STACKER_LLM,
+        stacker_fallback=STACKER_FALLBACK_LLM,
+        analyzer=DISAGREEMENT_ANALYZER_LLM,
+        market_ranker_config=dict(MARKET_RANKER_LLM_CONFIG),
+        market_query_author_config=dict(MARKET_QUERY_AUTHOR_LLM_CONFIG),
+    )
+
+
+@cache
+def get_roster(tier: ModelTier) -> Roster:
+    """The roster for ``tier``. Cached, because a roster is immutable per process."""
+    return _prod_roster() if tier is ModelTier.PROD else _free_roster()

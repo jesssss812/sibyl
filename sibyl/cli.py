@@ -11,16 +11,17 @@ from forecasting_tools import MetaculusApi
 
 from sibyl.aggregation.strategies import AggregationStrategy
 from sibyl.config.models import (
-    DISAGREEMENT_ANALYZER_LLM,
-    FORECASTER_LLMS,
-    PARSER_LLM,
-    RESEARCHER_LLM,
-    STACKER_LLM,
-    SUMMARIZER_LLM,
+    ModelTier,
+    active_tier,
+    get_roster,
 )
 from sibyl.config.settings import (
+    BOT_TESTING_AREA_ID,
     CREDIT_ALERT_RESUME_DATE,
+    DEFAULT_MAX_QUESTIONS_PER_RUN,
+    FREE_TIER_MAX_QUESTIONS,
     METACULUS_CUP_ID,
+    MODEL_TIER_ENV,
     PERSIST_RESEARCH_ENABLED_ENV,
     TEST_QUESTIONS_OVERRIDE_ENV,
     TOURNAMENT_ID,
@@ -41,6 +42,64 @@ from sibyl.platform.publish_hardening import apply_publish_hardening
 from sibyl.telemetry.credits import CreditTelemetry, get_probed_primary_key_state
 
 logger = logging.getLogger(__name__)
+
+
+# Canonical mode names, plus every spelling that has ever reached this CLI. The old
+# names are kept as aliases rather than removed: they are in the workflow yamls, in
+# docs/operations.md and in the operator's shell history, and a rename that breaks a
+# dispatch someone types from memory buys nothing.
+_MODE_ALIASES: dict[str, str] = {
+    "tournament": "tournament",
+    "minibench": "minibench",
+    "cup": "cup",
+    "metaculus_cup": "cup",
+    "quarterly_cup": "cup",
+    "test": "test",
+    "test_questions": "test",
+}
+
+# Modes that publish to a SCORED tournament. Free models must never reach these: a free
+# forecast is not a cheap version of a prod forecast, it is a different and much worse
+# one, and publishing it to a scored tournament damages a public record that cannot be
+# retracted. The sandbox mode (`test`) is absent because nothing there is scored.
+_SCORED_MODES: frozenset[str] = frozenset({"tournament", "minibench", "cup"})
+
+
+def _refuse_free_tier_on_scored_tournament(tier: ModelTier, run_mode: str) -> None:
+    """Exit non-zero before anything is built if a free run would publish somewhere scored."""
+    if tier is ModelTier.FREE and run_mode in _SCORED_MODES:
+        logger.error(
+            "Refusing to run mode %r on the free model tier: free models must never publish to a "
+            "scored tournament. Re-run with --tier prod (or %s=prod) if that is what you meant, "
+            "or use `python -m sibyl test` to exercise the pipeline against %s.",
+            run_mode,
+            MODEL_TIER_ENV,
+            BOT_TESTING_AREA_ID,
+        )
+        sys.exit(2)
+
+
+def _log_tier_banner(tier: ModelTier) -> None:
+    """Say which roster is about to run, loudly, on both tiers.
+
+    A prod run's banner is the last chance to notice that a dispatch is about to spend;
+    a free run's is what stops a green log from being mistaken for a prod result later.
+    """
+    roster = get_roster(tier)
+    logger.info(
+        "MODEL TIER: %s — forecasters=%s, summarizer=%s, parser=%s",
+        tier.value,
+        [llm.model for llm in roster.forecasters],
+        roster.summarizer.model,
+        roster.parser.model,
+    )
+    if tier is ModelTier.PROD:
+        logger.info("This run will SPEND on paid models and publish to Metaculus.")
+
+
+def _default_max_questions(tier: ModelTier) -> int:
+    """Free runs get a small cap; prod keeps the framework default this CLI has always used."""
+    return FREE_TIER_MAX_QUESTIONS if tier is ModelTier.FREE else DEFAULT_MAX_QUESTIONS_PER_RUN
 
 
 def main() -> None:
@@ -92,14 +151,51 @@ def main() -> None:
         description="Run the sibyl forecasting bot",
     )
     parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=sorted(_MODE_ALIASES),
+        default=None,
+        metavar="{tournament,minibench,cup,test}",
+        help="Run mode (default: tournament)",
+    )
+    parser.add_argument(
         "--mode",
+        dest="mode_flag",
         type=str,
-        choices=["tournament", "minibench", "quarterly_cup", "metaculus_cup", "test_questions"],
-        default="tournament",
-        help="Specify the run mode (default: tournament)",
+        choices=sorted(_MODE_ALIASES),
+        default=None,
+        # Kept because the workflows, the docs and the operator's shell history all say
+        # `--mode X`. The positional form is what the plan specifies; this is the same
+        # argument spelled the old way, not a second concept.
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--tier",
+        type=str,
+        choices=[t.value for t in ModelTier],
+        default=None,
+        help=f"Model roster to run (default: ${MODEL_TIER_ENV} or 'free')",
+    )
+    parser.add_argument(
+        "--max-questions",
+        type=int,
+        default=None,
+        help="Cap questions per run (default: 3 on the free tier, 10 otherwise)",
     )
     args = parser.parse_args()
-    run_mode: Literal["tournament", "minibench", "quarterly_cup", "metaculus_cup", "test_questions"] = args.mode
+
+    if args.mode is not None and args.mode_flag is not None and args.mode != args.mode_flag:
+        parser.error(f"mode given twice and they disagree: {args.mode!r} (positional) vs {args.mode_flag!r} (--mode)")
+    run_mode: str = _MODE_ALIASES[args.mode or args.mode_flag or "tournament"]
+
+    # Tier resolution and the refusal gate come BEFORE any client is built, any key is
+    # read and any question is fetched. A refusal that arrives after the bot is
+    # constructed has already done the thing it was meant to prevent in every case where
+    # construction is the expensive part.
+    tier = ModelTier(args.tier) if args.tier else active_tier()
+    _refuse_free_tier_on_scored_tournament(tier, run_mode)
+    _log_tier_banner(tier)
+    max_questions = args.max_questions if args.max_questions is not None else _default_max_questions(tier)
 
     # Wire research persistence if enabled (production GHA runs set this env var)
     research_writer = None
@@ -120,13 +216,14 @@ def main() -> None:
     # values. The parent ForecastBot.__init__ annotates llms as dict[str, str | GeneralLlm],
     # which (being invariant) cannot express the list value, so annotate the heterogeneous
     # dict as dict[str, Any]. prepare_llm_config consumes the "forecasters" list at runtime.
+    roster = get_roster(tier)
     llms: dict[str, Any] = {
-        "forecasters": FORECASTER_LLMS,
-        "stacker": STACKER_LLM,
-        "analyzer": DISAGREEMENT_ANALYZER_LLM,
-        "summarizer": SUMMARIZER_LLM,
-        "parser": PARSER_LLM,
-        "researcher": RESEARCHER_LLM,
+        "forecasters": list(roster.forecasters),
+        "stacker": roster.stacker,
+        "analyzer": roster.analyzer,
+        "summarizer": roster.summarizer,
+        "parser": roster.parser,
+        "researcher": roster.researcher,
     }
     template_bot = SibylBot(
         research_reports_per_question=1,
@@ -134,6 +231,7 @@ def main() -> None:
         publish_reports_to_metaculus=True,
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
+        max_questions_per_run=max_questions,
         aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
         research_sink=research_sink,
         llms=llms,
@@ -159,37 +257,38 @@ def main() -> None:
             forecast_reports = asyncio.run(
                 template_bot.forecast_on_tournament(MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True)
             )
-        elif run_mode in ("quarterly_cup", "metaculus_cup"):
+        elif run_mode == "cup":
             # The metaculus cup is a good way to test the bot's performance on regularly open questions
             # to not risk explosive spend, we won't update preds
             template_bot.skip_previously_forecasted_questions = True
             forecast_reports = asyncio.run(
                 template_bot.forecast_on_tournament(METACULUS_CUP_ID, return_exceptions=True)
             )
-        elif run_mode == "test_questions":
-            # Example questions are a good way to test the bot's performance on a single question
-            EXAMPLE_QUESTIONS = [
-                "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-                "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-                # "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
-                "https://www.metaculus.com/questions/20683/which-ai-world/",  # Scott Aaronson's five AI worlds
-                "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
-            ]
-            template_bot.skip_previously_forecasted_questions = (
-                False  # obviously, we need to rerun test q predictions to test them :)
-            )
-            # Optional override (test_bot_basic workflow): a comma/whitespace-
-            # separated list of Metaculus URLs to forecast instead of the full
-            # evergreen set. Unset -> the hardcoded EXAMPLE_QUESTIONS above.
+        elif run_mode == "test":
+            # Obviously we re-run test predictions in order to test them.
+            template_bot.skip_previously_forecasted_questions = False
+            # Optional override: a comma/whitespace-separated list of Metaculus URLs to
+            # forecast instead of the sandbox tournament. Kept working unchanged -- it is
+            # how test_bot_basic pins a specific question, and how anyone reproduces a
+            # single bad forecast.
             override_urls = os.environ.get(TEST_QUESTIONS_OVERRIDE_ENV, "").replace(",", " ").split()
-            question_urls = override_urls or EXAMPLE_QUESTIONS
             if override_urls:
                 logger.info(
-                    "TEST_QUESTIONS_OVERRIDE set: forecasting %d override question(s) instead of the evergreen set",
+                    "TEST_QUESTIONS_OVERRIDE set: forecasting %d override question(s) instead of %s",
                     len(override_urls),
+                    BOT_TESTING_AREA_ID,
                 )
-            questions = [MetaculusApi.get_question_by_url(url) for url in question_urls]
-            forecast_reports = asyncio.run(template_bot.forecast_questions(questions, return_exceptions=True))
+                questions = [MetaculusApi.get_question_by_url(url) for url in override_urls]
+                forecast_reports = asyncio.run(template_bot.forecast_questions(questions, return_exceptions=True))
+            else:
+                # The open questions of the sandbox tournament, rather than the four
+                # hard-coded evergreen URLs this used to carry. Those four were a fixed,
+                # slowly-rotting sample that exercised only the by-URL fetch path; the
+                # sandbox exercises the same tournament-fetch path prod uses, stays
+                # current without anyone editing a list, and is not scored.
+                forecast_reports = asyncio.run(
+                    template_bot.forecast_on_tournament(BOT_TESTING_AREA_ID, return_exceptions=True)
+                )
         else:
             raise ValueError(f"Invalid run mode: {run_mode}")
     finally:
