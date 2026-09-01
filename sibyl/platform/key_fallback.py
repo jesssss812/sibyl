@@ -221,14 +221,13 @@ def primary_key_providers() -> frozenset[str]:
 # bare GA slug and every suffixed variant (-preview, -preview-customtools,
 # OpenRouter :free/route suffixes) are all covered.
 #
-# TODO(gemini-3.1-pro-primary): gemini-3.1-pro SHOULD work on the primary key.
-# The ONLY blocker is Metaculus's free-tier Google BYOK routing. Once Metaculus
-# enables Cloud billing on that BYOK key (Tier 1), removes the Google BYOK
-# integration so it uses native OpenRouter Google credits, or disables "Always
-# use for this provider" on it — REMOVE the matching entry here so Pro rejoins
-# the primary subsidy. Re-verify with one live call: the 429 should no longer
-# carry is_byok:true + free-tier limit 0. See bottega:FUTURE.md "Gemini on the primary
-# OpenRouter key".
+# The default entry is a workaround for Metaculus's free-tier Google BYOK routing, and
+# it is no longer a TODO: clearing it is a config change, not a code change. Drop
+# gemini-3.1-pro from OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS once Metaculus enables Cloud
+# billing on that BYOK key (Tier 1), removes the Google BYOK integration so native
+# OpenRouter Google credits are used, or disables "Always use for this provider" on it.
+# Re-verify with one live call: the 429 should no longer carry is_byok:true + free-tier
+# limit 0. See bottega:FUTURE.md "Gemini on the primary OpenRouter key".
 DEFAULT_PRIMARY_KEY_BLOCKED_MODELS: frozenset[str] = frozenset({"gemini-3.1-pro"})
 
 
@@ -254,9 +253,9 @@ def should_route_via_primary_key(model: str) -> bool:
     429, no fallback-counter bump. They run through a free-tier Google AI Studio
     BYOK key on the primary account that has no Pro free tier (limit 0 → 429), so
     a primary attempt would always fail over to fallback anyway. The pin is a
-    temporary workaround; see the ``TODO(gemini-3.1-pro-primary)`` tag on that
-    constant and bottega:FUTURE.md — remove the entry once Metaculus fixes the BYOK
-    routing. Set the env var to a false-y value to force fallback-key-only routing
+    temporary workaround; see the note on
+    ``DEFAULT_PRIMARY_KEY_BLOCKED_MODELS`` and bottega:FUTURE.md — drop the entry from
+    ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`` once Metaculus fixes the BYOK routing. Set the env var to a false-y value to force fallback-key-only routing
     for ALL Gemini.
     """
     if not isinstance(model, str):

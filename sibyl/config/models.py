@@ -141,7 +141,7 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # OPENROUTER_API_KEY via the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist in
     # fallback_openrouter (the primary key routes it through a free-tier Google
     # AI Studio BYOK integration with quota 0, so it would 429 there); see the
-    # TODO(gemini-3.1-pro-primary) tag pending the Metaculus-side BYOK fix.
+    # OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS default, pending the Metaculus-side BYOK fix.
     build_llm_with_openrouter_fallback(
         model="openrouter/google/gemini-3.1-pro-preview",
         **_FORECASTER_CONFIG,

@@ -37,7 +37,7 @@ class TestApiKeyUtils:
         counter bump. A flash model in the same env still uses the special key.
 
         Temporary workaround; see OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS
-        (``TODO(gemini-3.1-pro-primary)``) and bottega:FUTURE.md.
+        (the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS default) and bottega:FUTURE.md.
         """
         monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "special_key")
         monkeypatch.setenv("OPENROUTER_API_KEY", "fallback_key")

@@ -867,7 +867,7 @@ class TestBuilder:
         the same env returns a FallbackOpenRouterLlm.
 
         Temporary workaround; see OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS
-        (``TODO(gemini-3.1-pro-primary)``) and bottega:FUTURE.md.
+        (the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS default) and bottega:FUTURE.md.
         """
         from forecasting_tools import GeneralLlm as GL
 

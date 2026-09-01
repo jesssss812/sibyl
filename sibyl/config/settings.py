@@ -45,7 +45,7 @@ def gemini_use_primary_openrouter_key() -> bool:
     would otherwise redden CI on every question). That model 429s on the primary
     key because it routes through a free-tier Google AI Studio BYOK key with no
     Pro free tier (quota 0). Temporary workaround pending the Metaculus-side BYOK
-    fix; see the ``TODO(gemini-3.1-pro-primary)`` tag on that constant.
+    fix; see the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS default.
 
     Read at call time (not import) so workflow env changes take effect without
     re-importing.
@@ -538,7 +538,7 @@ GOOGLE_API_KEY_ENV: str = "GOOGLE_API_KEY"
 # serves most Gemini models (gemini-3.5-flash, gemini-3.1-flash-lite). The known
 # exception is gemini-3.1-pro-preview, which is PINNED to the fallback key via the
 # OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist (no primary attempt, no 429) pending
-# the Metaculus-side BYOK fix — see TODO(gemini-3.1-pro-primary) in fallback_openrouter.
+# the Metaculus-side BYOK fix — see OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS in key_fallback.
 GEMINI_USE_DONATED_OPENROUTER_KEY_ENV: str = "GEMINI_USE_DONATED_OPENROUTER_KEY"
 # Gemini 3 Flash preview model with grounding support. Requires billing enabled
 # on the Google AI Studio project to unlock; falls back to gemini-2.5-flash on
