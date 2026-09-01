@@ -10,6 +10,9 @@ from sibyl.config.settings import (
     CREDIT_ALERT_RESUME_DATE,
     OAI_ANTH_OPENROUTER_KEY_ENV,
     OPENROUTER_API_KEY_ENV,
+    OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV,
+    OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV,
+    _csv_set_env,
     credit_alerts_active,
     gemini_use_donated_openrouter_key,
 )
@@ -199,7 +202,12 @@ def reset_credit_key_fallback_count() -> None:
 # these. The env var name stays ``OAI_ANTH_OPENROUTER_KEY`` for backward
 # compatibility with the operator's GitHub secret — adding ``google`` here
 # does not require changing the secret name.
-DONATED_KEY_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "google"})
+DEFAULT_PRIMARY_KEY_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "google"})
+
+
+def primary_key_providers() -> frozenset[str]:
+    """Providers the primary key is preferred for. Env-overridable, read at call time."""
+    return _csv_set_env(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, DEFAULT_PRIMARY_KEY_PROVIDERS)
 
 # Google models that must NOT route through the donated key even when the
 # donated-Gemini toggle is ON. Metaculus's donated OpenRouter account serves
@@ -220,7 +228,12 @@ DONATED_KEY_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "googl
 # the donated subsidy. Re-verify with one live call: the 429 should no longer
 # carry is_byok:true + free-tier limit 0. See bottega:FUTURE.md "Gemini on the donated
 # OpenRouter key".
-DONATED_KEY_BLOCKED_GOOGLE_MODELS: frozenset[str] = frozenset({"gemini-3.1-pro"})
+DEFAULT_PRIMARY_KEY_BLOCKED_MODELS: frozenset[str] = frozenset({"gemini-3.1-pro"})
+
+
+def primary_key_blocked_models() -> frozenset[str]:
+    """Model prefixes pinned off the primary key. Env-overridable, read at call time."""
+    return _csv_set_env(OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV, DEFAULT_PRIMARY_KEY_BLOCKED_MODELS)
 
 
 def should_route_via_donated_key(model: str) -> bool:
@@ -253,13 +266,13 @@ def should_route_via_donated_key(model: str) -> bool:
     if len(parts) < 2:
         return False
     provider = parts[1]
-    if provider not in DONATED_KEY_PROVIDERS:
+    if provider not in primary_key_providers():
         return False
     if provider == "google":
         if not gemini_use_donated_openrouter_key():
             return False
         model_name = "/".join(parts[2:])
-        if any(model_name.startswith(blocked) for blocked in DONATED_KEY_BLOCKED_GOOGLE_MODELS):
+        if any(model_name.startswith(blocked) for blocked in primary_key_blocked_models()):
             return False
     return True
 

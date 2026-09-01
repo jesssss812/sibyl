@@ -144,6 +144,14 @@ TEST_QUESTIONS_OVERRIDE_ENV: str = "TEST_QUESTIONS_OVERRIDE"
 # for which of these are shared (donated) vs. personal.
 OPENROUTER_API_KEY_ENV: str = "OPENROUTER_API_KEY"
 OAI_ANTH_OPENROUTER_KEY_ENV: str = "OAI_ANTH_OPENROUTER_KEY"
+# Which OpenRouter providers the PRIMARY key is preferred for, and which models are
+# pinned off it, as configuration rather than a literal in key_fallback.py. Both were
+# frozensets in code; the routing policy they encode is an operator decision about one
+# specific key's server-side settings, and it changed twice in three months. The env var
+# names are new (the key names they govern are not), so an unset var reproduces today's
+# behaviour exactly. Comma-separated, case-insensitive.
+OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV: str = "OPENROUTER_PRIMARY_KEY_PROVIDERS"
+OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV: str = "OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS"
 ASKNEWS_CLIENT_ID_ENV: str = "ASKNEWS_CLIENT_ID"
 ASKNEWS_SECRET_ENV: str = "ASKNEWS_SECRET"
 EXA_API_KEY_ENV: str = "EXA_API_KEY"
@@ -190,6 +198,26 @@ def _float_env(name: str, default: float) -> float:
         return float(raw)
     except (ValueError, TypeError):
         return default
+
+
+def _csv_set_env(name: str, default: frozenset[str]) -> frozenset[str]:
+    """Parse a comma-separated env var into a lowercased set, falling back on garbage.
+
+    Read at CALL time, never at import, for the same reason ``credit_alerts_active``
+    is: a long-lived process picks up a change without a redeploy, and a test can set
+    the var with ``monkeypatch`` instead of reloading the module.
+
+    An env var set to an empty string yields the DEFAULT, not the empty set. Emptying a
+    routing list is a real thing an operator might want, but "" is far more often an
+    unset secret or a stray ``export FOO=``, and silently routing everything to the
+    fallback key is not a failure mode worth inferring from a typo. To genuinely empty
+    one, name a provider that does not exist.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    entries = frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
+    return entries or default
 
 
 def _date_env(name: str, default: date) -> date:

@@ -5,10 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from litellm.exceptions import APIError, RateLimitError
 
-from sibyl.config.settings import CREDIT_ALERT_RESUME_DATE
+from sibyl.config.settings import (
+    CREDIT_ALERT_RESUME_DATE,
+    OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV,
+    OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV,
+)
 from sibyl.platform import key_fallback as fallback_openrouter
 from sibyl.platform.key_fallback import (
-    DONATED_KEY_PROVIDERS,
+    DEFAULT_PRIMARY_KEY_PROVIDERS,
     FallbackOpenRouterLlm,
     build_llm_with_openrouter_fallback,
     get_credit_key_fallback_count,
@@ -16,6 +20,8 @@ from sibyl.platform.key_fallback import (
     get_generic_key_fallback_count,
     is_credit_caused_error,
     is_suppressible_credit_error,
+    primary_key_blocked_models,
+    primary_key_providers,
     reset_credit_key_fallback_count,
     reset_donated_404_fallback_count,
     reset_generic_key_fallback_count,
@@ -107,9 +113,10 @@ class TestPredicates:
         assert should_route_via_donated_key("") is False
 
     def test_donated_key_providers_set(self) -> None:
-        # Pin the membership so any drift surfaces in code review rather than
-        # silently changing routing.
-        assert DONATED_KEY_PROVIDERS == frozenset({"openai", "anthropic", "google"})
+        # Pin the DEFAULT membership so drift surfaces in code review rather than
+        # silently changing routing. The list is env-overridable now, but the default
+        # is what every deployment without the var set actually uses.
+        assert DEFAULT_PRIMARY_KEY_PROVIDERS == frozenset({"openai", "anthropic", "google"})
 
     @pytest.mark.parametrize(
         "message, expected",
@@ -1646,3 +1653,69 @@ class TestStatuslessDigitEchoIsNotAStatus:
         """
         assert fallback_openrouter._without_prompt_echo(message) == message
         assert should_retry_with_general_key(Exception(message)) is falls_back, message
+
+
+class TestPrimaryKeyRoutingIsConfiguration:
+    """The provider list and the model blocklist come from env, not from a literal.
+
+    Both were frozensets in code, and both changed twice in three months — they encode
+    an operator decision about one key's server-side provider settings, which is exactly
+    the kind of thing that should not need a code change. Unset reproduces the old
+    behaviour exactly, which is what makes this a safe generalisation rather than a
+    behaviour change.
+    """
+
+    def test_defaults_reproduce_the_hardcoded_sets_when_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, raising=False)
+        monkeypatch.delenv(OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV, raising=False)
+        assert primary_key_providers() == frozenset({"openai", "anthropic", "google"})
+        assert primary_key_blocked_models() == frozenset({"gemini-3.1-pro"})
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("openai", frozenset({"openai"})),
+            ("openai,anthropic", frozenset({"openai", "anthropic"})),
+            ("  openai , ANTHROPIC ", frozenset({"openai", "anthropic"})),  # trimmed, lowercased
+            ("openai,,anthropic,", frozenset({"openai", "anthropic"})),  # empty entries dropped
+        ],
+    )
+    def test_provider_list_parses_from_env(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str, expected: frozenset[str]
+    ) -> None:
+        monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, raw)
+        assert primary_key_providers() == expected
+
+    def test_empty_env_falls_back_to_the_default_rather_than_emptying_the_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An empty string is far more often an unset GitHub secret or a stray
+        # `export FOO=` than a deliberate "route nothing via the primary key", and
+        # silently sending every call to the fallback key is not worth inferring
+        # from a typo.
+        monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, "   ")
+        assert primary_key_providers() == frozenset({"openai", "anthropic", "google"})
+
+    def test_routing_follows_the_configured_provider_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, "openai")
+        assert should_route_via_donated_key("openrouter/openai/gpt-5.6-sol") is True
+        assert should_route_via_donated_key("openrouter/anthropic/claude-opus-5") is False
+
+    def test_routing_follows_the_configured_blocklist(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV, "gemini-3.5-flash")
+        # The newly blocked model is pinned off the primary key...
+        assert should_route_via_donated_key("openrouter/google/gemini-3.5-flash") is False
+        # ...and the previously blocked one is no longer, because the env REPLACES the
+        # default rather than adding to it.
+        assert should_route_via_donated_key("openrouter/google/gemini-3.1-pro-preview") is True
+
+    def test_blocklist_still_matches_by_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Prefix matching is what covers the bare GA slug and every suffixed variant
+        # (-preview, -preview-customtools, OpenRouter :free/route suffixes) from one entry.
+        monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV, "gemini-3.1-pro")
+        for slug in (
+            "openrouter/google/gemini-3.1-pro",
+            "openrouter/google/gemini-3.1-pro-preview",
+            "openrouter/google/gemini-3.1-pro-preview-customtools",
+        ):
+            assert should_route_via_donated_key(slug) is False, slug
