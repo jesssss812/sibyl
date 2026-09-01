@@ -6,7 +6,7 @@ Every other agentic test injects ``llm_call=`` or patches the builder, so this
 file is the only coverage of the billing-relevant glue itself. The routing
 predicates (``should_route_via_donated_key`` / ``should_retry_with_general_key``)
 are stubbed here — their own classification behavior is covered in
-tests/test_fallback_openrouter.py.
+tests/unit/test_key_fallback.py.
 """
 
 from __future__ import annotations

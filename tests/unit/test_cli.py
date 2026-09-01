@@ -538,7 +538,7 @@ class TestCliCreditAlertSuppression:
         generic counter, so nothing is subtracted and the run still exits non-zero.
 
         ``cause`` is only a label — both errors land in the same counter; the
-        wrapper-side classification is pinned in test_fallback_openrouter.py.
+        wrapper-side classification is pinned in test_key_fallback.py.
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 

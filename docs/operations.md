@@ -588,7 +588,7 @@ family before reaching the probe at all — deliberately, since it predates the
 discriminator and an unreachable `/auth/key` must not change long-standing
 behavior. Read the table above as the verdict on a spend-cap 403 specifically, not
 on every credit failure (`test_documented_402_needs_no_probe` in
-`tests/test_fallback_openrouter.py` pins the carve-out).
+`tests/unit/test_key_fallback.py` pins the carve-out).
 
 `DONATED_KEY_PROBE_TIMEOUT_S` bounds the probe, but read what shape of promise
 that is: httpx applies a bare float **per network operation** — connect, read,
