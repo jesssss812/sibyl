@@ -3,16 +3,16 @@
 Posture pinned by these tests:
 
 * Lineup is 4 free models. ``gpt-oss-120b:free`` was removed (task #16,
-  donated-key wrapper 404'd). ``glm-4.5-air:free`` was removed
+  primary-key wrapper 404'd). ``glm-4.5-air:free`` was removed
   (Phase A.3 Package 3b, 2026-05-14, after qid 43171 hallucinated
   partial-week TSA data with σ=13K vs ensemble σ ~965K).
 * The FREE forecaster + parser are constructed as plain ``GeneralLlm`` (no
   ``api_key`` set), so litellm reads ``OPENROUTER_API_KEY`` from env at
-  invoke time — ``:free`` models bypass the donated key because their
-  providers aren't in ``DONATED_KEY_PROVIDERS`` (donated key 404s).
-* The PROD lineup routes through the donated-key wrapper: ablation IS Metaculus
-  work, and its anthropic/openai models are donated-covered, so they bill to the
-  donated key with personal-key fallback.
+  invoke time — ``:free`` models bypass the primary key because their
+  providers aren't in ``OPENROUTER_PRIMARY_KEY_PROVIDERS`` (primary key 404s).
+* The PROD lineup routes through the primary-key wrapper: ablation IS Metaculus
+  work, and its anthropic/openai models are primary-covered, so they bill to the
+  primary key with fallback-key fallback.
 """
 
 from __future__ import annotations
@@ -63,21 +63,21 @@ def test_build_free_forecaster_llms_returns_four_plain_general_llms() -> None:
     for llm, expected_model in zip(llms, FREE_FORECASTER_MODELS):
         assert isinstance(llm, GeneralLlm)
         assert not isinstance(llm, FallbackOpenRouterLlm), (
-            f"{expected_model} must be plain GeneralLlm (no donated-key wrap)"
+            f"{expected_model} must be plain GeneralLlm (no primary-key wrap)"
         )
         assert llm.model == expected_model
 
 
 def test_build_free_parser_llm_uses_gemma_4_31b() -> None:
-    """Parser is a Google-served free model (avoids the donated-key wrap entirely).
+    """Parser is a Google-served free model (avoids the primary-key wrap entirely).
 
     History:
-    - Originally gpt-oss-120b:free → OAI-prefixed → routed via donated-key wrap → 404 (task #16).
+    - Originally gpt-oss-120b:free → OAI-prefixed → routed via primary-key wrap → 404 (task #16).
     - Then gemma-4-26b-a4b-it:free → over-applied "do not guess", emitted nulls (task #18 bake-off).
     - Now gemma-4-31b-it:free → 3/3 PASS in the bake-off, deterministic, returns 11 valid floats.
 
-    Plain GeneralLlm (no donated-key wrap) so the operator's paid OPENROUTER_API_KEY
-    drives auth at invoke time; ablation stays off the donated quota.
+    Plain GeneralLlm (no primary-key wrap) so the operator's paid OPENROUTER_API_KEY
+    drives auth at invoke time; ablation stays off the primary quota.
     """
     from sibyl.eval.ablation.forecaster_lineup import FREE_PARSER_MODEL, build_free_parser_llm
     from sibyl.platform.key_fallback import FallbackOpenRouterLlm
@@ -88,10 +88,10 @@ def test_build_free_parser_llm_uses_gemma_4_31b() -> None:
     assert parser.model == FREE_PARSER_MODEL == "openrouter/google/gemma-4-31b-it:free"
 
 
-def test_build_prod_forecaster_llms_routes_via_donated_wrapper(monkeypatch) -> None:
-    """Prod ensemble bills to the donated key: each model is wrapped in
-    FallbackOpenRouterLlm (donated primary -> personal fallback). Ablation IS
-    Metaculus work, and these anthropic/openai models are donated-covered.
+def test_build_prod_forecaster_llms_routes_via_primary_wrapper(monkeypatch) -> None:
+    """Prod ensemble bills to the primary key: each model is wrapped in
+    FallbackOpenRouterLlm (primary primary -> fallback fallback). Ablation IS
+    Metaculus work, and these anthropic/openai models are primary-covered.
 
     Requires both keys set + distinct for the wrapper to engage (matches
     ``build_llm_with_openrouter_fallback``); in CI neither is set, so we inject
@@ -107,6 +107,6 @@ def test_build_prod_forecaster_llms_routes_via_donated_wrapper(monkeypatch) -> N
     assert len(llms) == len(PROD_FORECASTER_MODELS) == 3
     for llm, expected_model in zip(llms, PROD_FORECASTER_MODELS):
         assert isinstance(llm, FallbackOpenRouterLlm), (
-            f"{expected_model} must route via the donated-key wrapper (Metaculus work -> donated key)"
+            f"{expected_model} must route via the primary-key wrapper (Metaculus work -> primary key)"
         )
         assert llm.model == expected_model

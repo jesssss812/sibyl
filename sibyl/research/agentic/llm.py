@@ -8,9 +8,9 @@ from litellm import acompletion
 
 from sibyl.config.settings import OAI_ANTH_OPENROUTER_KEY_ENV, OPENROUTER_API_KEY_ENV
 from sibyl.platform.key_fallback import (
-    record_donated_key_fallback,
-    should_retry_with_general_key,
-    should_route_via_donated_key,
+    record_primary_key_fallback,
+    should_retry_with_fallback_key,
+    should_route_via_primary_key,
 )
 from sibyl.research.agentic.types import LoopConfig
 
@@ -19,9 +19,9 @@ LlmCall = Callable[[list[dict[str, Any]], list[dict[str, Any]] | None], Awaitabl
 
 def build_default_llm_call(config: LoopConfig) -> LlmCall:
     model = config.model if config.model.startswith("openrouter/") else f"openrouter/{config.model}"
-    donated_key = os.getenv(OAI_ANTH_OPENROUTER_KEY_ENV)
-    personal_key = os.getenv(OPENROUTER_API_KEY_ENV)
-    use_fallback = should_route_via_donated_key(model) and donated_key and personal_key and donated_key != personal_key
+    primary_key = os.getenv(OAI_ANTH_OPENROUTER_KEY_ENV)
+    fallback_key = os.getenv(OPENROUTER_API_KEY_ENV)
+    use_fallback = should_route_via_primary_key(model) and primary_key and fallback_key and primary_key != fallback_key
 
     async def _call_once(
         messages: list[dict[str, Any]], tools_json: list[dict[str, Any]] | None, api_key: str | None
@@ -58,24 +58,24 @@ def build_default_llm_call(config: LoopConfig) -> LlmCall:
 
     async def _call(messages: list[dict[str, Any]], tools_json: list[dict[str, Any]] | None) -> Any:
         if use_fallback:
-            assert donated_key is not None
-            assert personal_key is not None
+            assert primary_key is not None
+            assert fallback_key is not None
             try:
-                return await _call_once(messages, tools_json, donated_key)
+                return await _call_once(messages, tools_json, primary_key)
             except Exception as exc:  # classifier re-raises non-key-scoped errors
-                if not should_retry_with_general_key(exc):
+                if not should_retry_with_fallback_key(exc):
                     raise
                 # Same accounting as FallbackOpenRouterLlm.invoke: counted once in the
                 # generic total (plus at most one subset) and logged as a PAID
-                # PERSONAL-KEY FALLBACK. Without this the highest-volume donated-key
+                # FALLBACK-KEY FALLBACK. Without this the highest-volume primary-key
                 # path in the bot — v2 runs on every question in all four prod
                 # workflows — failed over to the paid key completely silently.
-                await record_donated_key_fallback(model, exc)  # noqa: ASYNC120
-                return await _call_once(messages, tools_json, personal_key)
+                await record_primary_key_fallback(model, exc)  # noqa: ASYNC120
+                return await _call_once(messages, tools_json, fallback_key)
 
-        api_key = donated_key if should_route_via_donated_key(model) and donated_key else personal_key
+        api_key = primary_key if should_route_via_primary_key(model) and primary_key else fallback_key
         # The counted/logged fallback DECISION is now shared with fallback_openrouter
-        # (record_donated_key_fallback). Only the transport differs: this path calls
+        # (record_primary_key_fallback). Only the transport differs: this path calls
         # raw litellm.acompletion for tool-loop support, where the wrapper goes
         # through GeneralLlm. Share the transport too if this grows a retry ladder.
         return await _call_once(messages, tools_json, api_key)

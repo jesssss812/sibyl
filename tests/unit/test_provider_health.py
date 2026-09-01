@@ -621,7 +621,7 @@ class TestSuppression:
         # Visible, not hidden: the marker shows the arithmetic and names the resume
         # date, and the per-finding line still fires. A run reading alertable=0
         # alongside real degradation is exactly the shape that most needs a written
-        # record — the drained-donated-key incident is the precedent.
+        # record — the drained-primary-key incident is the precedent.
         marker = next(msg for msg in messages if msg.startswith("PROVIDER_DEGRADATION:"))
         assert "findings=1 alertable=0 suppressed=1" in marker
         assert "manifold:market_field_contract suppressed until 2026-09-10" in marker

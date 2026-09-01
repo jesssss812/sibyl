@@ -23,7 +23,7 @@ bug — check the dates before treating any of it as current.
 | [numeric_pipeline.md](numeric_pipeline.md) | Percentiles to PCHIP CDF: extraction, sanitizing, tail widening, step enforcement, bound pinning, discrete snapping, the unit-mismatch guard. |
 | [performance_analysis.md](performance_analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
 | [probabilistic_tools.md](probabilistic_tools.md) | The `probabilistic_tools/` package and the tool-runner that exposes it to forecaster models. |
-| [operations.md](operations.md) | Running it: `uv` setup, the shared-vs-personal key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
+| [operations.md](operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
 
 ## Planning and evaluation strategy
 

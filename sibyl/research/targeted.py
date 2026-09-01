@@ -6,7 +6,7 @@ When base forecaster models disagree significantly, this module:
 
 Also provides ``run_gap_fill_pass`` — an always-on second-pass that runs after
 first-pass research. It identifies factual gaps in the first pass and resolves
-each via a parallel OpenAI native web search (OpenRouter, donated-key billed).
+each via a parallel OpenAI native web search (OpenRouter, primary-key billed).
 """
 
 import asyncio
@@ -186,7 +186,7 @@ async def _run_analyzer(
 ) -> list[dict[str, str]]:
     """Call the analyzer LLM (no grounding) to identify gaps.
 
-    Runs gpt-5.6-terra at low effort via OpenRouter (with donated-key
+    Runs gpt-5.6-terra at low effort via OpenRouter (with primary-key
     fallback). The analyzer is non-grounded so it doesn't need Google's search
     index; the task is gap decomposition (not deep judgment) under a tight
     soft-fail wall cap, so terra-low is the latency-safe tier.
@@ -237,8 +237,8 @@ async def _resolve_single_gap(
 ) -> str:
     """Run one OpenAI native web search (via OpenRouter) for a single gap.
 
-    Migrated 2026-06-25 off direct-Google grounded Gemini (google-genai, personal
-    GOOGLE_API_KEY) to native search on the Metaculus-donated key — this is the
+    Migrated 2026-06-25 off direct-Google grounded Gemini (google-genai, fallback
+    GOOGLE_API_KEY) to native search on the Metaculus-primary key — this is the
     dominant cost-saving change since the resolver fans out up to GAP_FILL_MAX_GAPS
     calls per question. Runs gpt-5.6-sol at low effort (same LOW as the main
     native_search provider): the workers run in parallel, so latency is the

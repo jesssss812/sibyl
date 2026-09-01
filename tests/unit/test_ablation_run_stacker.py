@@ -2575,23 +2575,23 @@ class TestRealToolRunnerIntegration:
 
 
 # ===========================================================================
-# Default stacker LLM construction — donated-key wrapper
+# Default stacker LLM construction — primary-key wrapper
 # ===========================================================================
 
 
-class TestDefaultStackerWiredViaDonatedKey:
+class TestDefaultStackerWiredViaPrimaryKey:
     """When callers pass ``stacker_llm=None`` we construct claude-opus-4.5
     (primary) and gpt-5.6-sol (fallback) routed via ``build_llm_with_openrouter_fallback``
-    so the Metaculus-donated key is tried before the operator's paid key.
+    so the Metaculus-primary key is tried before the operator's paid key.
 
     This mirrors production STACKER_LLM / STACKER_FALLBACK_LLM in
     ``llm_configs.py``. An earlier iteration tried an OpenAI model as primary,
-    but the operator's local-`.env` donated key data-policy blocked it;
+    but the operator's local-`.env` primary key data-policy blocked it;
     Anthropic models work cleanly. Production with a different
     ``OAI_ANTH_OPENROUTER_KEY`` GitHub-secret value behaved differently.
     """
 
-    def test_default_stacker_uses_opus_4_5_via_donated_key_wrapper(
+    def test_default_stacker_uses_opus_4_5_via_primary_key_wrapper(
         self, cache: AblationCache, parser_llm: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from sibyl.eval.ablation.run_stacker import (
@@ -2603,7 +2603,7 @@ class TestDefaultStackerWiredViaDonatedKey:
         )
 
         # Both keys present + distinct → wrapper chooses FallbackOpenRouterLlm.
-        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "fake_donated")
+        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "fake_primary")
         monkeypatch.setenv("OPENROUTER_API_KEY", "fake_paid")
 
         # Pin the new defaults at the constant level — primary is opus-4.5,
@@ -2652,14 +2652,14 @@ class TestDefaultStackerWiredViaDonatedKey:
         )
         assert primary.model == "openrouter/anthropic/claude-opus-4.5"
 
-    def test_default_stacker_in_batch_uses_opus_4_5_via_donated_key_wrapper(
+    def test_default_stacker_in_batch_uses_opus_4_5_via_primary_key_wrapper(
         self, cache: AblationCache, parser_llm: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from sibyl.platform.key_fallback import (
             FallbackOpenRouterLlm,
         )
 
-        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "fake_donated")
+        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "fake_primary")
         monkeypatch.setenv("OPENROUTER_API_KEY", "fake_paid")
 
         captured_llms: list[Any] = []

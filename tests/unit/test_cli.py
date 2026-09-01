@@ -1,19 +1,19 @@
 """Tests for ``sibyl.cli.main`` — specifically the sys.exit wiring that
-fires when ``SibylBot.alertable_count > 0``, when the donated
-OpenRouter key fell back to the operator's personal (paid) key during the run,
-or when the donated key's remaining balance ended the run below the refill
+fires when ``SibylBot.alertable_count > 0``, when the primary
+OpenRouter key fell back to the operator's fallback (paid) key during the run,
+or when the primary key's remaining balance ended the run below the refill
 floor (``OPENROUTER_CREDIT_FLOOR_USD``).
 
-The fallback counter folded into ``alertable`` is ``_generic_key_fallback_count``
-— it counts EVERY donated->personal fallback (all causes: 401/402/429/guardrail/
-404). ``_donated_404_fallback_count`` (allowed-providers 404) and
+The fallback counter folded into ``alertable`` is ``_fallback_key_count``
+— it counts EVERY primary->fallback fallback (all causes: 401/402/429/guardrail/
+404). ``_primary_route_404_fallback_count`` (allowed-providers 404) and
 ``_credit_key_fallback_count`` (402 / insufficient credit) are two disjoint
 subsets of that total, broken out in the log line for diagnostics but NOT
 separately added to ``alertable`` (that would double-count events already inside
 the generic total).
 
 Credit alerting is suppressed until ``CREDIT_ALERT_RESUME_DATE`` (2026-09-10)
-because the operator is self-funding the rest of the season, so a drained donated
+because the operator is self-funding the rest of the season, so a drained primary
 key is expected rather than broken. During the window the floor breach does not
 exit non-zero and the credit-caused fallbacks are subtracted back out of
 ``alertable``; every other fallback cause (401 / 404 / 429 / guardrail) keeps its
@@ -23,7 +23,7 @@ than the wall clock, so they keep testing both sides after the real date passes.
 Publication already happened inside ``forecast_on_tournament`` by the time cli
 checks alertable state; the non-zero exit is purely so GitHub Actions marks
 the run red. That wiring is load-bearing — without it, forecaster drops,
-stacker fallback usage, silent personal-key spend, and a draining donated
+stacker fallback usage, silent fallback-key spend, and a draining primary
 balance all go unnoticed.
 """
 
@@ -51,8 +51,8 @@ from sibyl.config.settings import (
 from sibyl.forecasting.bot import SibylBot
 from sibyl.platform.key_fallback import (
     reset_credit_key_fallback_count,
-    reset_donated_404_fallback_count,
-    reset_generic_key_fallback_count,
+    reset_fallback_key_count,
+    reset_primary_route_404_fallback_count,
 )
 from sibyl.research.provider_health import (
     VENUE_EXPECTED_LIQUIDITY_FIELDS,
@@ -60,7 +60,7 @@ from sibyl.research.provider_health import (
     record_venue_observation,
     reset_provider_health,
 )
-from sibyl.telemetry.credits import DonatedKeyState, reset_donated_key_state_cache
+from sibyl.telemetry.credits import PrimaryKeyState, reset_primary_key_state_cache
 
 # Dates on either side of the suppression boundary. Injected instead of read from
 # the clock so these tests keep exercising both branches forever.
@@ -107,15 +107,15 @@ def _reset_fallback_counters() -> None:
     can't silently turn an "alertable=0" path into "alertable=1" because a
     prior test bumped a counter.
 
-    The donated-key probe verdict is process-global for the same reason (probe
+    The primary-key probe verdict is process-global for the same reason (probe
     once per run), and cli renders it in the end-of-run summary, so it is reset
     here too. Same for the provider-health observation store, which feeds the
     provider-degradation summand of ``alertable_count``.
     """
-    reset_generic_key_fallback_count()
-    reset_donated_404_fallback_count()
+    reset_fallback_key_count()
+    reset_primary_route_404_fallback_count()
     reset_credit_key_fallback_count()
-    reset_donated_key_state_cache()
+    reset_primary_key_state_cache()
     reset_provider_health()
 
 
@@ -123,7 +123,7 @@ def _reset_fallback_counters() -> None:
 def _cli_main_test_mode(
     alertable_count: int,
     *,
-    donated_below_floor: bool = False,
+    primary_below_floor: bool = False,
     today: date | None = None,
     stub_bot: MagicMock | None = None,
 ) -> Iterator[MagicMock]:
@@ -135,7 +135,7 @@ def _cli_main_test_mode(
     downstream ``log_report_summary`` formatting is needed). Also stubs
     CreditTelemetry so tests never hit the real OpenRouter balance endpoint
     (a local ``.env`` would otherwise supply real keys); its floor-check
-    result is controlled via ``donated_below_floor``. sys.argv is pinned to
+    result is controlled via ``primary_below_floor``. sys.argv is pinned to
     test_questions mode and restored afterwards.
 
     ``today`` pins the credit-suppression window: cli reads it through
@@ -155,7 +155,7 @@ def _cli_main_test_mode(
     stub_bot.forecast_on_tournament = AsyncMock(return_value=[])
 
     stub_telemetry = MagicMock()
-    stub_telemetry.log_end_and_check_floor.return_value = donated_below_floor
+    stub_telemetry.log_end_and_check_floor.return_value = primary_below_floor
 
     # Re-bind cli's own reference so only the injected date decides the window;
     # patching with the real function when today is None keeps one `with` shape.
@@ -223,19 +223,19 @@ class TestCliExitStatus:
             assert exc_info.value.code == 1
 
     def test_generic_key_fallback_alone_triggers_sys_exit_1(self) -> None:
-        """The donated->personal key fallback counter is folded into alertable.
+        """The primary->fallback key fallback counter is folded into alertable.
 
         Even when the bot's own ``alertable_count`` is 0, a single fallback to
-        the personal (paid) key during the run must still trigger a non-zero
+        the fallback (paid) key during the run must still trigger a non-zero
         exit. The semantics: the run completed all submissions successfully
-        (via the paid key), but a call that should have hit the free donated
+        (via the paid key), but a call that should have hit the free primary
         key billed to the operator instead, and the operator deserves an email.
         """
-        # Simulate the wrapper having fired a generic (non-404) donated->personal
+        # Simulate the wrapper having fired a generic (non-404) primary->fallback
         # fallback during the run. cli.main reads this AFTER forecast returns.
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
+        fb_module._fallback_key_count = 1
         try:
             with _cli_main_test_mode(alertable_count=0):
                 with pytest.raises(SystemExit) as exc_info:
@@ -244,9 +244,9 @@ class TestCliExitStatus:
         finally:
             # autouse fixture already resets, but be explicit on the path
             # that bypasses normal flow.
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
 
-    def test_donated_404_fallback_triggers_sys_exit_without_double_counting(
+    def test_primary_route_404_fallback_triggers_sys_exit_without_double_counting(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A 404 fallback bumps BOTH counters (the wrapper's real behavior), but
@@ -266,8 +266,8 @@ class TestCliExitStatus:
 
         # Mirror FallbackOpenRouterLlm.invoke: a 404 fallback bumps the generic
         # counter AND the 404 subset.
-        fb_module._generic_key_fallback_count = 1
-        fb_module._donated_404_fallback_count = 1
+        fb_module._fallback_key_count = 1
+        fb_module._primary_route_404_fallback_count = 1
         try:
             with (
                 _cli_main_test_mode(alertable_count=0),
@@ -282,8 +282,8 @@ class TestCliExitStatus:
                     f"expected 'with 1 alertable' in warnings; got: {[r.getMessage() for r in caplog.records]}"
                 )
         finally:
-            fb_module._generic_key_fallback_count = 0
-            fb_module._donated_404_fallback_count = 0
+            fb_module._fallback_key_count = 0
+            fb_module._primary_route_404_fallback_count = 0
 
     def test_no_fallback_with_bot_alertable_zero_returns_normally(self) -> None:
         """Both bot alertable_count == 0 AND fallback counters == 0 → no SystemExit.
@@ -297,7 +297,7 @@ class TestCliExitStatus:
 
 
 class TestCliCreditFloor:
-    """End-of-run donated-key credit-floor wiring in cli.main.
+    """End-of-run primary-key credit-floor wiring in cli.main.
 
     The floor check itself (thresholds, n/a handling, fetch failures) is unit
     tested in test_credit_telemetry.py; these tests pin the cli wiring — that
@@ -310,8 +310,8 @@ class TestCliCreditFloor:
     """
 
     def test_below_floor_triggers_sys_exit_1(self) -> None:
-        """Donated balance below floor → run completes, then SystemExit(1)."""
-        with _cli_main_test_mode(alertable_count=0, donated_below_floor=True, today=AFTER_RESUME_DATE) as telemetry:
+        """Primary balance below floor → run completes, then SystemExit(1)."""
+        with _cli_main_test_mode(alertable_count=0, primary_below_floor=True, today=AFTER_RESUME_DATE) as telemetry:
             with pytest.raises(SystemExit) as exc_info:
                 cli_main()
             assert exc_info.value.code == 1
@@ -320,7 +320,7 @@ class TestCliCreditFloor:
 
     def test_above_floor_returns_normally(self) -> None:
         """Healthy balance → telemetry logs both phases, no SystemExit."""
-        with _cli_main_test_mode(alertable_count=0, donated_below_floor=False, today=AFTER_RESUME_DATE) as telemetry:
+        with _cli_main_test_mode(alertable_count=0, primary_below_floor=False, today=AFTER_RESUME_DATE) as telemetry:
             cli_main()
             telemetry.log_start.assert_called_once()
             telemetry.log_end_and_check_floor.assert_called_once()
@@ -329,7 +329,7 @@ class TestCliCreditFloor:
         """The end-of-run fetch is in a finally: a crashed run still logs its
         spend (the original exception propagates, not a floor SystemExit).
         """
-        with _cli_main_test_mode(alertable_count=0, donated_below_floor=True, today=AFTER_RESUME_DATE) as telemetry:
+        with _cli_main_test_mode(alertable_count=0, primary_below_floor=True, today=AFTER_RESUME_DATE) as telemetry:
 
             def _crash(*_args: object, **_kwargs: object) -> None:
                 raise RuntimeError("forecasting blew up")
@@ -452,7 +452,7 @@ class TestCliResearchFlush:
 class TestCliCreditAlertSuppression:
     """The dated credit-alert suppression, both paths.
 
-    Path 1 is the floor breach; path 2 is the credit-caused donated->personal
+    Path 1 is the floor breach; path 2 is the credit-caused primary->fallback
     fallback folded into ``alertable``. Both must stop reddening CI until
     ``CREDIT_ALERT_RESUME_DATE``, and both must behave exactly as before once the
     date passes. Nothing about the logs changes — only the exit status and the
@@ -464,7 +464,7 @@ class TestCliCreditAlertSuppression:
         so a reader who greps CREDIT_FLOOR_BREACH isn't left guessing.
         """
         with (
-            _cli_main_test_mode(alertable_count=0, donated_below_floor=True, today=DURING_SUPPRESSION) as telemetry,
+            _cli_main_test_mode(alertable_count=0, primary_below_floor=True, today=DURING_SUPPRESSION) as telemetry,
             caplog.at_level(logging.INFO, logger="sibyl.cli"),
         ):
             # Must NOT raise SystemExit.
@@ -476,13 +476,13 @@ class TestCliCreditAlertSuppression:
 
     def test_floor_breach_on_resume_date_exits_non_zero(self) -> None:
         """The window is closed-on-the-right: the resume day itself alerts."""
-        with _cli_main_test_mode(alertable_count=0, donated_below_floor=True, today=ON_RESUME_DATE):
+        with _cli_main_test_mode(alertable_count=0, primary_below_floor=True, today=ON_RESUME_DATE):
             with pytest.raises(SystemExit) as exc_info:
                 cli_main()
             assert exc_info.value.code == 1
 
     def test_floor_breach_after_resume_date_exits_non_zero(self) -> None:
-        with _cli_main_test_mode(alertable_count=0, donated_below_floor=True, today=AFTER_RESUME_DATE):
+        with _cli_main_test_mode(alertable_count=0, primary_below_floor=True, today=AFTER_RESUME_DATE):
             with pytest.raises(SystemExit) as exc_info:
                 cli_main()
             assert exc_info.value.code == 1
@@ -494,14 +494,14 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
+        fb_module._fallback_key_count = 1
         fb_module._credit_key_fallback_count = 1
         try:
             with _cli_main_test_mode(alertable_count=0, today=DURING_SUPPRESSION):
                 # Must NOT raise SystemExit.
                 cli_main()
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
 
     def test_credit_fallback_after_resume_date_exits_non_zero(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -511,7 +511,7 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
+        fb_module._fallback_key_count = 1
         fb_module._credit_key_fallback_count = 1
         try:
             with (
@@ -526,7 +526,7 @@ class TestCliCreditAlertSuppression:
                 assert any("credit=1);" in msg for msg in messages), messages
                 assert not any("suppressed until" in msg for msg in messages), messages
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
 
     @pytest.mark.parametrize("cause", ["401", "429"])
@@ -542,7 +542,7 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
+        fb_module._fallback_key_count = 1
         try:
             with (
                 _cli_main_test_mode(alertable_count=0, today=DURING_SUPPRESSION),
@@ -555,9 +555,9 @@ class TestCliCreditAlertSuppression:
                     f"{cause}: expected 'with 1 alertable'; got {[r.getMessage() for r in caplog.records]}"
                 )
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
 
-    def test_donated_404_still_alertable_and_counted_once_during_suppression(
+    def test_primary_route_404_still_alertable_and_counted_once_during_suppression(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The double-counting trap. A 404 fallback bumps the generic total and the
@@ -567,8 +567,8 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
-        fb_module._donated_404_fallback_count = 1
+        fb_module._fallback_key_count = 1
+        fb_module._primary_route_404_fallback_count = 1
         try:
             with (
                 _cli_main_test_mode(alertable_count=0, today=DURING_SUPPRESSION),
@@ -581,8 +581,8 @@ class TestCliCreditAlertSuppression:
                     f"expected 'with 1 alertable'; got {[r.getMessage() for r in caplog.records]}"
                 )
         finally:
-            fb_module._generic_key_fallback_count = 0
-            fb_module._donated_404_fallback_count = 0
+            fb_module._fallback_key_count = 0
+            fb_module._primary_route_404_fallback_count = 0
 
     def test_mixed_causes_subtract_only_the_credit_share(self, caplog: pytest.LogCaptureFixture) -> None:
         """One 402 plus one 404 in the same run: generic=2, credit=1, donated_404=1.
@@ -591,9 +591,9 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 2
+        fb_module._fallback_key_count = 2
         fb_module._credit_key_fallback_count = 1
-        fb_module._donated_404_fallback_count = 1
+        fb_module._primary_route_404_fallback_count = 1
         try:
             with (
                 _cli_main_test_mode(alertable_count=0, today=DURING_SUPPRESSION),
@@ -610,34 +610,34 @@ class TestCliCreditAlertSuppression:
                     messages
                 )
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
-            fb_module._donated_404_fallback_count = 0
+            fb_module._primary_route_404_fallback_count = 0
 
-    def test_drained_donated_key_alone_exits_zero(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_drained_primary_key_alone_exits_zero(self, caplog: pytest.LogCaptureFixture) -> None:
         """The full shape of the 2026-07-26 run, once the fix lands. Both credit
-        paths fire together — every donated-key call fell back to the personal key
+        paths fire together — every primary-key call fell back to the fallback key
         AND the end-of-run balance is under the refill floor — and because the probe
         confirmed the key is genuinely drained, the whole run is green.
 
         This is the outcome the operator asked for: while they self-fund the season,
-        an empty donated wallet is bookkeeping, not breakage.
+        an empty primary wallet is bookkeeping, not breakage.
 
         Green is exactly the shape that most needs a written record, so the run must
         still explain itself: the same breakdown the red path logs (rendered at INFO),
         carrying the probe verdict, plus the floor-breach explanation. Without the
         summary on this branch, the run this whole change set was built for — every
-        donated call falling back, so the credit subset cancels the entire generic
+        primary call falling back, so the credit subset cancels the entire generic
         total — would leave no trace of either the degradation or the verdict.
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 7
+        fb_module._fallback_key_count = 7
         fb_module._credit_key_fallback_count = 7
         try:
             with (
-                _cli_main_test_mode(alertable_count=0, donated_below_floor=True, today=DURING_SUPPRESSION),
-                patch("sibyl.cli.get_probed_donated_key_state", return_value=DonatedKeyState.DRAINED),
+                _cli_main_test_mode(alertable_count=0, primary_below_floor=True, today=DURING_SUPPRESSION),
+                patch("sibyl.cli.get_probed_primary_key_state", return_value=PrimaryKeyState.DRAINED),
                 caplog.at_level(logging.INFO, logger="sibyl.cli"),
             ):
                 # Must NOT raise SystemExit.
@@ -653,25 +653,25 @@ class TestCliCreditAlertSuppression:
             # The floor-breach explanation is a separate concern and still lands.
             assert any("credit alerting is suppressed until 2026-09-10" in msg for msg in messages), messages
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
 
-    def test_revoked_donated_key_exits_non_zero_during_suppression(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_revoked_primary_key_exits_non_zero_during_suppression(self, caplog: pytest.LogCaptureFixture) -> None:
         """The regression the discriminator exists to prevent. Same error text as the
         drained run, but the probe found the key revoked, so the wrapper left the
         credit subset at zero: nothing is subtracted and CI goes red.
 
         Without the probe, "Key limit exceeded" alone would have exempted a revoked
-        or re-capped-to-zero donated key from alerting for six weeks.
+        or re-capped-to-zero primary key from alerting for six weeks.
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 7
+        fb_module._fallback_key_count = 7
         fb_module._credit_key_fallback_count = 0
         try:
             with (
-                _cli_main_test_mode(alertable_count=0, donated_below_floor=False, today=DURING_SUPPRESSION),
-                patch("sibyl.cli.get_probed_donated_key_state", return_value=DonatedKeyState.REVOKED),
+                _cli_main_test_mode(alertable_count=0, primary_below_floor=False, today=DURING_SUPPRESSION),
+                patch("sibyl.cli.get_probed_primary_key_state", return_value=PrimaryKeyState.REVOKED),
                 caplog.at_level(logging.WARNING, logger="sibyl.cli"),
             ):
                 with pytest.raises(SystemExit) as exc_info:
@@ -683,7 +683,7 @@ class TestCliCreditAlertSuppression:
                 # suppressed on a run full of credit-shaped failures.
                 assert any("donated_key=revoked" in msg for msg in messages), messages
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
 
     def test_clean_run_logs_no_degradation_summary(self, caplog: pytest.LogCaptureFixture) -> None:
         """The green-path summary is conditioned on a fallback having happened, not
@@ -704,16 +704,16 @@ class TestCliCreditAlertSuppression:
         event survives the subtraction and the run is red. The verdict still rides
         the summary — a reader has to be able to tell that the suppressed share was
         exempted because the key was genuinely drained. (The fully-suppressed green
-        counterpart is ``test_drained_donated_key_alone_exits_zero``.)
+        counterpart is ``test_drained_primary_key_alone_exits_zero``.)
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 2
+        fb_module._fallback_key_count = 2
         fb_module._credit_key_fallback_count = 1
         try:
             with (
                 _cli_main_test_mode(alertable_count=0, today=DURING_SUPPRESSION),
-                patch("sibyl.cli.get_probed_donated_key_state", return_value=DonatedKeyState.DRAINED),
+                patch("sibyl.cli.get_probed_primary_key_state", return_value=PrimaryKeyState.DRAINED),
                 caplog.at_level(logging.WARNING, logger="sibyl.cli"),
             ):
                 with pytest.raises(SystemExit):
@@ -721,7 +721,7 @@ class TestCliCreditAlertSuppression:
                 messages = [record.getMessage() for record in caplog.records]
                 assert any("donated_key=drained" in msg for msg in messages), messages
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
 
     def test_unprobed_run_omits_the_verdict_clause(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -730,7 +730,7 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
+        fb_module._fallback_key_count = 1
         try:
             with (
                 _cli_main_test_mode(alertable_count=0, today=DURING_SUPPRESSION),
@@ -739,28 +739,28 @@ class TestCliCreditAlertSuppression:
                 with pytest.raises(SystemExit):
                     cli_main()
                 messages = [record.getMessage() for record in caplog.records]
-                assert not any("donated_key=" in msg for msg in messages), messages
+                assert not any("primary_key=" in msg for msg in messages), messages
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
 
     def test_bot_degradation_still_red_on_a_drained_key_run(self) -> None:
-        """A drained donated key must not launder real bot-side degradation into a
+        """A drained primary key must not launder real bot-side degradation into a
         green run: the subtraction is scoped to the credit subset only.
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 7
+        fb_module._fallback_key_count = 7
         fb_module._credit_key_fallback_count = 7
         try:
             with (
-                _cli_main_test_mode(alertable_count=2, donated_below_floor=True, today=DURING_SUPPRESSION),
-                patch("sibyl.cli.get_probed_donated_key_state", return_value=DonatedKeyState.DRAINED),
+                _cli_main_test_mode(alertable_count=2, primary_below_floor=True, today=DURING_SUPPRESSION),
+                patch("sibyl.cli.get_probed_primary_key_state", return_value=PrimaryKeyState.DRAINED),
             ):
                 with pytest.raises(SystemExit) as exc_info:
                     cli_main()
                 assert exc_info.value.code == 1
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
 
     def test_bot_alertable_survives_credit_suppression(self) -> None:
@@ -770,7 +770,7 @@ class TestCliCreditAlertSuppression:
         """
         import sibyl.platform.key_fallback as fb_module  # noqa: PLC0415
 
-        fb_module._generic_key_fallback_count = 1
+        fb_module._fallback_key_count = 1
         fb_module._credit_key_fallback_count = 1
         try:
             with _cli_main_test_mode(alertable_count=3, today=DURING_SUPPRESSION):
@@ -778,7 +778,7 @@ class TestCliCreditAlertSuppression:
                     cli_main()
                 assert exc_info.value.code == 1
         finally:
-            fb_module._generic_key_fallback_count = 0
+            fb_module._fallback_key_count = 0
             fb_module._credit_key_fallback_count = 0
 
 
@@ -979,7 +979,7 @@ class TestCliProviderDegradationExit:
         records NO venue observations, so provider-degradation stays 0 and the run
         reports one event rather than two. The exit code can't distinguish 1 from 2, so
         assert the counters directly — the same reasoning as
-        ``test_donated_404_fallback_triggers_sys_exit_without_double_counting``.
+        ``test_primary_route_404_fallback_triggers_sys_exit_without_double_counting``.
         """
         import sibyl.research.prediction_market as pmp  # noqa: PLC0415
 

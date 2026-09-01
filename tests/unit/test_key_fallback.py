@@ -16,19 +16,19 @@ from sibyl.platform.key_fallback import (
     FallbackOpenRouterLlm,
     build_llm_with_openrouter_fallback,
     get_credit_key_fallback_count,
-    get_donated_404_fallback_count,
-    get_generic_key_fallback_count,
+    get_fallback_key_count,
+    get_primary_route_404_fallback_count,
     is_credit_caused_error,
     is_suppressible_credit_error,
     primary_key_blocked_models,
     primary_key_providers,
     reset_credit_key_fallback_count,
-    reset_donated_404_fallback_count,
-    reset_generic_key_fallback_count,
-    should_retry_with_general_key,
-    should_route_via_donated_key,
+    reset_fallback_key_count,
+    reset_primary_route_404_fallback_count,
+    should_retry_with_fallback_key,
+    should_route_via_primary_key,
 )
-from sibyl.telemetry.credits import DonatedKeyState, reset_donated_key_state_cache
+from sibyl.telemetry.credits import PrimaryKeyState, reset_primary_key_state_cache
 
 # The verbatim 2026-07-26 production 403 (HTTP 403 rather than the documented 402, the
 # phrase "Key limit exceeded (total limit)", a "code":403 field the old negative rule
@@ -59,7 +59,7 @@ MODERATION_403 = (
 # The same moderation 403 whose replayed prompt text contains the token "402" — a
 # dollar figure or bill number is entirely ordinary in a forecasting prompt. The
 # old bare-"402" substring cue would read this as an empty wallet, bill the
-# personal key for a call that will refuse again, and exempt a real moderation
+# fallback key for a call that will refuse again, and exempt a real moderation
 # block from alerting.
 MODERATION_403_ECHOING_402 = (
     "litellm.APIError: APIError: OpenrouterException - "
@@ -79,40 +79,40 @@ FREE_MODEL_RATE_LIMIT_429 = (
 
 
 class TestPredicates:
-    def test_should_route_via_donated_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # OpenAI / Anthropic always route via the donated key when one is configured.
-        assert should_route_via_donated_key("openrouter/openai/gpt-5.1") is True
-        assert should_route_via_donated_key("openrouter/anthropic/claude-sonnet-4") is True
+    def test_should_route_via_primary_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # OpenAI / Anthropic always route via the primary key when one is configured.
+        assert should_route_via_primary_key("openrouter/openai/gpt-5.1") is True
+        assert should_route_via_primary_key("openrouter/anthropic/claude-sonnet-4") is True
         # Google is gated on GEMINI_USE_DONATED_OPENROUTER_KEY. With the toggle on,
-        # flash models prefer the donated key — but gemini-3.1-pro is on the
-        # DONATED_KEY_BLOCKED_GOOGLE_MODELS blocklist (free-tier BYOK → 429), so it
-        # is pinned to the personal key even with the toggle ON.
+        # flash models prefer the primary key — but gemini-3.1-pro is on the
+        # OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist (free-tier BYOK → 429), so it
+        # is pinned to the fallback key even with the toggle ON.
         monkeypatch.setenv("GEMINI_USE_DONATED_OPENROUTER_KEY", "true")
-        assert should_route_via_donated_key("openrouter/google/gemini-3.5-flash") is True
-        assert should_route_via_donated_key("openrouter/google/gemini-3.1-flash-lite") is True
-        assert should_route_via_donated_key("openrouter/google/gemini-3-flash-preview") is True
-        assert should_route_via_donated_key("openrouter/google/gemini-3.1-pro-preview") is False
-        # Explicit toggle off: ALL Google calls go through the operator's personal key only.
+        assert should_route_via_primary_key("openrouter/google/gemini-3.5-flash") is True
+        assert should_route_via_primary_key("openrouter/google/gemini-3.1-flash-lite") is True
+        assert should_route_via_primary_key("openrouter/google/gemini-3-flash-preview") is True
+        assert should_route_via_primary_key("openrouter/google/gemini-3.1-pro-preview") is False
+        # Explicit toggle off: ALL Google calls go through the operator's fallback key only.
         monkeypatch.setenv("GEMINI_USE_DONATED_OPENROUTER_KEY", "false")
-        assert should_route_via_donated_key("openrouter/google/gemini-3.1-pro-preview") is False
-        assert should_route_via_donated_key("openrouter/google/gemini-3.5-flash") is False
-        # Default with the env var unset is ON (donated key with personal fallback):
-        # after Metaculus raised the Google rate limits (2026-06-16) the donated key
-        # serves most Gemini. A flash model routes donated-first by default; the
-        # gemini-3.1-pro slug stays blocklisted (pinned to personal) regardless.
+        assert should_route_via_primary_key("openrouter/google/gemini-3.1-pro-preview") is False
+        assert should_route_via_primary_key("openrouter/google/gemini-3.5-flash") is False
+        # Default with the env var unset is ON (primary key with fallback fallback):
+        # after Metaculus raised the Google rate limits (2026-06-16) the primary key
+        # serves most Gemini. A flash model routes primary-first by default; the
+        # gemini-3.1-pro slug stays blocklisted (pinned to fallback) regardless.
         monkeypatch.delenv("GEMINI_USE_DONATED_OPENROUTER_KEY", raising=False)
-        assert should_route_via_donated_key("openrouter/google/gemini-3.5-flash") is True
-        assert should_route_via_donated_key("openrouter/google/gemini-3.1-pro-preview") is False
-        # Providers NOT covered by the donated key.
-        assert should_route_via_donated_key("openrouter/x-ai/grok-4.1-fast") is False
-        assert should_route_via_donated_key("openrouter/qwen/qwen3-235b") is False
+        assert should_route_via_primary_key("openrouter/google/gemini-3.5-flash") is True
+        assert should_route_via_primary_key("openrouter/google/gemini-3.1-pro-preview") is False
+        # Providers NOT covered by the primary key.
+        assert should_route_via_primary_key("openrouter/x-ai/grok-4.1-fast") is False
+        assert should_route_via_primary_key("openrouter/qwen/qwen3-235b") is False
         # Non-OpenRouter slugs.
-        assert should_route_via_donated_key("perplexity/sonar") is False
+        assert should_route_via_primary_key("perplexity/sonar") is False
         # Defensive: bogus inputs return False rather than raising.
-        assert should_route_via_donated_key("openrouter/") is False  # parts < 2
-        assert should_route_via_donated_key("") is False
+        assert should_route_via_primary_key("openrouter/") is False  # parts < 2
+        assert should_route_via_primary_key("") is False
 
-    def test_donated_key_providers_set(self) -> None:
+    def test_primary_key_providers_set(self) -> None:
         # Pin the DEFAULT membership so drift surfaces in code review rather than
         # silently changing routing. The list is env-overridable now, but the default
         # is what every deployment without the var set actually uses.
@@ -127,12 +127,12 @@ class TestPredicates:
             ("401 Unauthorized", True),
             ("invalid API key", True),
             ("disabled api key", True),
-            # Donated-key allowed-providers 404 quirk → should fall back.
+            # Primary-key allowed-providers 404 quirk → should fall back.
             ("404 No allowed providers are available for the selected model.", True),
             ("no allowed providers", True),
-            # Donated-key data-policy / guardrail 404 (added 2026-05-17 for OpenAI
-            # native search migration) — donated key's data-collection guardrail
-            # blocks OpenAI native search; the personal key has no such block.
+            # Primary-key data-policy / guardrail 404 (added 2026-05-17 for OpenAI
+            # native search migration) — primary key's data-collection guardrail
+            # blocks OpenAI native search; the fallback key has no such block.
             (
                 "404 No endpoints available matching your guardrail restrictions and data policy. "
                 "Configure: https://openrouter.ai/settings/privacy",
@@ -152,8 +152,8 @@ class TestPredicates:
             ("503 Service Unavailable", False),
         ],
     )
-    def test_should_retry_with_general_key(self, message: str, expected: bool) -> None:
-        assert should_retry_with_general_key(Exception(message)) is expected
+    def test_should_retry_with_fallback_key(self, message: str, expected: bool) -> None:
+        assert should_retry_with_fallback_key(Exception(message)) is expected
 
     def test_litellm_rate_limit_error_triggers_fallback(self) -> None:
         """litellm.RateLimitError (typed 429) triggers fallback — BYOK quotas are independent."""
@@ -164,7 +164,7 @@ class TestPredicates:
             model="openrouter/google/gemini-3.1-pro-preview",
             llm_provider="openrouter",
         )
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
 
     def test_litellm_service_unavailable_does_not_trigger_fallback(self) -> None:
         """litellm.ServiceUnavailableError (503) does NOT trigger fallback — infrastructure issue."""
@@ -175,7 +175,7 @@ class TestPredicates:
             model="openrouter/openai/gpt-5.1",
             llm_provider="openrouter",
         )
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
 
 
 class TestFallbackOpenRouterLlm:
@@ -322,7 +322,7 @@ class TestKeyLimitExceeded403:
     written for content moderation) matched the ``"code":403`` field in the JSON
     body. Two of three forecasters, native search, the AskNews summarizer, the
     financial classifier, prediction-market keyword extraction, gap-fill v1 and
-    gap-fill v2 all died on a run where the operator's funded personal key sat
+    gap-fill v2 all died on a run where the operator's funded fallback key sat
     idle. These tests pin the classification in both directions: a spend-cap 403
     falls back, a moderation 403 still does not.
     """
@@ -334,7 +334,7 @@ class TestKeyLimitExceeded403:
         alerting. Neither reads the network — both are textual.
         """
         exc = Exception(PRODUCTION_KEY_LIMIT_403)
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
         assert is_credit_caused_error(exc) is True
 
     @pytest.mark.parametrize(
@@ -350,14 +350,14 @@ class TestKeyLimitExceeded403:
         cap variants are covered without enumerating them.
         """
         assert is_credit_caused_error(Exception(message)) is True
-        assert should_retry_with_general_key(Exception(message)) is True
+        assert should_retry_with_fallback_key(Exception(message)) is True
 
     def test_moderation_403_does_not_fall_back_and_is_not_credit(self) -> None:
-        """Negative control. A moderation block is not key-scoped — the personal key
+        """Negative control. A moderation block is not key-scoped — the fallback key
         would refuse the same prompt — so it must keep failing closed.
         """
         exc = Exception(MODERATION_403)
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
         assert is_credit_caused_error(exc) is False
 
     def test_moderation_403_echoing_402_in_prompt_is_still_moderation(self) -> None:
@@ -367,12 +367,12 @@ class TestKeyLimitExceeded403:
         ``flagged_input``, and forecasting prompts are full of dollar figures and
         bill numbers. A bare "402" substring match on the whole message therefore
         reads an ordinary moderation refusal as an empty wallet — which would both
-        bill the personal key for a call that refuses again and exempt a real
+        bill the fallback key for a call that refuses again and exempt a real
         moderation block from alerting.
         """
         exc = Exception(MODERATION_403_ECHOING_402)
         assert "402" in str(exc)
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
         assert is_credit_caused_error(exc) is False
 
     def test_free_model_rate_limit_429_is_not_credit_classified(self) -> None:
@@ -386,19 +386,19 @@ class TestKeyLimitExceeded403:
         assert is_credit_caused_error(exc) is False
         # It still falls back — a 429 is key-scoped (BYOK quotas are per-key) — it
         # just isn't exempt from alerting.
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
 
     def test_plain_402_still_falls_back_without_a_403_in_the_body(self) -> None:
         """The documented 402 path is untouched by the moderation hardening."""
         exc = Exception('{"error":{"message":"Insufficient credits","code":402}}')
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
         assert is_credit_caused_error(exc) is True
 
 
 class TestCreditSuppressibility:
     """``is_suppressible_credit_error`` — the drained-vs-revoked discriminator.
 
-    The operator's decision: a genuinely DRAINED donated key must not redden CI
+    The operator's decision: a genuinely DRAINED primary key must not redden CI
     while they self-fund the season, but a key Metaculus revoked or re-capped to
     zero must stay red. Both produce identical "Key limit exceeded" text, so the
     text cue alone cannot make that call — we probe OpenRouter's free
@@ -414,22 +414,22 @@ class TestCreditSuppressibility:
         test that forgets to pin a state can't reach the network.
         """
         monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
-        reset_donated_key_state_cache()
+        reset_primary_key_state_cache()
 
-    def _pin_state(self, monkeypatch: pytest.MonkeyPatch, state: DonatedKeyState) -> MagicMock:
+    def _pin_state(self, monkeypatch: pytest.MonkeyPatch, state: PrimaryKeyState) -> MagicMock:
         probe = MagicMock(return_value=state)
-        monkeypatch.setattr(fallback_openrouter, "classify_donated_key_state", probe)
+        monkeypatch.setattr(fallback_openrouter, "classify_primary_key_state", probe)
         return probe
 
     def test_drained_key_is_suppressible(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._pin_state(monkeypatch, DonatedKeyState.DRAINED)
+        self._pin_state(monkeypatch, PrimaryKeyState.DRAINED)
         assert is_suppressible_credit_error(Exception(PRODUCTION_KEY_LIMIT_403)) is True
 
     @pytest.mark.parametrize(
         "state",
-        [DonatedKeyState.REVOKED, DonatedKeyState.ZEROED, DonatedKeyState.FUNDED, DonatedKeyState.UNKNOWN],
+        [PrimaryKeyState.REVOKED, PrimaryKeyState.ZEROED, PrimaryKeyState.FUNDED, PrimaryKeyState.UNKNOWN],
     )
-    def test_every_other_state_stays_alertable(self, monkeypatch: pytest.MonkeyPatch, state: DonatedKeyState) -> None:
+    def test_every_other_state_stays_alertable(self, monkeypatch: pytest.MonkeyPatch, state: PrimaryKeyState) -> None:
         """The regression that matters: a revoked key, a key re-capped to zero, a
         key that still has money, and a probe that failed all keep CI red.
         """
@@ -437,7 +437,7 @@ class TestCreditSuppressibility:
         assert is_suppressible_credit_error(Exception(PRODUCTION_KEY_LIMIT_403)) is False
 
     def test_probe_failure_fails_safe_to_alertable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """No donated key configured → the probe can't run → UNKNOWN → still red.
+        """No primary key configured → the probe can't run → UNKNOWN → still red.
         A broken probe must never be able to silently green a run.
         """
         assert is_suppressible_credit_error(Exception(PRODUCTION_KEY_LIMIT_403)) is False
@@ -447,13 +447,13 @@ class TestCreditSuppressibility:
         Only the ambiguous spend-cap 403 pays for a probe, so the long-standing 402
         path keeps working with the endpoint unreachable.
         """
-        probe = self._pin_state(monkeypatch, DonatedKeyState.UNKNOWN)
+        probe = self._pin_state(monkeypatch, PrimaryKeyState.UNKNOWN)
         assert is_suppressible_credit_error(Exception("HTTP 402 Payment Required: insufficient credit")) is True
         probe.assert_not_called()
 
     @pytest.mark.parametrize("message", ["401 Unauthorized", "404 no allowed providers", MODERATION_403])
     def test_non_credit_causes_are_never_suppressible(self, monkeypatch: pytest.MonkeyPatch, message: str) -> None:
-        probe = self._pin_state(monkeypatch, DonatedKeyState.DRAINED)
+        probe = self._pin_state(monkeypatch, PrimaryKeyState.DRAINED)
         assert is_suppressible_credit_error(Exception(message)) is False
         probe.assert_not_called()
 
@@ -475,7 +475,7 @@ class TestCreditSuppressibility:
         )
         exc = RateLimitError(message=body, model="openrouter/openai/gpt-5.6-sol", llm_provider="openrouter")
         assert "402" in str(exc)  # the poisoning cue is present
-        assert should_retry_with_general_key(exc) is True  # 429 is key-scoped: still falls back
+        assert should_retry_with_fallback_key(exc) is True  # 429 is key-scoped: still falls back
         assert is_credit_caused_error(exc) is False
         assert is_suppressible_credit_error(exc) is False
 
@@ -490,14 +490,14 @@ class TestCreditSuppressibility:
         """
         exc = _api_error(402, "wallet empty")
         assert "402" not in str(exc)  # the gap only exists because the digits are absent
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
         assert is_credit_caused_error(exc) is True
         assert is_suppressible_credit_error(exc) is True
 
 
 class TestCreditCauseClassification:
     """``is_credit_caused_error`` is the ONE place the "empty wallet" text cues
-    live: ``should_retry_with_general_key`` and the credit-subset counter both go
+    live: ``should_retry_with_fallback_key`` and the credit-subset counter both go
     through it, so the retry decision and the counter can't drift apart.
 
     Only these messages are exempt from alerting during the suppression window
@@ -519,7 +519,7 @@ class TestCreditCauseClassification:
         assert is_credit_caused_error(Exception(message)) is True
         # Same messages must still trigger the fallback itself — the exemption
         # changes accounting, never routing.
-        assert should_retry_with_general_key(Exception(message)) is True
+        assert should_retry_with_fallback_key(Exception(message)) is True
 
     @pytest.mark.parametrize(
         "message",
@@ -547,7 +547,7 @@ class TestPaidFallbackWarningExitClause:
     ``credit_alerts_active`` is monkeypatched (rather than waiting on the wall
     clock) so both branches stay covered before and after 2026-09-10. The
     ``suppressible`` flag is passed in by the caller, which has already paid for
-    the donated-key probe — the note renders the decision, it doesn't re-derive it.
+    the primary-key probe — the note renders the decision, it doesn't re-derive it.
     """
 
     def test_suppressible_credit_cause_during_window_says_not_alertable(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -567,7 +567,7 @@ class TestPaidFallbackWarningExitClause:
         note = fallback_openrouter._fallback_alert_note(suppressible=False)
         assert note == "Run will complete, then exit non-zero to alert."
 
-    def test_revoked_donated_key_is_not_promised_as_suppressed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_revoked_primary_key_is_not_promised_as_suppressed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A credit-SHAPED failure on a revoked key is not suppressible, so the
         note must promise the red run it will actually cause. Before the
         discriminator, the note keyed on the text cue alone and would have claimed
@@ -579,22 +579,22 @@ class TestPaidFallbackWarningExitClause:
 
 
 class TestFallbackCounters:
-    """Every donated->personal fallback must be counted + logged loudly so silent
-    personal-key spend can't accumulate. ``_generic_key_fallback_count`` counts ALL
-    fallback causes; ``_donated_404_fallback_count`` (allowed-providers 404) and
+    """Every primary->fallback fallback must be counted + logged loudly so silent
+    fallback-key spend can't accumulate. ``_fallback_key_count`` counts ALL
+    fallback causes; ``_primary_route_404_fallback_count`` (allowed-providers 404) and
     ``_credit_key_fallback_count`` (402/insufficient-credit) are two disjoint
     subsets of that total. cli.py folds the generic counter into its non-zero-exit
     alert and subtracts the credit subset while credit alerting is suppressed.
     """
 
     def setup_method(self) -> None:
-        reset_generic_key_fallback_count()
-        reset_donated_404_fallback_count()
+        reset_fallback_key_count()
+        reset_primary_route_404_fallback_count()
         reset_credit_key_fallback_count()
 
     def teardown_method(self) -> None:
-        reset_generic_key_fallback_count()
-        reset_donated_404_fallback_count()
+        reset_fallback_key_count()
+        reset_primary_route_404_fallback_count()
         reset_credit_key_fallback_count()
 
     @pytest.mark.asyncio
@@ -621,9 +621,9 @@ class TestFallbackCounters:
         with caplog.at_level(logging.WARNING, logger="sibyl.platform.key_fallback"):
             assert await llm.invoke("hi") == "ok"
 
-        assert get_generic_key_fallback_count() == 1
+        assert get_fallback_key_count() == 1
         assert get_credit_key_fallback_count() == 1
-        assert get_donated_404_fallback_count() == 0
+        assert get_primary_route_404_fallback_count() == 0
         assert any("PAID PERSONAL-KEY FALLBACK" in r.getMessage() for r in caplog.records)
 
     @pytest.mark.asyncio
@@ -650,11 +650,11 @@ class TestFallbackCounters:
         monkeypatch.setattr(llm, "_invoke_once_using_secondary", AsyncMock(return_value="ok"))
 
         assert await llm.invoke("hi") == "ok"
-        assert get_generic_key_fallback_count() == 1
+        assert get_fallback_key_count() == 1
         assert get_credit_key_fallback_count() == 0
 
     @pytest.mark.asyncio
-    async def test_donated_404_leaves_credit_subset_at_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_primary_route_404_leaves_credit_subset_at_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The two subsets are disjoint: a 404 belongs to the 404 subset only, so
         cli's single subtraction can't double-discount it.
         """
@@ -672,12 +672,12 @@ class TestFallbackCounters:
         monkeypatch.setattr(llm, "_invoke_once_using_secondary", AsyncMock(return_value="ok"))
 
         assert await llm.invoke("hi") == "ok"
-        assert get_generic_key_fallback_count() == 1
-        assert get_donated_404_fallback_count() == 1
+        assert get_fallback_key_count() == 1
+        assert get_primary_route_404_fallback_count() == 1
         assert get_credit_key_fallback_count() == 0
 
     @pytest.mark.asyncio
-    async def test_generic_fallback_bumps_counter_and_logs_every_time(
+    async def test_fallback_count_bumps_counter_and_logs_every_time(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A 401/402 (non-404) fallback bumps ONLY the generic counter, not the 404 subset,
@@ -700,8 +700,8 @@ class TestFallbackCounters:
             assert await llm.invoke("hi") == "ok"
 
         # Generic counter bumped on both fallbacks; 404 subset untouched.
-        assert get_generic_key_fallback_count() == 2
-        assert get_donated_404_fallback_count() == 0
+        assert get_fallback_key_count() == 2
+        assert get_primary_route_404_fallback_count() == 0
         # Loud WARNING on every fallback, not just the first.
         paid_warnings = [r for r in caplog.records if "PAID PERSONAL-KEY FALLBACK" in r.getMessage()]
         assert len(paid_warnings) == 2
@@ -711,12 +711,12 @@ class TestFallbackCounters:
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The production failure, end to end through the wrapper: the spend-cap 403
-        now falls back to the personal key, and because the probe confirms the
-        donated key is genuinely drained, the event lands in the suppressible credit
+        now falls back to the fallback key, and because the probe confirms the
+        primary key is genuinely drained, the event lands in the suppressible credit
         subset so cli exits zero on it.
         """
         monkeypatch.setattr(
-            fallback_openrouter, "classify_donated_key_state", MagicMock(return_value=DonatedKeyState.DRAINED)
+            fallback_openrouter, "classify_primary_key_state", MagicMock(return_value=PrimaryKeyState.DRAINED)
         )
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
@@ -732,9 +732,9 @@ class TestFallbackCounters:
         with caplog.at_level(logging.WARNING, logger="sibyl.platform.key_fallback"):
             assert await llm.invoke("hi") == "ok"
 
-        assert get_generic_key_fallback_count() == 1
+        assert get_fallback_key_count() == 1
         assert get_credit_key_fallback_count() == 1
-        assert get_donated_404_fallback_count() == 0
+        assert get_primary_route_404_fallback_count() == 0
         # Nothing is silenced by the suppression — the loud warning still fires.
         assert any("PAID PERSONAL-KEY FALLBACK" in r.getMessage() for r in caplog.records)
 
@@ -746,7 +746,7 @@ class TestFallbackCounters:
         these two runs apart.
         """
         monkeypatch.setattr(
-            fallback_openrouter, "classify_donated_key_state", MagicMock(return_value=DonatedKeyState.REVOKED)
+            fallback_openrouter, "classify_primary_key_state", MagicMock(return_value=PrimaryKeyState.REVOKED)
         )
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
@@ -760,13 +760,13 @@ class TestFallbackCounters:
         monkeypatch.setattr(llm, "_invoke_once_using_secondary", AsyncMock(return_value="ok"))
 
         assert await llm.invoke("hi") == "ok"
-        assert get_generic_key_fallback_count() == 1
+        assert get_fallback_key_count() == 1
         assert get_credit_key_fallback_count() == 0
 
     @pytest.mark.asyncio
     async def test_moderation_403_still_raises_and_counts_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Negative control at the wrapper level: a moderation 403 must not reach the
-        personal key and must not bump any counter.
+        fallback key and must not bump any counter.
         """
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
@@ -784,15 +784,15 @@ class TestFallbackCounters:
             await llm.invoke("hi")
 
         secondary.assert_not_awaited()
-        assert get_generic_key_fallback_count() == 0
+        assert get_fallback_key_count() == 0
         assert get_credit_key_fallback_count() == 0
 
     @pytest.mark.asyncio
-    async def test_donated_404_fallback_bumps_both_counters(
+    async def test_primary_route_404_fallback_bumps_both_counters(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A 404 'no allowed providers' fallback bumps BOTH the generic total and the 404 subset
-        (a 404 fallback is still a personal-key fallback)."""
+        (a 404 fallback is still a fallback-key fallback)."""
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.4",
             primary_api_key="special",
@@ -809,8 +809,8 @@ class TestFallbackCounters:
         with caplog.at_level(logging.WARNING, logger="sibyl.platform.key_fallback"):
             assert await llm.invoke("hi") == "ok"
 
-        assert get_generic_key_fallback_count() == 1
-        assert get_donated_404_fallback_count() == 1
+        assert get_fallback_key_count() == 1
+        assert get_primary_route_404_fallback_count() == 1
         assert any("no allowed providers" in r.getMessage() for r in caplog.records)
 
 
@@ -831,9 +831,9 @@ class TestBuilder:
         assert isinstance(llm, GL)
         assert not isinstance(llm, FallbackOpenRouterLlm)
 
-    def test_builder_plain_for_non_donated_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Models from providers not in DONATED_KEY_PROVIDERS get a plain GeneralLlm
-        (no donated-key wrapping). Grok via x-ai is the canonical example.
+    def test_builder_plain_for_non_primary_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Models from providers not in OPENROUTER_PRIMARY_KEY_PROVIDERS get a plain GeneralLlm
+        (no primary-key wrapping). Grok via x-ai is the canonical example.
         """
         monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "special")
         monkeypatch.setenv("OPENROUTER_API_KEY", "general")
@@ -844,14 +844,14 @@ class TestBuilder:
         assert isinstance(llm, GL)
         assert not isinstance(llm, FallbackOpenRouterLlm)
 
-    def test_builder_returns_wrapper_for_google_flash_when_donated_toggle_on(
+    def test_builder_returns_wrapper_for_google_flash_when_primary_toggle_on(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Flash Google models route via the donated wrapper when the toggle is ON.
+        """Flash Google models route via the primary wrapper when the toggle is ON.
 
-        Originally added in task #12 (Google in DONATED_KEY_PROVIDERS). After the
-        2026-06-16 rate-limit bump the donated key serves the flash models, so a
-        flash slug returns a FallbackOpenRouterLlm (donated primary, personal
+        Originally added in task #12 (Google in OPENROUTER_PRIMARY_KEY_PROVIDERS). After the
+        2026-06-16 rate-limit bump the primary key serves the flash models, so a
+        flash slug returns a FallbackOpenRouterLlm (primary primary, fallback
         fallback). gemini-3.1-pro is handled separately by the blocklist test.
         """
         monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "special")
@@ -861,13 +861,13 @@ class TestBuilder:
         assert isinstance(llm, FallbackOpenRouterLlm)
 
     def test_builder_plain_for_google_pro_blocklisted_when_toggle_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """gemini-3.1-pro is pinned to the personal key via the blocklist even with
-        the donated toggle ON — so the builder returns a plain GeneralLlm (no
-        donated attempt, no 429, no fallback-counter bump), while a flash model in
+        """gemini-3.1-pro is pinned to the fallback key via the blocklist even with
+        the primary toggle ON — so the builder returns a plain GeneralLlm (no
+        primary attempt, no 429, no fallback-counter bump), while a flash model in
         the same env returns a FallbackOpenRouterLlm.
 
-        Temporary workaround; see DONATED_KEY_BLOCKED_GOOGLE_MODELS
-        (``TODO(gemini-3.1-pro-donated)``) and bottega:FUTURE.md.
+        Temporary workaround; see OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS
+        (``TODO(gemini-3.1-pro-primary)``) and bottega:FUTURE.md.
         """
         from forecasting_tools import GeneralLlm as GL
 
@@ -880,8 +880,8 @@ class TestBuilder:
         flash = build_llm_with_openrouter_fallback("openrouter/google/gemini-3.5-flash")
         assert isinstance(flash, FallbackOpenRouterLlm)
 
-    def test_builder_plain_for_google_when_donated_toggle_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """With the donated-key toggle off, ALL Google calls bypass the donated
+    def test_builder_plain_for_google_when_primary_toggle_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With the primary-key toggle off, ALL Google calls bypass the primary
         wrapper entirely — the resulting LLM is a plain GeneralLlm using the
         operator's general OpenRouter key.
         """
@@ -895,11 +895,11 @@ class TestBuilder:
         assert not isinstance(llm, FallbackOpenRouterLlm)
 
     def test_builder_returns_wrapper_for_google_flash_when_toggle_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default (env var unset) is ON: flash Google calls prefer the donated wrapper.
+        """Default (env var unset) is ON: flash Google calls prefer the primary wrapper.
 
-        After Metaculus raised the Google rate limits (2026-06-16) the donated key
+        After Metaculus raised the Google rate limits (2026-06-16) the primary key
         serves most Gemini, so with two distinct keys configured a flash slug
-        returns a FallbackOpenRouterLlm (donated primary, personal fallback).
+        returns a FallbackOpenRouterLlm (primary primary, fallback fallback).
         gemini-3.1-pro stays blocklisted (plain GeneralLlm) — see the dedicated
         blocklist test.
         """
@@ -987,7 +987,7 @@ class TestStatusCodeClassification:
     ``test_key_hash_status_collision_is_small_but_nonnegligible``) and, on a moderation
     refusal, up to ~100 characters of OUR OWN PROMPT in ``flagged_input``. Grepping that
     text for status digits reads coincidences as statuses in both directions: a
-    coincidental "429" makes a moderation 403 fall back and bill the personal key for a
+    coincidental "429" makes a moderation 403 fall back and bill the fallback key for a
     call that will refuse again, and a "402" in a forecasting prompt (a dollar figure, a
     bill number) reads as an empty wallet.
 
@@ -1008,19 +1008,19 @@ class TestStatusCodeClassification:
         The credit check runs upstream of the 403 veto; making the veto status-based must
         not let it overtake that.
         """
-        assert should_retry_with_general_key(_api_error(403, self._DRAINED)) is True
+        assert should_retry_with_fallback_key(_api_error(403, self._DRAINED)) is True
 
     def test_moderation_403_does_not_fall_back(self) -> None:
         """A genuine moderation 403 still refuses to swap keys — both keys would refuse."""
         body = 'APIError: OpenrouterException - {"error":{"message":"Blocked by moderation","code":403}}'
-        assert should_retry_with_general_key(_api_error(403, body)) is False
+        assert should_retry_with_fallback_key(_api_error(403, body)) is False
 
     def test_prompt_echo_402_does_not_read_as_credit(self) -> None:
         """A moderation 403 replaying a prompt containing "402" is not an empty wallet.
 
         Deliberately omits every moderation WORD cue, so the text-only veto cannot save
         this case — the reported 403 is the only thing that distinguishes it. Left
-        unguarded it bills the personal key for a call that will refuse again AND, being
+        unguarded it bills the fallback key for a call that will refuse again AND, being
         classified credit-caused, exempts a real content block from CI alerting.
         """
         body = (
@@ -1030,31 +1030,31 @@ class TestStatusCodeClassification:
             '"code":403}}'
         )
         exc = _api_error(403, body)
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
 
     def test_key_hash_digits_do_not_trigger_fallback(self) -> None:
         """A 403 whose key hash happens to contain "429" must not read as a rate limit.
 
         A non-negligible fraction of key rotations produce a hash like this (see
-        ``test_key_hash_status_collision_is_small_but_nonnegligible``). The current donated
+        ``test_key_hash_status_collision_is_small_but_nonnegligible``). The current primary
         hash contains none of the six statuses, which is luck, not design.
         """
         body = (
             'APIError: OpenrouterException - {"error":{"message":"Blocked by content policy. '
             'Key: https://openrouter.ai/keys/a429b502c401d9f3","code":403}}'
         )
-        assert should_retry_with_general_key(_api_error(403, body)) is False
+        assert should_retry_with_fallback_key(_api_error(403, body)) is False
 
     def test_status_detected_when_message_has_no_digits(self) -> None:
         """Detection no longer depends on the provider spelling the status in prose."""
-        assert should_retry_with_general_key(_api_error(429, "upstream is busy right now")) is True
-        assert should_retry_with_general_key(_api_error(401, "bad credentials")) is True
-        assert should_retry_with_general_key(_api_error(402, "wallet empty")) is True
+        assert should_retry_with_fallback_key(_api_error(429, "upstream is busy right now")) is True
+        assert should_retry_with_fallback_key(_api_error(401, "bad credentials")) is True
+        assert should_retry_with_fallback_key(_api_error(402, "wallet empty")) is True
 
     def test_infrastructure_statuses_still_refuse_fallback(self) -> None:
         """5xx are infrastructure, not key-scoped — swapping keys cannot help."""
-        assert should_retry_with_general_key(_api_error(502, "upstream died")) is False
-        assert should_retry_with_general_key(_api_error(503, "upstream unavailable")) is False
+        assert should_retry_with_fallback_key(_api_error(502, "upstream died")) is False
+        assert should_retry_with_fallback_key(_api_error(503, "upstream unavailable")) is False
 
     def test_route_scoped_404_text_cues_survive(self) -> None:
         """The 404 family is classified by TEXT, and must stay that way.
@@ -1065,9 +1065,9 @@ class TestStatusCodeClassification:
         """
         allowed = "404 No allowed providers are available for the selected model."
         guardrail = "404 No endpoints available matching your guardrail restrictions and data policy."
-        assert should_retry_with_general_key(_api_error(404, allowed)) is True
-        assert should_retry_with_general_key(_api_error(404, guardrail)) is True
-        assert should_retry_with_general_key(_api_error(404, "model not found")) is False
+        assert should_retry_with_fallback_key(_api_error(404, allowed)) is True
+        assert should_retry_with_fallback_key(_api_error(404, guardrail)) is True
+        assert should_retry_with_fallback_key(_api_error(404, "model not found")) is False
 
     def test_non_llm_exception_keeps_textual_classification(self) -> None:
         """A statusless exception is classified exactly as before (regression guard).
@@ -1076,11 +1076,11 @@ class TestStatusCodeClassification:
         asserts this predicate against plain ``Exception("401 Unauthorized")`` strings.
         Neither reports a ``status_code``, so both must keep reaching the text cues.
         """
-        assert should_retry_with_general_key(Exception("401 Unauthorized")) is True
-        assert should_retry_with_general_key(Exception("HTTP 402 Payment Required")) is True
-        assert should_retry_with_general_key(Exception("429 Too Many Requests")) is True
-        assert should_retry_with_general_key(Exception("403 Forbidden moderation")) is False
-        assert should_retry_with_general_key(Exception("502 Bad Gateway")) is False
+        assert should_retry_with_fallback_key(Exception("401 Unauthorized")) is True
+        assert should_retry_with_fallback_key(Exception("HTTP 402 Payment Required")) is True
+        assert should_retry_with_fallback_key(Exception("429 Too Many Requests")) is True
+        assert should_retry_with_fallback_key(Exception("403 Forbidden moderation")) is False
+        assert should_retry_with_fallback_key(Exception("502 Bad Gateway")) is False
 
 
 class TestCreditClassificationPrecedence:
@@ -1112,7 +1112,7 @@ class TestCreditClassificationPrecedence:
         )
         exc = _api_error(403, body)
         assert is_credit_caused_error(exc) is False
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
 
     def test_reported_402_outranks_moderation_wording(self) -> None:
         """A reported 402 is credit-caused even when the body carries a moderation word.
@@ -1129,7 +1129,7 @@ class TestCreditClassificationPrecedence:
         balance = "APIError: OpenrouterException - Forbidden: account balance too low"
         exc = _api_error(402, balance)
         assert is_credit_caused_error(exc) is True
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
 
         flagged = 'APIError: OpenrouterException - {"error":{"message":"flagged for moderation","code":402}}'
         assert is_credit_caused_error(_api_error(402, flagged)) is True
@@ -1144,41 +1144,41 @@ class TestCreditClassificationPrecedence:
         body = "APIError: OpenrouterException - 403 Forbidden: Key limit exceeded (total limit)."
         exc = _api_error(403, body)
         assert is_credit_caused_error(exc) is True
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
 
 
 class TestFallbackAccountingConcurrency:
-    """``record_donated_key_fallback`` must not stall the loop, and must not lose counts.
+    """``record_primary_key_fallback`` must not stall the loop, and must not lose counts.
 
     The spend-cap 403 path reaches ``is_suppressible_credit_error``, which probes
     ``/auth/key`` over blocking httpx. Called straight from a coroutine that stalls EVERY
     concurrently in-flight forecaster and research task for up to
-    ``DONATED_KEY_PROBE_TIMEOUT_S``, not just the call that hit the 403, eating into
+    ``PRIMARY_KEY_PROBE_TIMEOUT_S``, not just the call that hit the 403, eating into
     per-question soft deadlines.
 
     The fix threads the PROBE only. The counting has to stay on the event loop: the three
     module counters are mutated with ``+=``, which compiles to LOAD_GLOBAL / INPLACE_ADD /
     STORE_GLOBAL and is interruptible between bytecodes. Moving the whole function to a
-    worker (``asyncio.to_thread(record_donated_key_fallback, ...)``) would let N
+    worker (``asyncio.to_thread(record_primary_key_fallback, ...)``) would let N
     forecasters failing on one dry key — the exact 2026-07-26 shape — race the increment,
-    undercount ``_generic_key_fallback_count``, and take a degraded run GREEN. That is the
+    undercount ``_fallback_key_count``, and take a degraded run GREEN. That is the
     failure this whole change exists to prevent, so it gets its own test.
     """
 
     @pytest.fixture(autouse=True)
     def _clean_counters(self):
-        reset_generic_key_fallback_count()
+        reset_fallback_key_count()
         reset_credit_key_fallback_count()
-        reset_donated_404_fallback_count()
+        reset_primary_route_404_fallback_count()
         # The probe caches per process, so without this the test asserts against the
         # cached path and passes vacuously — the stall is only reachable on the FIRST
         # spend-cap 403 of a run.
-        reset_donated_key_state_cache()
+        reset_primary_key_state_cache()
         yield
-        reset_generic_key_fallback_count()
+        reset_fallback_key_count()
         reset_credit_key_fallback_count()
-        reset_donated_404_fallback_count()
-        reset_donated_key_state_cache()
+        reset_primary_route_404_fallback_count()
+        reset_primary_key_state_cache()
 
     @pytest.mark.asyncio
     async def test_blocking_probe_does_not_stall_the_event_loop(self) -> None:
@@ -1193,13 +1193,13 @@ class TestFallbackAccountingConcurrency:
                 await asyncio.sleep(0.005)
                 ticks.append(1)
 
-        def _slow_probe() -> DonatedKeyState:
+        def _slow_probe() -> PrimaryKeyState:
             time.sleep(0.2)
-            return DonatedKeyState.DRAINED
+            return PrimaryKeyState.DRAINED
 
-        with patch.object(fallback_openrouter, "classify_donated_key_state", _slow_probe):
+        with patch.object(fallback_openrouter, "classify_primary_key_state", _slow_probe):
             ticker = asyncio.create_task(_ticker())
-            await fallback_openrouter.record_donated_key_fallback(
+            await fallback_openrouter.record_primary_key_fallback(
                 "openrouter/openai/gpt-5.6-sol", Exception(PRODUCTION_KEY_LIMIT_403)
             )
             progressed_during_probe = len(ticks)
@@ -1218,18 +1218,18 @@ class TestFallbackAccountingConcurrency:
         """
         import asyncio
 
-        def _drained() -> DonatedKeyState:
-            return DonatedKeyState.DRAINED
+        def _drained() -> PrimaryKeyState:
+            return PrimaryKeyState.DRAINED
 
-        with patch.object(fallback_openrouter, "classify_donated_key_state", _drained):
+        with patch.object(fallback_openrouter, "classify_primary_key_state", _drained):
             await asyncio.gather(
                 *(
-                    fallback_openrouter.record_donated_key_fallback(f"model-{i}", Exception(PRODUCTION_KEY_LIMIT_403))
+                    fallback_openrouter.record_primary_key_fallback(f"model-{i}", Exception(PRODUCTION_KEY_LIMIT_403))
                     for i in range(50)
                 )
             )
 
-        assert get_generic_key_fallback_count() == 50
+        assert get_fallback_key_count() == 50
         assert get_credit_key_fallback_count() == 50
 
 
@@ -1270,7 +1270,7 @@ class TestPromptEchoCreditPhrases:
     def test_moderation_403_echoing_credit_english_is_not_credit(self, flagged_input: str) -> None:
         """The reported 403 must beat an ordinary credit phrase replayed from our prompt."""
         exc = _api_error(403, self._moderation_body(flagged_input))
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
         assert is_credit_caused_error(exc) is False
 
     @pytest.mark.parametrize(
@@ -1284,10 +1284,10 @@ class TestPromptEchoCreditPhrases:
         """Rate-limit and credential wording in a replayed prompt must not force a key swap.
 
         These stayed non-credit even before the fix, but they still flipped ROUTING to
-        True — billing the personal key for a call the paid key will also refuse.
+        True — billing the fallback key for a call the paid key will also refuse.
         """
         exc = _api_error(403, self._moderation_body(flagged_input))
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
 
     def test_statusless_moderation_echo_is_not_credit_or_suppressible(self) -> None:
         """The statusless spelling is the worst case, so it gets its own guard.
@@ -1299,7 +1299,7 @@ class TestPromptEchoCreditPhrases:
         """
         body = self._moderation_body("Will Bank X be declared insolvent for insufficient funds?")
         exc = Exception(body)
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
         assert is_credit_caused_error(exc) is False
         assert is_suppressible_credit_error(exc) is False
 
@@ -1317,22 +1317,22 @@ class TestPromptEchoCreditPhrases:
             PRODUCTION_KEY_LIMIT_403,
         ):
             exc = Exception(body)
-            assert should_retry_with_general_key(exc) is True, body
+            assert should_retry_with_fallback_key(exc) is True, body
             assert is_credit_caused_error(exc) is True, body
 
     def test_route_scoped_block_still_falls_back_on_a_403(self) -> None:
         """A guardrail / allowed-providers block keeps its escape hatch on any status.
 
         Deciding 403 early must not swallow these: they are the one class of non-credit
-        403 the personal key genuinely CAN route, and the donated-key data-policy block is
+        403 the fallback key genuinely CAN route, and the primary-key data-policy block is
         why OpenAI native search works at all.
         """
         guardrail = (
             "No endpoints available matching your guardrail restrictions and data policy. "
             "Configure: https://openrouter.ai/settings/privacy"
         )
-        assert should_retry_with_general_key(_api_error(403, guardrail)) is True
-        assert should_retry_with_general_key(_api_error(403, "No allowed providers are available")) is True
+        assert should_retry_with_fallback_key(_api_error(403, guardrail)) is True
+        assert should_retry_with_fallback_key(_api_error(403, "No allowed providers are available")) is True
 
 
 class TestStatuslessPromptEcho:
@@ -1348,7 +1348,7 @@ class TestStatuslessPromptEcho:
     is about a bank.
 
     With nothing after the echo marked as ours, a benign zero-output blip billed the
-    personal key, was classified credit-caused, and — because the 402 family skips the
+    fallback key, was classified credit-caused, and — because the 402 family skips the
     ``/auth/key`` probe — was SUBTRACTED from cli's ``alertable``, taking a degraded run
     green without the drained-vs-revoked discriminator ever running.
     """
@@ -1364,15 +1364,15 @@ class TestStatuslessPromptEcho:
     def _probe_would_be_observable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Make any ``/auth/key`` probe fail loudly, so a case that reaches it can't pass.
 
-        A configured donated key is load-bearing: without one the probe short-circuits to
+        A configured primary key is load-bearing: without one the probe short-circuits to
         UNKNOWN before touching ``fetch_auth_key``, and every assertion below would hold
         for the wrong reason.
         """
-        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "sk-fake-donated")
-        reset_donated_key_state_cache()
+        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "sk-fake-primary")
+        reset_primary_key_state_cache()
         monkeypatch.setattr(
             fallback_openrouter,
-            "classify_donated_key_state",
+            "classify_primary_key_state",
             MagicMock(side_effect=AssertionError("the probe must not be reached for a prompt echo")),
         )
 
@@ -1387,7 +1387,7 @@ class TestStatuslessPromptEcho:
     )
     def test_zero_output_echoing_credit_wording_is_not_credit(self, prompt: str) -> None:
         exc = self._zero_output(prompt)
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
         assert is_credit_caused_error(exc) is False
         assert is_suppressible_credit_error(exc) is False
 
@@ -1402,16 +1402,16 @@ class TestStatuslessPromptEcho:
     def test_zero_output_echoing_route_or_credential_wording_does_not_fall_back(self, prompt: str) -> None:
         """These never reached the credit counter, but they did force a wasted paid call.
 
-        A zero-output blip is not key-scoped — the personal key would return the same
+        A zero-output blip is not key-scoped — the fallback key would return the same
         empty completion — so swapping keys buys nothing and bills the operator.
         """
-        assert should_retry_with_general_key(self._zero_output(prompt)) is False
+        assert should_retry_with_fallback_key(self._zero_output(prompt)) is False
 
     def test_typed_403_echoing_guardrail_wording_does_not_fall_back(self) -> None:
         """``_ROUTE_SCOPED_TEXT_CUES`` had no moderation veto and matched at every status.
 
         So a moderation 403 whose ``flagged_input`` replays a question ABOUT guardrails
-        read as the donated key's data-policy block and swapped to the paid key for a call
+        read as the primary key's data-policy block and swapped to the paid key for a call
         it will refuse just the same.
         """
         body = (
@@ -1421,7 +1421,7 @@ class TestStatuslessPromptEcho:
             '"flagged_input":"Will OpenAI ship stricter guardrails before Aug 18 2026?"}}}'
         )
         exc = _api_error(403, body)
-        assert should_retry_with_general_key(exc) is False
+        assert should_retry_with_fallback_key(exc) is False
 
     def test_zero_output_echoing_deprecated_records_no_deprecation_alert(self) -> None:
         """The echo also reached the deprecation tripwire, whose only consequence is exit 1.
@@ -1431,7 +1431,7 @@ class TestStatuslessPromptEcho:
         """
         fallback_openrouter.clear_deprecation_alerts()
         try:
-            should_retry_with_general_key(self._zero_output("Will the deprecated standard be retired in 2026?"))
+            should_retry_with_fallback_key(self._zero_output("Will the deprecated standard be retired in 2026?"))
             assert fallback_openrouter._DEPRECATION_ALERTS == []
         finally:
             fallback_openrouter.clear_deprecation_alerts()
@@ -1456,10 +1456,10 @@ class TestStatuslessPromptEcho:
         403 keeps falling back and keeps being credit-classified.
         """
         monkeypatch.setattr(
-            fallback_openrouter, "classify_donated_key_state", MagicMock(return_value=DonatedKeyState.DRAINED)
+            fallback_openrouter, "classify_primary_key_state", MagicMock(return_value=PrimaryKeyState.DRAINED)
         )
         exc = Exception(PRODUCTION_KEY_LIMIT_403)
-        assert should_retry_with_general_key(exc) is True
+        assert should_retry_with_fallback_key(exc) is True
         assert is_credit_caused_error(exc) is True
         assert is_suppressible_credit_error(exc) is True
 
@@ -1467,12 +1467,12 @@ class TestStatuslessPromptEcho:
 class TestProbeCannotOutlastItsBudget:
     """The probe's promised 5s bound has to be a bound on TOTAL time, not per-operation.
 
-    ``DONATED_KEY_PROBE_TIMEOUT_S`` is forwarded to httpx as a bare float, which sets each
+    ``PRIMARY_KEY_PROBE_TIMEOUT_S`` is forwarded to httpx as a bare float, which sets each
     operation's timeout independently and does not cap elapsed time — a server trickling
     bytes slower than the read timeout resets the clock on every chunk (measured: a
     ``timeout=1.0`` GET against a 0.5s-per-byte trickler took 10.2s). This lands on the
-    RECOVERY path: ``record_donated_key_fallback`` is awaited before
-    ``_invoke_once_using_secondary``, so probe latency delays the personal-key call even
+    RECOVERY path: ``record_primary_key_fallback`` is awaited before
+    ``_invoke_once_using_secondary``, so probe latency delays the fallback-key call even
     though routing was already decided textually. A degraded-but-not-dead OpenRouter
     control plane is exactly what co-occurs with a spend-cap 403, and the tight-budget
     callers are the ones this reaches: prediction-market keyword extraction has a 15s wall
@@ -1481,14 +1481,14 @@ class TestProbeCannotOutlastItsBudget:
 
     @pytest.fixture(autouse=True)
     def _clean_state(self, monkeypatch: pytest.MonkeyPatch):
-        reset_donated_key_state_cache()
-        reset_generic_key_fallback_count()
+        reset_primary_key_state_cache()
+        reset_fallback_key_count()
         reset_credit_key_fallback_count()
-        monkeypatch.setattr(fallback_openrouter, "DONATED_KEY_PROBE_TIMEOUT_S", 0.2)
+        monkeypatch.setattr(fallback_openrouter, "PRIMARY_KEY_PROBE_TIMEOUT_S", 0.2)
         yield
-        reset_generic_key_fallback_count()
+        reset_fallback_key_count()
         reset_credit_key_fallback_count()
-        reset_donated_key_state_cache()
+        reset_primary_key_state_cache()
 
     @pytest.mark.asyncio
     async def test_slow_probe_is_abandoned_at_the_cap_and_stays_alertable(
@@ -1500,32 +1500,32 @@ class TestProbeCannotOutlastItsBudget:
         not subtracted from ``alertable``.
         """
 
-        def never_answers() -> DonatedKeyState:
+        def never_answers() -> PrimaryKeyState:
             time.sleep(5.0)  # far past the patched cap; the wait_for must not wait for it
-            return DonatedKeyState.DRAINED
+            return PrimaryKeyState.DRAINED
 
-        monkeypatch.setattr(fallback_openrouter, "classify_donated_key_state", never_answers)
+        monkeypatch.setattr(fallback_openrouter, "classify_primary_key_state", never_answers)
 
         started = time.monotonic()
-        await fallback_openrouter.record_donated_key_fallback(
+        await fallback_openrouter.record_primary_key_fallback(
             "openrouter/openai/gpt-5.6-sol", Exception(PRODUCTION_KEY_LIMIT_403)
         )
         elapsed = time.monotonic() - started
 
         assert elapsed < 2.0, f"probe held the fallback for {elapsed:.1f}s despite a 0.2s cap"
-        assert fallback_openrouter.get_generic_key_fallback_count() == 1
+        assert fallback_openrouter.get_fallback_key_count() == 1
         assert fallback_openrouter.get_credit_key_fallback_count() == 0
 
     @pytest.mark.asyncio
     async def test_probe_answering_inside_the_cap_still_suppresses(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Positive control: the cap must not disarm suppression for a probe that answers."""
         monkeypatch.setattr(
-            fallback_openrouter, "classify_donated_key_state", MagicMock(return_value=DonatedKeyState.DRAINED)
+            fallback_openrouter, "classify_primary_key_state", MagicMock(return_value=PrimaryKeyState.DRAINED)
         )
-        await fallback_openrouter.record_donated_key_fallback(
+        await fallback_openrouter.record_primary_key_fallback(
             "openrouter/openai/gpt-5.6-sol", Exception(PRODUCTION_KEY_LIMIT_403)
         )
-        assert fallback_openrouter.get_generic_key_fallback_count() == 1
+        assert fallback_openrouter.get_fallback_key_count() == 1
         assert fallback_openrouter.get_credit_key_fallback_count() == 1
 
 
@@ -1533,16 +1533,16 @@ class TestProbeFailureCannotVetoRouting:
     """An unanswerable ``/auth/key`` probe must never abort the fallback it is annotating.
 
     The probe promises "never raises", and now catches broadly enough to keep that promise.
-    ``record_donated_key_fallback`` guards its call anyway, because the promise is not
+    ``record_primary_key_fallback`` guards its call anyway, because the promise is not
     something routing should have to trust: the probe runs BEFORE
-    ``_invoke_once_using_secondary``, so an escape stranded the ensemble on the dry donated
-    key with the funded personal key untried — the 2026-07-26 incident reached through the
+    ``_invoke_once_using_secondary``, so an escape stranded the ensemble on the dry primary
+    key with the funded fallback key untried — the 2026-07-26 incident reached through the
     exception path rather than a stale balance read. The routing decision is already final
     and purely textual by the time this runs, so alerting bookkeeping must not gate it.
 
-    Both cases patch ``classify_donated_key_state`` rather than ``fetch_auth_key``. That is
+    Both cases patch ``classify_primary_key_state`` rather than ``fetch_auth_key``. That is
     the seam the guard defends, and it is env-independent: the probe short-circuits to
-    UNKNOWN before touching ``fetch_auth_key`` when no donated key is configured, and CI
+    UNKNOWN before touching ``fetch_auth_key`` when no primary key is configured, and CI
     injects no OpenRouter secrets, so a ``fetch_auth_key`` patch would make these assertions
     hold for the wrong reason there while passing locally off the repo's ``.env``.
     """
@@ -1551,45 +1551,45 @@ class TestProbeFailureCannotVetoRouting:
 
     @pytest.fixture(autouse=True)
     def _clean_counters(self, monkeypatch: pytest.MonkeyPatch):
-        reset_donated_key_state_cache()
-        reset_generic_key_fallback_count()
+        reset_primary_key_state_cache()
+        reset_fallback_key_count()
         reset_credit_key_fallback_count()
         yield
-        reset_generic_key_fallback_count()
+        reset_fallback_key_count()
         reset_credit_key_fallback_count()
-        reset_donated_key_state_cache()
+        reset_primary_key_state_cache()
 
     @pytest.mark.parametrize("boom", _BOOMS)
     @pytest.mark.asyncio
     async def test_probe_exception_leaves_the_event_counted_and_alertable(
         self, monkeypatch: pytest.MonkeyPatch, boom: BaseException
     ) -> None:
-        monkeypatch.setattr(fallback_openrouter, "classify_donated_key_state", MagicMock(side_effect=boom))
-        await fallback_openrouter.record_donated_key_fallback(
+        monkeypatch.setattr(fallback_openrouter, "classify_primary_key_state", MagicMock(side_effect=boom))
+        await fallback_openrouter.record_primary_key_fallback(
             "openrouter/openai/gpt-5.6-sol", Exception(PRODUCTION_KEY_LIMIT_403)
         )
 
-        # Counted, so the personal-key spend is visible...
-        assert fallback_openrouter.get_generic_key_fallback_count() == 1
+        # Counted, so the fallback-key spend is visible...
+        assert fallback_openrouter.get_fallback_key_count() == 1
         # ...and NOT subtracted from alertable, because the probe never answered.
         assert fallback_openrouter.get_credit_key_fallback_count() == 0
 
     @pytest.mark.parametrize("boom", _BOOMS)
     @pytest.mark.asyncio
-    async def test_personal_key_call_still_happens_when_the_probe_raises(
+    async def test_fallback_key_call_still_happens_when_the_probe_raises(
         self, monkeypatch: pytest.MonkeyPatch, boom: BaseException
     ) -> None:
         """The headline behavior, end to end: the funded key is still tried.
 
-        The counter assertions above call ``record_donated_key_fallback`` directly, so they
+        The counter assertions above call ``record_primary_key_fallback`` directly, so they
         cannot see whether the wrapper went on to invoke the secondary — which is the whole
         point of the guard, and the exact thing the incident lost.
         """
-        monkeypatch.setattr(fallback_openrouter, "classify_donated_key_state", MagicMock(side_effect=boom))
+        monkeypatch.setattr(fallback_openrouter, "classify_primary_key_state", MagicMock(side_effect=boom))
         llm = FallbackOpenRouterLlm(
             model="openrouter/openai/gpt-5.6-sol",
-            primary_api_key="donated",
-            secondary_api_key="personal",
+            primary_api_key="primary",
+            secondary_api_key="fallback",
             temperature=0,
         )
         monkeypatch.setattr(
@@ -1600,7 +1600,7 @@ class TestProbeFailureCannotVetoRouting:
 
         assert await llm.invoke("hi") == "fallback_ok"
         secondary.assert_awaited_once()
-        assert fallback_openrouter.get_generic_key_fallback_count() == 1
+        assert fallback_openrouter.get_fallback_key_count() == 1
         assert fallback_openrouter.get_credit_key_fallback_count() == 0
 
 
@@ -1630,7 +1630,7 @@ class TestStatuslessDigitEchoIsNotAStatus:
     )
     def test_prompt_echoed_status_digits_do_not_trigger_a_key_swap(self, question: str) -> None:
         exc = RuntimeError(self._ZERO_OUTPUT.format(q=question))
-        assert should_retry_with_general_key(exc) is False, question
+        assert should_retry_with_fallback_key(exc) is False, question
         assert is_credit_caused_error(exc) is False, question
 
     @pytest.mark.parametrize(
@@ -1652,7 +1652,7 @@ class TestStatuslessDigitEchoIsNotAStatus:
         repeat, and a 502 is an upstream outage that is not key-scoped.
         """
         assert fallback_openrouter._without_prompt_echo(message) == message
-        assert should_retry_with_general_key(Exception(message)) is falls_back, message
+        assert should_retry_with_fallback_key(Exception(message)) is falls_back, message
 
 
 class TestPrimaryKeyRoutingIsConfiguration:
@@ -1698,16 +1698,16 @@ class TestPrimaryKeyRoutingIsConfiguration:
 
     def test_routing_follows_the_configured_provider_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV, "openai")
-        assert should_route_via_donated_key("openrouter/openai/gpt-5.6-sol") is True
-        assert should_route_via_donated_key("openrouter/anthropic/claude-opus-5") is False
+        assert should_route_via_primary_key("openrouter/openai/gpt-5.6-sol") is True
+        assert should_route_via_primary_key("openrouter/anthropic/claude-opus-5") is False
 
     def test_routing_follows_the_configured_blocklist(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV, "gemini-3.5-flash")
         # The newly blocked model is pinned off the primary key...
-        assert should_route_via_donated_key("openrouter/google/gemini-3.5-flash") is False
+        assert should_route_via_primary_key("openrouter/google/gemini-3.5-flash") is False
         # ...and the previously blocked one is no longer, because the env REPLACES the
         # default rather than adding to it.
-        assert should_route_via_donated_key("openrouter/google/gemini-3.1-pro-preview") is True
+        assert should_route_via_primary_key("openrouter/google/gemini-3.1-pro-preview") is True
 
     def test_blocklist_still_matches_by_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Prefix matching is what covers the bare GA slug and every suffixed variant
@@ -1718,4 +1718,4 @@ class TestPrimaryKeyRoutingIsConfiguration:
             "openrouter/google/gemini-3.1-pro-preview",
             "openrouter/google/gemini-3.1-pro-preview-customtools",
         ):
-            assert should_route_via_donated_key(slug) is False, slug
+            assert should_route_via_primary_key(slug) is False, slug

@@ -63,5 +63,5 @@ class TestHeader:
         assert header == SECTION_HEADER
         assert header.startswith("## "), "provider headers must be h2 (see _demote_headings)"
 
-    def test_header_is_not_the_generic_fallback(self) -> None:
+    def test_header_is_not_the_fallback_count(self) -> None:
         assert ResearchOrchestrator._provider_header("reference_class") != "## Research (reference_class)"

@@ -142,7 +142,7 @@ the project — and the fix has prior art in two places: this repo's own conftes
 Lumi's F7 fixture mode.
 
 Partial prior art also exists for the free lane: `ablation/forecaster_lineup.py` already
-ships `FREE_FORECASTER_MODELS` (`:free` OpenRouter slugs on the personal key) precisely
+ships `FREE_FORECASTER_MODELS` (`:free` OpenRouter slugs on the fallback key) precisely
 so a 100-question backtest doesn't burn budget on the forecaster stage.
 
 Study note #2 is also confirmed: `AGENTS.md` is 74KB (~20k tokens per agent invocation)

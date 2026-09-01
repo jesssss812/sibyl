@@ -63,7 +63,7 @@ def _get_wrapper_type(output_type: type) -> type[BaseModel] | None:
 def _build_constrained_llm(response_format_model: type[BaseModel], parser_model: str) -> GeneralLlm:
     """Build a parser LLM with strict json_schema response_format.
 
-    Uses the same donated-key fallback chain as the production PARSER_LLM.
+    Uses the same primary-key fallback chain as the production PARSER_LLM.
     The extra_body provider.require_parameters=true ensures OpenRouter rejects
     the request rather than silently dropping the schema.
 

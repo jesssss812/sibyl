@@ -870,7 +870,7 @@ async def test_transient_predicate_does_not_exempt_zero_output() -> None:
 # ---------------------------------------------------------------------------
 # Deterministic-4xx non-retry (2026-07-26 fix).
 #
-# The donated OpenRouter key hit its spend cap and OpenRouter answered every call
+# The primary OpenRouter key hit its spend cap and OpenRouter answered every call
 # with HTTP 403 "Key limit exceeded (total limit)" in ~35ms. litellm has no 403
 # branch in _map_openrouter_exception, so it arrives as a BARE APIError — the root
 # of the litellm/openai tree, matching nothing in PERMANENT_NO_RETRY_EXCEPTIONS.
@@ -947,7 +947,7 @@ def test_key_hash_status_collision_is_small_but_nonnegligible() -> None:
     assert 5.0 * single < any_status < 6.0 * single
 
 
-# Verbatim from the 2026-07-26 06:45 UTC production run (run_log_facts.md): the donated
+# Verbatim from the 2026-07-26 06:45 UTC production run (run_log_facts.md): the primary
 # key at $0.00 of its $850 cap. Note what it does NOT contain — "credit", "insufficient",
 # "balance", or "402" — and that the only "403" is the JSON code field, which is exactly
 # why classification must read status_code, not the text. Shared from conftest so this
@@ -973,7 +973,7 @@ def test_broad_predicate_rejects_deterministic_client_statuses(status: int) -> N
 
 
 def test_broad_predicate_rejects_production_key_limit_403() -> None:
-    """The verbatim 2026-07-26 dry-donated-key 403 is permanent, not a transient blip."""
+    """The verbatim 2026-07-26 dry-primary-key 403 is permanent, not a transient blip."""
     assert is_broadly_retryable(_api_error_with_status(403, _PROD_KEY_LIMIT_MESSAGE)) is False
 
 

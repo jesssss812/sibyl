@@ -37,7 +37,7 @@ against the ACTUAL emitted format strings (the source of truth):
   ``log_provider_degradation_summary`` (per-RUN: which venue/signal degraded, and
   whether it counted toward the exit code)
 * ``PAID PERSONAL-KEY FALLBACK`` — ``sibyl/platform/key_fallback.py``
-  ``_log_fallback`` (per-CALL: which model fell back off the donated key, and why)
+  ``_log_fallback`` (per-CALL: which model fell back off the primary key, and why)
 * ``Run completed with N alertable...`` — ``sibyl/cli.py`` (the end-of-run
   breakdown, emitted on BOTH exit paths so a fully-suppressed green run is still
   recorded)
@@ -396,7 +396,7 @@ MARKER_SPECS: list[MarkerSpec] = [
     ),
     MarkerSpec(
         "paid_personal_key_fallback",
-        # Per-CALL donated->personal key fallback WARN (fallback_openrouter.py
+        # Per-CALL primary->fallback key fallback WARN (fallback_openrouter.py
         # _log_fallback). The counters it feeds are already in degradation_counters /
         # the cli summary, but only this line names WHICH MODEL fell back and with
         # what error, which is what separates "one flaky Gemini call" from "every

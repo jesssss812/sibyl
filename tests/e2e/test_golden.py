@@ -471,7 +471,7 @@ _AFTER_RESUME_DATE = date(2026, 10, 1)
 def _cli_exit_code(
     *,
     alertable_count: int,
-    generic_fallback: int = 0,
+    fallback_count: int = 0,
     credit_fallback: int = 0,
     today: date,
 ) -> int | None:
@@ -497,9 +497,9 @@ def _cli_exit_code(
     stub_telemetry = MagicMock()
     stub_telemetry.log_end_and_check_floor.return_value = False
 
-    fb_module._generic_key_fallback_count = generic_fallback
+    fb_module._fallback_key_count = fallback_count
     fb_module._credit_key_fallback_count = credit_fallback
-    fb_module._donated_404_fallback_count = 0
+    fb_module._primary_route_404_fallback_count = 0
 
     argv_backup = sys.argv
     sys.argv = ["cli", "--mode", "test_questions"]
@@ -523,9 +523,9 @@ def _cli_exit_code(
         return None
     finally:
         sys.argv = argv_backup
-        fb_module._generic_key_fallback_count = 0
+        fb_module._fallback_key_count = 0
         fb_module._credit_key_fallback_count = 0
-        fb_module._donated_404_fallback_count = 0
+        fb_module._primary_route_404_fallback_count = 0
 
 
 def test_golden_cli_exit_codes(request: pytest.FixtureRequest) -> None:
@@ -534,10 +534,10 @@ def test_golden_cli_exit_codes(request: pytest.FixtureRequest) -> None:
         "clean_run": _cli_exit_code(alertable_count=0, today=_DURING_SUPPRESSION),
         "alertable_nonzero": _cli_exit_code(alertable_count=1, today=_DURING_SUPPRESSION),
         "credit_fallback_inside_suppression": _cli_exit_code(
-            alertable_count=0, generic_fallback=1, credit_fallback=1, today=_DURING_SUPPRESSION
+            alertable_count=0, fallback_count=1, credit_fallback=1, today=_DURING_SUPPRESSION
         ),
         "credit_fallback_outside_suppression": _cli_exit_code(
-            alertable_count=0, generic_fallback=1, credit_fallback=1, today=_AFTER_RESUME_DATE
+            alertable_count=0, fallback_count=1, credit_fallback=1, today=_AFTER_RESUME_DATE
         ),
     }
     assert_golden(request, "cli_exit_codes", matrix)

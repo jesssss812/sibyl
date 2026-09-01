@@ -1,13 +1,13 @@
 """CLI for checking OpenRouter key balances without leaking the keys.
 
-Hits ``GET https://openrouter.ai/api/v1/auth/key`` for the donated Metaculus key
-(``OAI_ANTH_OPENROUTER_KEY``) and the personal key (``OPENROUTER_API_KEY``),
+Hits ``GET https://openrouter.ai/api/v1/auth/key`` for the primary Metaculus key
+(``OAI_ANTH_OPENROUTER_KEY``) and the fallback key (``OPENROUTER_API_KEY``),
 prints labeled balance blocks. The full key is never written to stdout.
 
 Usage:
     python -m sibyl.telemetry.check_credits
-    python -m sibyl.telemetry.check_credits --key donated
-    python -m sibyl.telemetry.check_credits --key personal
+    python -m sibyl.telemetry.check_credits --key primary
+    python -m sibyl.telemetry.check_credits --key fallback
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ OPENROUTER_AUTH_KEY_URL = "https://openrouter.ai/api/v1/auth/key"
 
 # Default request timeout for the balance lookup. Generous because the CLI and the
 # start/end run telemetry can afford to wait; callers on a latency-sensitive path
-# (the mid-run donated-key probe in credit_telemetry) pass a shorter one.
+# (the mid-run primary-key probe in credit_telemetry) pass a shorter one.
 AUTH_KEY_REQUEST_TIMEOUT_S = 15.0
 
 KEY_SPECS: dict[str, tuple[str, str]] = {
     # alias -> (env_var_name, display_label)
-    "donated": ("OAI_ANTH_OPENROUTER_KEY", "Donated key (OAI_ANTH_OPENROUTER_KEY)"),
-    "personal": ("OPENROUTER_API_KEY", "Personal key (OPENROUTER_API_KEY)"),
+    "primary": ("OAI_ANTH_OPENROUTER_KEY", "Primary key (OAI_ANTH_OPENROUTER_KEY)"),
+    "fallback": ("OPENROUTER_API_KEY", "Fallback key (OPENROUTER_API_KEY)"),
 }
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def fetch_auth_key(api_key: str, *, timeout: float = AUTH_KEY_REQUEST_TIMEOUT_S)
 
     Raises ``httpx.HTTPStatusError`` on non-2xx responses so the caller can
     surface a friendly message. Shared with ``sibyl.telemetry.credits``
-    (the per-run balance logging in cli.main and the mid-run donated-key state
+    (the per-run balance logging in cli.main and the mid-run primary-key state
     probe) — one endpoint, one parser. The endpoint is free and read-only.
     """
     response = httpx.get(
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check OpenRouter key balances.")
     parser.add_argument(
         "--key",
-        choices=("donated", "personal", "both"),
+        choices=("primary", "fallback", "both"),
         default="both",
         help="Which key(s) to check (default: both).",
     )
@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
 
     load_environment()
 
-    aliases = ["donated", "personal"] if args.key == "both" else [args.key]
+    aliases = ["primary", "fallback"] if args.key == "both" else [args.key]
 
     any_success = False
     for alias in aliases:

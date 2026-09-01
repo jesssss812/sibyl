@@ -70,9 +70,9 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # binary/MC and only a fragile numeric lean toward the full roster (+3.24,
     # 95% CI [-2.5, +9.1], P(loss>1pt/Q)=0.80, driven by 2 questions) — accepted as
     # a ship-and-watch bet; see bottega:FUTURE.md "Frozen-triple numeric watch". Dropping
-    # grok (x-ai, 404s on the donated key) also ends routine personal-key forecaster
-    # spend: only the gemini-3.1-pro-preview personal-key PIN bills
-    # OPENROUTER_API_KEY now; the other two slots route via the donated key.
+    # grok (x-ai, 404s on the primary key) also ends routine fallback-key forecaster
+    # spend: only the gemini-3.1-pro-preview fallback-key PIN bills
+    # OPENROUTER_API_KEY now; the other two slots route via the primary key.
     # (Dates anchor config eras for residual analysis.)
     #
     # OpenAI flagship (5.6 series). 2026-07-20: effort xhigh -> high. The
@@ -98,14 +98,14 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     build_llm_with_openrouter_fallback(
         # 2026-08-31: ROUTING moved from OpenRouter to the Anthropic API direct
         # ("openrouter/anthropic/claude-opus-5" -> "anthropic/claude-opus-5"). The model
-        # is unchanged; only the transport is. The donated Metaculus OpenRouter key is
-        # exhausted until next season and the personal OpenRouter balance could not even
+        # is unchanged; only the transport is. The primary Metaculus OpenRouter key is
+        # exhausted until next season and the fallback OpenRouter balance could not even
         # cover a 64k max_tokens reservation (2026-08-31 run: three 402s, 0/3 forecasters),
         # so the OpenRouter hop bought nothing but a middleman on a key with no credit.
         #
         # `build_llm_with_openrouter_fallback` returns a PLAIN GeneralLlm for any slug
-        # that does not start with "openrouter/" (see should_route_via_donated_key), so
-        # this correctly bypasses the donated-key wrapper and litellm reads
+        # that does not start with "openrouter/" (see should_route_via_primary_key), so
+        # this correctly bypasses the primary-key wrapper and litellm reads
         # ANTHROPIC_API_KEY from the environment. The call is kept (rather than
         # constructing GeneralLlm directly) so the roster stays uniform and re-routing
         # back through OpenRouter is a one-token change.
@@ -137,11 +137,11 @@ FORECASTER_LLMS: list[GeneralLlm] = [
         **_FORECASTER_CONFIG,
     ),
     # Google slot. No explicit reasoning-effort kwarg — gemini-3.1-pro-preview has
-    # no xhigh tier and uses provider defaults. PINNED to the personal
-    # OPENROUTER_API_KEY via the DONATED_KEY_BLOCKED_GOOGLE_MODELS blocklist in
-    # fallback_openrouter (the donated key routes it through a free-tier Google
+    # no xhigh tier and uses provider defaults. PINNED to the fallback
+    # OPENROUTER_API_KEY via the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist in
+    # fallback_openrouter (the primary key routes it through a free-tier Google
     # AI Studio BYOK integration with quota 0, so it would 429 there); see the
-    # TODO(gemini-3.1-pro-donated) tag pending the Metaculus-side BYOK fix.
+    # TODO(gemini-3.1-pro-primary) tag pending the Metaculus-side BYOK fix.
     build_llm_with_openrouter_fallback(
         model="openrouter/google/gemini-3.1-pro-preview",
         **_FORECASTER_CONFIG,
@@ -267,8 +267,8 @@ STACKER_FALLBACK_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
 # Both are RAW DICTS rather than built GeneralLlm singletons, unlike PARSER_LLM and friends:
 # the provider is gated OFF by default, so paying construction cost at import would be waste,
 # and the tests patch `build_llm_with_openrouter_fallback` at the provider's one invocation
-# helper. Both route `openrouter/openai/...` through that wrapper, which tries the donated
-# Metaculus key first and falls back to the personal key on credential / credit / route errors
+# helper. Both route `openrouter/openai/...` through that wrapper, which tries the primary
+# Metaculus key first and falls back to the fallback key on credential / credit / route errors
 # — so prod spend lands on OAI_ANTH_OPENROUTER_KEY.
 #
 # `allowed_tries=1` is required, not decorative: the repo's elapsed-gated `llm_retry` wrapper

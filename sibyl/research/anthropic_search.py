@@ -84,8 +84,8 @@ def _cached_client_for_key(api_key: str) -> anthropic.AsyncAnthropic:
 def build_anthropic_client() -> anthropic.AsyncAnthropic:
     """Return the cached AsyncAnthropic client for the operator's Anthropic key.
 
-    Reads ANTHROPIC_API_KEY. There is no Metaculus-donated Anthropic key on this
-    path — the donated OpenRouter key only covers OpenRouter-routed Anthropic
+    Reads ANTHROPIC_API_KEY. There is no Metaculus-primary Anthropic key on this
+    path — the primary OpenRouter key only covers OpenRouter-routed Anthropic
     models. Raises ValueError if the key is missing so misconfiguration is loud
     rather than a silent provider drop.
 

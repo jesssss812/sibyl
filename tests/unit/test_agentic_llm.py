@@ -1,10 +1,10 @@
 """Key-routing tests for the agentic loop's default LLM transport.
 
-``build_default_llm_call`` composes the donated-vs-personal OpenRouter key
-routing (prefix normalization, donated-key-first, classifier-gated fallback).
+``build_default_llm_call`` composes the primary-vs-fallback OpenRouter key
+routing (prefix normalization, primary-key-first, classifier-gated fallback).
 Every other agentic test injects ``llm_call=`` or patches the builder, so this
 file is the only coverage of the billing-relevant glue itself. The routing
-predicates (``should_route_via_donated_key`` / ``should_retry_with_general_key``)
+predicates (``should_route_via_primary_key`` / ``should_retry_with_fallback_key``)
 are stubbed here — their own classification behavior is covered in
 tests/unit/test_key_fallback.py.
 """
@@ -20,8 +20,8 @@ from sibyl.platform import key_fallback as fallback_openrouter
 from sibyl.research.agentic import llm as agentic_llm
 from sibyl.research.agentic.types import LoopConfig
 
-_DONATED = "sk-donated"
-_PERSONAL = "sk-personal"
+_PRIMARY = "sk-primary"
+_FALLBACK = "sk-fallback"
 
 
 def _config(model: str = "openai/gpt-5.6-luna", effort: str = "medium") -> LoopConfig:
@@ -44,22 +44,22 @@ def acompletion(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     return mock
 
 
-def _set_keys(monkeypatch: pytest.MonkeyPatch, donated: str | None, personal: str | None) -> None:
-    if donated is None:
+def _set_keys(monkeypatch: pytest.MonkeyPatch, primary: str | None, fallback: str | None) -> None:
+    if primary is None:
         monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
     else:
-        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", donated)
-    if personal is None:
+        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", primary)
+    if fallback is None:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     else:
-        monkeypatch.setenv("OPENROUTER_API_KEY", personal)
+        monkeypatch.setenv("OPENROUTER_API_KEY", fallback)
 
 
 class TestKwargsPassthrough:
     @pytest.mark.asyncio
     async def test_prefix_added_and_call_kwargs(self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> None:
-        _set_keys(monkeypatch, donated=None, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: False)
+        _set_keys(monkeypatch, primary=None, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: False)
         call = agentic_llm.build_default_llm_call(_config(effort="high"))
         tools = [{"type": "function", "function": {"name": "fetch"}}]
 
@@ -75,12 +75,12 @@ class TestKwargsPassthrough:
         assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
         assert kwargs["temperature"] is None
         assert kwargs["tools"] == tools
-        assert kwargs["api_key"] == _PERSONAL
+        assert kwargs["api_key"] == _FALLBACK
 
     @pytest.mark.asyncio
     async def test_existing_prefix_not_doubled(self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> None:
-        _set_keys(monkeypatch, donated=None, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: False)
+        _set_keys(monkeypatch, primary=None, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: False)
         call = agentic_llm.build_default_llm_call(_config(model="openrouter/openai/gpt-5.6-luna"))
 
         await call(_messages(), None)
@@ -92,8 +92,8 @@ class TestKwargsPassthrough:
     async def test_messages_list_is_shallow_copied(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=None, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: False)
+        _set_keys(monkeypatch, primary=None, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: False)
         call = agentic_llm.build_default_llm_call(_config())
         messages = _messages()
 
@@ -107,25 +107,25 @@ class TestKwargsPassthrough:
 
 class TestKeyRouting:
     @pytest.mark.asyncio
-    async def test_donated_key_first_when_routing_allows(
+    async def test_primary_key_first_when_routing_allows(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
 
         call = agentic_llm.build_default_llm_call(_config())
         await call(_messages(), None)
 
         acompletion.assert_awaited_once()
-        assert _last_kwargs(acompletion)["api_key"] == _DONATED
+        assert _last_kwargs(acompletion)["api_key"] == _PRIMARY
 
     @pytest.mark.asyncio
-    async def test_fallback_to_personal_on_credential_error(
+    async def test_fallback_to_fallback_on_credential_error(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
-        monkeypatch.setattr(agentic_llm, "should_retry_with_general_key", lambda exc: True)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
+        monkeypatch.setattr(agentic_llm, "should_retry_with_fallback_key", lambda exc: True)
         acompletion.side_effect = [RuntimeError("401 unauthorized: invalid api key"), {"ok": True}]
 
         call = agentic_llm.build_default_llm_call(_config())
@@ -134,8 +134,8 @@ class TestKeyRouting:
         assert result == {"ok": True}
         assert acompletion.await_count == 2
         first, second = acompletion.await_args_list
-        assert first.kwargs["api_key"] == _DONATED
-        assert second.kwargs["api_key"] == _PERSONAL
+        assert first.kwargs["api_key"] == _PRIMARY
+        assert second.kwargs["api_key"] == _FALLBACK
 
     @pytest.mark.asyncio
     async def test_fallback_is_counted_and_logged_like_the_wrapper(
@@ -144,23 +144,23 @@ class TestKeyRouting:
         """The v2 fallback must feed the same accounting as ``FallbackOpenRouterLlm``.
 
         gap-fill v2 runs on every question in all four prod workflows, so this
-        hand-rolled donated→personal retry was the highest-volume uninstrumented
-        personal-key spend path: no counter, no ``PAID PERSONAL-KEY FALLBACK`` WARN,
+        hand-rolled primary→fallback retry was the highest-volume uninstrumented
+        fallback-key spend path: no counter, no ``PAID PERSONAL-KEY FALLBACK`` WARN,
         no contribution to the end-of-run summary. After 2026-09-10 a v2-only
         fallback that should redden CI would silently not.
         """
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
-        monkeypatch.setattr(agentic_llm, "should_retry_with_general_key", lambda exc: True)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
+        monkeypatch.setattr(agentic_llm, "should_retry_with_fallback_key", lambda exc: True)
         acompletion.side_effect = [RuntimeError("401 unauthorized: invalid api key"), {"ok": True}]
-        fallback_openrouter.reset_generic_key_fallback_count()
+        fallback_openrouter.reset_fallback_key_count()
         fallback_openrouter.reset_credit_key_fallback_count()
 
         call = agentic_llm.build_default_llm_call(_config())
         with caplog.at_level("WARNING", logger="sibyl.platform.key_fallback"):
             await call(_messages(), None)
 
-        assert fallback_openrouter.get_generic_key_fallback_count() == 1
+        assert fallback_openrouter.get_fallback_key_count() == 1
         # A 401 is not a credit shortfall, so the suppression subset stays empty:
         # generic adds once, at most one subset subtracts (AGENTS.md invariant).
         assert fallback_openrouter.get_credit_key_fallback_count() == 0
@@ -174,43 +174,43 @@ class TestKeyRouting:
         """Credit-caused fallbacks are a strict SUBSET of the generic total: generic
         adds the event, the credit subset subtracts it back out during the suppression
         window. Double-counting either side breaks cli.py's alertable arithmetic."""
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
-        monkeypatch.setattr(agentic_llm, "should_retry_with_general_key", lambda exc: True)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
+        monkeypatch.setattr(agentic_llm, "should_retry_with_fallback_key", lambda exc: True)
         acompletion.side_effect = [RuntimeError("402 payment required: insufficient credits"), {"ok": True}]
-        fallback_openrouter.reset_generic_key_fallback_count()
+        fallback_openrouter.reset_fallback_key_count()
         fallback_openrouter.reset_credit_key_fallback_count()
 
         call = agentic_llm.build_default_llm_call(_config())
         await call(_messages(), None)
 
-        assert fallback_openrouter.get_generic_key_fallback_count() == 1
+        assert fallback_openrouter.get_fallback_key_count() == 1
         assert fallback_openrouter.get_credit_key_fallback_count() == 1
 
     @pytest.mark.asyncio
     async def test_no_fallback_means_no_counter_bump(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A rejected fallback bills nothing to the personal key, so it must not count."""
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
-        monkeypatch.setattr(agentic_llm, "should_retry_with_general_key", lambda exc: False)
+        """A rejected fallback bills nothing to the fallback key, so it must not count."""
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
+        monkeypatch.setattr(agentic_llm, "should_retry_with_fallback_key", lambda exc: False)
         acompletion.side_effect = RuntimeError("403 forbidden: moderation")
-        fallback_openrouter.reset_generic_key_fallback_count()
+        fallback_openrouter.reset_fallback_key_count()
 
         call = agentic_llm.build_default_llm_call(_config())
         with pytest.raises(RuntimeError):
             await call(_messages(), None)
 
-        assert fallback_openrouter.get_generic_key_fallback_count() == 0
+        assert fallback_openrouter.get_fallback_key_count() == 0
 
     @pytest.mark.asyncio
     async def test_no_fallback_when_classifier_rejects(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
-        monkeypatch.setattr(agentic_llm, "should_retry_with_general_key", lambda exc: False)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
+        monkeypatch.setattr(agentic_llm, "should_retry_with_fallback_key", lambda exc: False)
         acompletion.side_effect = RuntimeError("403 forbidden: moderation")
 
         call = agentic_llm.build_default_llm_call(_config())
@@ -218,15 +218,15 @@ class TestKeyRouting:
             await call(_messages(), None)
 
         acompletion.assert_awaited_once()
-        assert _last_kwargs(acompletion)["api_key"] == _DONATED
+        assert _last_kwargs(acompletion)["api_key"] == _PRIMARY
 
     @pytest.mark.asyncio
     async def test_identical_keys_disable_fallback(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=_PERSONAL, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
-        monkeypatch.setattr(agentic_llm, "should_retry_with_general_key", lambda exc: True)
+        _set_keys(monkeypatch, primary=_FALLBACK, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
+        monkeypatch.setattr(agentic_llm, "should_retry_with_fallback_key", lambda exc: True)
         acompletion.side_effect = RuntimeError("401 unauthorized")
 
         call = agentic_llm.build_default_llm_call(_config())
@@ -236,27 +236,27 @@ class TestKeyRouting:
         acompletion.assert_awaited_once()  # same key twice would be pointless; the != guard skips the retry
 
     @pytest.mark.asyncio
-    async def test_donated_only_uses_donated_without_fallback(
+    async def test_primary_only_uses_primary_without_fallback(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=_DONATED, personal=None)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: True)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=None)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: True)
 
         call = agentic_llm.build_default_llm_call(_config())
         await call(_messages(), None)
 
         acompletion.assert_awaited_once()
-        assert _last_kwargs(acompletion)["api_key"] == _DONATED
+        assert _last_kwargs(acompletion)["api_key"] == _PRIMARY
 
     @pytest.mark.asyncio
-    async def test_personal_only_when_routing_disallows_donated(
+    async def test_fallback_only_when_routing_disallows_primary(
         self, acompletion: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _set_keys(monkeypatch, donated=_DONATED, personal=_PERSONAL)
-        monkeypatch.setattr(agentic_llm, "should_route_via_donated_key", lambda model: False)
+        _set_keys(monkeypatch, primary=_PRIMARY, fallback=_FALLBACK)
+        monkeypatch.setattr(agentic_llm, "should_route_via_primary_key", lambda model: False)
 
         call = agentic_llm.build_default_llm_call(_config())
         await call(_messages(), None)
 
         acompletion.assert_awaited_once()
-        assert _last_kwargs(acompletion)["api_key"] == _PERSONAL
+        assert _last_kwargs(acompletion)["api_key"] == _FALLBACK

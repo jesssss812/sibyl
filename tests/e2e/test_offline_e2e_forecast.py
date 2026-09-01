@@ -686,7 +686,7 @@ def _install_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(flag, "false")
     # Dummy API keys so provider-selection gates pass. AskNews creds make it the
     # primary provider (prod case). GOOGLE_API_KEY for gemini + FRED_API_KEY for
-    # financial. Personal OpenRouter key only (donated deleted) so the fallback
+    # financial. Fallback OpenRouter key only (primary deleted) so the fallback
     # wrapper stays single-key deterministic and the agentic router is on one key.
     monkeypatch.setenv("ASKNEWS_CLIENT_ID", "dummy-client")
     monkeypatch.setenv("ASKNEWS_SECRET", "dummy-secret")

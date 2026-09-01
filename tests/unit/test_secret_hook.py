@@ -197,7 +197,7 @@ class TestValueMustNotLookLikeCode:
             "llm = build(api_key=secondary_api_key)",
             "llm = build(api_key=get_openrouter_api_key(model_name))",  # function call
             'logger.info(f"client_id={client_id[:8]}...")',  # f-string fragment
-            'build(api_key="personal-key")',  # short non-credential literal
+            'build(api_key="fallback-key")',  # short non-credential literal
             "client_id = os.getenv(ASKNEWS_CLIENT_ID_ENV)",  # env indirection
         ],
     )

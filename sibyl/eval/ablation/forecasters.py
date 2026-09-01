@@ -233,10 +233,10 @@ def _infer_failure_stage(exc: Exception, forecaster_model_slug: str) -> str:
       successor to the parser stage, so its typed terminal failure is a
       "parser"-stage failure. Checked first so the typed signal wins before
       any textual heuristic can miscategorize it.
-    * ``"no allowed providers"`` → almost always the parser. The donated-key
+    * ``"no allowed providers"`` → almost always the parser. The primary-key
       allowed-providers 404 hits the parser specifically (the parser is the
       OAI-prefixed model in the ablation; production forecasters route via
-      the donated key too but typically don't 404 at this scale).
+      the primary key too but typically don't 404 at this scale).
     * Rate-limit text → forecaster. Free-tier rate limits are model-specific;
       since forecasters run before the parser is invoked, a rate limit on
       the forecaster prevents the parser from ever being called. The parser
@@ -251,7 +251,7 @@ def _infer_failure_stage(exc: Exception, forecaster_model_slug: str) -> str:
     if isinstance(exc, ValueExtractionError):
         return "parser"
     msg = str(exc).lower()
-    # Donated-key allowed-providers 404. Parser uses the OAI-prefixed model
+    # Primary-key allowed-providers 404. Parser uses the OAI-prefixed model
     # in production llm_configs (and historically did in the ablation, before
     # task #16 switched to plain GeneralLlm); forecasters in the ablation
     # are now plain GeneralLlm so they don't 404 on this code path.

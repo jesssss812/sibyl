@@ -305,7 +305,7 @@ backfill_comments:
 backtest_with_cache:
 	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 20 --research-dir backtests/research_archive/latest $(ARGS))
 
-# Check OpenRouter key balances. Pass ARGS="--key donated" or ARGS="--key personal"
+# Check OpenRouter key balances. Pass ARGS="--key primary" or ARGS="--key fallback"
 # to limit which key is queried (default: both).
 check_credits:
 	@uv run python -m sibyl.telemetry.check_credits $(ARGS)

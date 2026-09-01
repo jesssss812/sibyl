@@ -15,8 +15,8 @@ import pytest
 
 from sibyl.telemetry import check_credits as cc
 
-DONATED_KEY = "sk-or-v1-DONATEDsecretAB12"
-PERSONAL_KEY = "sk-or-v1-PERSONALsecretCD34"
+PRIMARY_KEY = "sk-or-v1-PRIMARYsecretAB12"
+FALLBACK_KEY = "sk-or-v1-FALLBACKsecretCD34"
 
 
 def _ok_response(label: str, usage: float = 12.5) -> httpx.Response:
@@ -40,15 +40,15 @@ def _err_response(status: int) -> httpx.Response:
     return httpx.Response(status, content=b'{"error": "boom"}')
 
 
-def _patch_env(monkeypatch: pytest.MonkeyPatch, donated: str | None, personal: str | None) -> None:
-    if donated is None:
+def _patch_env(monkeypatch: pytest.MonkeyPatch, primary: str | None, fallback: str | None) -> None:
+    if primary is None:
         monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
     else:
-        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", donated)
-    if personal is None:
+        monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", primary)
+    if fallback is None:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     else:
-        monkeypatch.setenv("OPENROUTER_API_KEY", personal)
+        monkeypatch.setenv("OPENROUTER_API_KEY", fallback)
 
 
 def _patch_load_env():
@@ -62,29 +62,29 @@ def test_redact_short_and_long_keys():
 
 
 def test_both_keys_present_both_succeed(monkeypatch, capsys):
-    _patch_env(monkeypatch, DONATED_KEY, PERSONAL_KEY)
-    fake = httpx.MockTransport(lambda _req: _ok_response("Metaculus-Donated"))
+    _patch_env(monkeypatch, PRIMARY_KEY, FALLBACK_KEY)
+    fake = httpx.MockTransport(lambda _req: _ok_response("Metaculus-Primary"))
 
     with _patch_load_env(), patch.object(httpx, "get", lambda url, **kw: httpx.Client(transport=fake).get(url, **kw)):
         rc = cc.main(["--key", "both"])
 
     captured = capsys.readouterr()
     assert rc == 0
-    assert "Donated key (OAI_ANTH_OPENROUTER_KEY)" in captured.out
-    assert "Personal key (OPENROUTER_API_KEY)" in captured.out
+    assert "Primary key (OAI_ANTH_OPENROUTER_KEY)" in captured.out
+    assert "Fallback key (OPENROUTER_API_KEY)" in captured.out
     # Redacted fingerprints visible
     assert "****AB12" in captured.out
     assert "****CD34" in captured.out
     # Full keys NEVER printed
-    assert DONATED_KEY not in captured.out
-    assert PERSONAL_KEY not in captured.out
-    assert "DONATEDsecret" not in captured.out
-    assert "PERSONALsecret" not in captured.out
+    assert PRIMARY_KEY not in captured.out
+    assert FALLBACK_KEY not in captured.out
+    assert "PRIMARYsecret" not in captured.out
+    assert "FALLBACKsecret" not in captured.out
 
 
-def test_donated_missing_personal_present_exits_zero(monkeypatch, capsys):
-    _patch_env(monkeypatch, None, PERSONAL_KEY)
-    fake = httpx.MockTransport(lambda _req: _ok_response("Personal"))
+def test_primary_missing_fallback_present_exits_zero(monkeypatch, capsys):
+    _patch_env(monkeypatch, None, FALLBACK_KEY)
+    fake = httpx.MockTransport(lambda _req: _ok_response("Fallback"))
 
     with _patch_load_env(), patch.object(httpx, "get", lambda url, **kw: httpx.Client(transport=fake).get(url, **kw)):
         rc = cc.main(["--key", "both"])
@@ -92,8 +92,8 @@ def test_donated_missing_personal_present_exits_zero(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert rc == 0
     assert "WARN: env var OAI_ANTH_OPENROUTER_KEY not set" in captured.out
-    assert "Personal key (OPENROUTER_API_KEY)" in captured.out
-    assert PERSONAL_KEY not in captured.out
+    assert "Fallback key (OPENROUTER_API_KEY)" in captured.out
+    assert FALLBACK_KEY not in captured.out
 
 
 def test_both_keys_missing_exits_one(monkeypatch, capsys):
@@ -110,29 +110,29 @@ def test_both_keys_missing_exits_one(monkeypatch, capsys):
 
 
 def test_http_401_friendly_error(monkeypatch, capsys):
-    _patch_env(monkeypatch, DONATED_KEY, None)
+    _patch_env(monkeypatch, PRIMARY_KEY, None)
     fake = httpx.MockTransport(lambda _req: _err_response(401))
 
     with _patch_load_env(), patch.object(httpx, "get", lambda url, **kw: httpx.Client(transport=fake).get(url, **kw)):
-        rc = cc.main(["--key", "donated"])
+        rc = cc.main(["--key", "primary"])
 
     captured = capsys.readouterr()
     assert rc == 1
     assert "401 Unauthorized" in captured.out
     # Even on error, full key must not leak
-    assert DONATED_KEY not in captured.out
-    assert DONATED_KEY not in captured.err
+    assert PRIMARY_KEY not in captured.out
+    assert PRIMARY_KEY not in captured.err
 
 
-def test_only_donated_requested(monkeypatch, capsys):
-    _patch_env(monkeypatch, DONATED_KEY, PERSONAL_KEY)
-    fake = httpx.MockTransport(lambda _req: _ok_response("Metaculus-Donated"))
+def test_only_primary_requested(monkeypatch, capsys):
+    _patch_env(monkeypatch, PRIMARY_KEY, FALLBACK_KEY)
+    fake = httpx.MockTransport(lambda _req: _ok_response("Metaculus-Primary"))
 
     with _patch_load_env(), patch.object(httpx, "get", lambda url, **kw: httpx.Client(transport=fake).get(url, **kw)):
-        rc = cc.main(["--key", "donated"])
+        rc = cc.main(["--key", "primary"])
 
     captured = capsys.readouterr()
     assert rc == 0
-    assert "Donated key (OAI_ANTH_OPENROUTER_KEY)" in captured.out
-    assert "Personal key (OPENROUTER_API_KEY)" not in captured.out
-    assert PERSONAL_KEY not in captured.out
+    assert "Primary key (OAI_ANTH_OPENROUTER_KEY)" in captured.out
+    assert "Fallback key (OPENROUTER_API_KEY)" not in captured.out
+    assert FALLBACK_KEY not in captured.out

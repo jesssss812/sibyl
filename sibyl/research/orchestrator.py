@@ -796,7 +796,7 @@ class ResearchOrchestrator:
         # This fallback only fires when AskNews (always the primary in prod) has
         # already failed, so AskNews is excluded. Among the remaining options we
         # prefer the Perplexity-via-OpenRouter route first (cheap, prose-returning,
-        # routed through the donated-key wrapper), then direct Perplexity, then
+        # routed through the primary-key wrapper), then direct Perplexity, then
         # Exa last (SmartSearcher spins up its own multi-search/LLM loop, the most
         # expensive path). The primary selector orders by index quality, not cost,
         # which is why the two lists diverge by design.

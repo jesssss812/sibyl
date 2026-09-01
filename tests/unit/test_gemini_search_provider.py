@@ -99,7 +99,7 @@ def _make_client_with_response(response: object) -> MagicMock:
 
 def test_builder_raises_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Missing GOOGLE_API_KEY should raise. The grounded-search side has no
-    donated/shared key path — Google AI Studio doesn't offer one — so this is
+    primary/shared key path — Google AI Studio doesn't offer one — so this is
     the only key gate to test here.
     """
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
