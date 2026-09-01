@@ -4,11 +4,53 @@ Keeping these objects in a single module avoids merge-conflicts and makes it
 possible to tweak/benchmark models without touching application code.
 """
 
+import logging
+import os
+from enum import StrEnum
 from typing import Any
 
 from forecasting_tools import GeneralLlm
 
+from sibyl.config.settings import MODEL_TIER_ENV
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
+
+logger = logging.getLogger(__name__)
+
+
+class ModelTier(StrEnum):
+    """Which roster a run uses.
+
+    FREE is every-slot-on-an-OpenRouter-:free-slug and cannot spend. PROD is the paid
+    roster below. The distinction is a tier rather than a per-slot toggle because a
+    half-free run is the worst of both: it bills, and its output is not comparable to
+    either arm.
+    """
+
+    FREE = "free"
+    PROD = "prod"
+
+
+def active_tier() -> ModelTier:
+    """The tier for this run, from ``SIBYL_MODEL_TIER``. Defaults to FREE.
+
+    FREE is the default on purpose, and it is the one deliberate behaviour change this
+    phase makes to an existing entry point. A local run that forgets the flag should be
+    unable to spend; the prod workflows say ``SIBYL_MODEL_TIER: 'prod'`` explicitly, so
+    the expensive path is the one that has to be asked for. Read at call time, so a test
+    can monkeypatch it without reloading the module.
+
+    An unrecognised value is a configuration error, not a reason to guess. Falling back
+    to FREE would silently downgrade a prod run to free models and publish the result to
+    a scored tournament; falling back to PROD would silently spend. Raise instead.
+    """
+    raw = os.getenv(MODEL_TIER_ENV, "").strip().lower()
+    if not raw:
+        return ModelTier.FREE
+    try:
+        return ModelTier(raw)
+    except ValueError:
+        valid = ", ".join(sorted(t.value for t in ModelTier))
+        raise ValueError(f"{MODEL_TIER_ENV}={raw!r} is not a known model tier (expected one of: {valid})") from None
 
 __all__ = [
     "FORECASTER_LLMS",

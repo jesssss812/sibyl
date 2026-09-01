@@ -150,6 +150,9 @@ OAI_ANTH_OPENROUTER_KEY_ENV: str = "OAI_ANTH_OPENROUTER_KEY"
 # specific key's server-side settings, and it changed twice in three months. The env var
 # names are new (the key names they govern are not), so an unset var reproduces today's
 # behaviour exactly. Comma-separated, case-insensitive.
+# Which model roster a run uses. Default is FREE, deliberately: a local run should not
+# be able to spend money by forgetting a flag. The prod workflows set this explicitly.
+MODEL_TIER_ENV: str = "SIBYL_MODEL_TIER"
 OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV: str = "OPENROUTER_PRIMARY_KEY_PROVIDERS"
 OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV: str = "OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS"
 ASKNEWS_CLIENT_ID_ENV: str = "ASKNEWS_CLIENT_ID"
