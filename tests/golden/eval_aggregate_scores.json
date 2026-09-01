@@ -1,0 +1,23 @@
+{
+  "brier": {
+    "bot_mean": 0.27666666666666667,
+    "bot_minus_community": 0.13666666666666666,
+    "bot_std": 0.16438437341250606,
+    "community_mean": 0.14,
+    "n": 3
+  },
+  "mc_log_score": {
+    "bot_mean": -1.05,
+    "bot_minus_community": null,
+    "bot_std": 0.0,
+    "community_mean": null,
+    "n": 1
+  },
+  "numeric_log_score": {
+    "bot_mean": -1.025,
+    "bot_minus_community": 0.0,
+    "bot_std": 0.22499999999999998,
+    "community_mean": -1.025,
+    "n": 2
+  }
+}

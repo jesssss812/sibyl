@@ -1,0 +1,141 @@
+[project]
+name = "metaculus-bot"
+version = "0.1.0"
+description = "Multi-LLM ensemble forecasting bot for Metaculus."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Vasile Popescu", email = "elisescu@elisescu.com" }]
+dependencies = [
+    "requests>=2.32.3",
+    "asknews>=0.11.2",
+    "exa-py>=1.16.0",
+    "numpy>=2.3.0",
+    "openai>=1.57.4",
+    "playwright>=1.54.0",
+    "python-dotenv>=1.0.1",
+    "forecasting-tools==0.2.92",
+    "litellm>=1.84.0,<2.0.0", # cap matches forecasting-tools constraint; litellm ships frequent behavior changes
+    "aiohttp>=3.12.15",
+    "yfinance>=0.2.48",
+    "fredapi>=0.5.2",
+    "google-genai>=1.74.0",
+    "rapidfuzz>=3.14.3",
+    "scipy>=1.12.0",
+    "pandas>=2.2.3",
+    "pydantic>=2.9.2,<3.0.0",
+    "tqdm>=4.66", # imported at top level in backtest/cli.py
+    "typeguard>=4.5", # imported at top level in backtest/cli.py / scoring_patches.py
+    "trafilatura>=2.1.0",
+    "json-repair>=0.61.1",
+    "ijson>=3.5.1",
+    "anthropic>=1.2.0",
+]
+# supply-chain note: prefer pinning; avoid adding packages published <1wk ago.
+# The freshness window is enforced at lock time via `uv lock --exclude-newer <ts>`
+# (uv 0.9.x has no exclude-newer-span pyproject setting).
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=5.0.0",
+    "pre-commit>=4.3.0",
+    "ruff>=0.15.1",
+    "basedpyright>=1.25",
+    "ty",
+    "pandas-stubs>=3.0.3.260530",
+    "scipy-stubs>=1.17.1.5",
+    "types-tqdm>=4.68.0.20260608",
+    "types-requests>=2.33.0.20260518",
+    "hypothesis>=6.156.1",
+    "matplotlib>=3.11.0",
+    "pyyaml>=6.0.3",
+]
+
+[tool.uv]
+exclude-dependencies = [
+    # gitpython arrives only as streamlit <- forecasting-tools, and nothing we run
+    # imports it: streamlit's sole use is a lazy `import git` inside
+    # app_session._handle_git_information_request, reached only by a browser message
+    # to a running streamlit server (which we never start) and swallowed into a debug
+    # log. Verified unreachable via an import tripwire over `import forecasting_tools`
+    # + `import metaculus_bot.forecaster`, and the suite passes with git absent.
+    # It shipped 5 High argument-injection advisories at 3.1.52 across 4 releases in
+    # 6 days, so excluding it drops the CVE class instead of tracking that treadmill.
+    # streamlit itself must STAY: forecasting_tools/__init__.py imports
+    # benchmark_displayer, which imports streamlit at module scope, so excluding
+    # streamlit breaks every `import forecasting_tools` (including tests/conftest.py).
+    # Same mechanism/rationale as commit 836a5d0 (transformers). Re-evaluate at the
+    # next forecasting-tools bump.
+    "gitpython",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# Flat layout: the importable package lives at the repo root (metaculus_bot/),
+# not under src/. uv_build's default discovery expects src/<name>/, so both
+# settings are required here.
+module-name = "metaculus_bot"
+module-root = ""
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+# pythonpath=["."] lets tests import the remaining repo-root module (main) and the
+# scripts package once metaculus_bot is installed
+# editable. backtest and analyze_correlations moved into their own packages on
+# 2026-08-26, so they no longer need it.
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "live: requires real API keys and makes real LLM calls (deselected by default)",
+    "e2e: end-to-end pipeline tests with mocked LLMs",
+    "integration: cross-component contract tests",
+    "allow_network: opt out of the autouse network-egress guard (real sockets to non-localhost hosts)",
+]
+addopts = "-m 'not live'"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["metaculus_bot"]
+omit = ["*/__pycache__/*", "metaculus_bot/check_openrouter_credits.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = [
+    "metaculus_bot",
+    "tests",
+    "scripts",
+    "main.py",
+]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+    "scratch",
+    "benchmarks",
+    "backtests",
+    "report",
+    "build",
+    "dist",
+]
+# Standard mode across the whole repo: catches every real type-bug class
+# (argument/return/attribute/call/optional/override) without the "type is
+# partially unknown" annotation toil that strict adds at every untyped
+# third-party (forecasting-tools) boundary for little bug yield. Promoting the
+# core pipeline to strict is a tracked follow-on (see FUTURE.md) — best done
+# on an already-clean base rather than fighting ~900 errors at once.

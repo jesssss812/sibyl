@@ -1,0 +1,186 @@
+# Per-module coverage of metaculus_bot/ at d15eac5 (bottega), measured on the
+# parity-harness branch with `uv run pytest --cov=metaculus_bot --cov-report=term`.
+#
+# Recorded here rather than described in prose because Phase 6 of the sibyl clean
+# fork asserts per-module coverage has not fallen below this. A restructure that
+# drops a module's tests on the floor shows up as a coverage cliff long before it
+# shows up as a failure, and only if there is a before to compare against.
+#
+# Travels to sibyl with tests/golden/ in Phase 1.
+
+Name                                                           Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------------------------
+metaculus_bot/__init__.py                                          4      0   100%
+metaculus_bot/ablation/__init__.py                                 0      0   100%
+metaculus_bot/ablation/aggregation_primitives.py                  22      0   100%
+metaculus_bot/ablation/cache.py                                  139      0   100%
+metaculus_bot/ablation/cli.py                                    903     46    95%   487, 502, 655, 701, 741-742, 766-771, 840, 931, 1091, 1095-1096, 1318-1320, 1405-1419, 1422, 1430, 1432, 1434, 1457, 1527-1528, 1625, 1659, 2005, 2145-2146, 2193-2202, 2206
+metaculus_bot/ablation/env.py                                     16      0   100%
+metaculus_bot/ablation/forecaster_lineup.py                       23      3    87%   114-116
+metaculus_bot/ablation/forecasters.py                            231     17    93%   125, 127, 162, 164, 178, 259, 272, 294, 317, 349, 409, 435, 683, 685, 689, 768, 770
+metaculus_bot/ablation/leakage_screen.py                         131      5    96%   157-158, 161, 176, 333
+metaculus_bot/ablation/offline_replay.py                         433     24    94%   154, 161, 163, 166, 298, 311-319, 340, 359, 375, 384-386, 399-400, 407, 671, 689, 696, 779, 954
+metaculus_bot/ablation/prune.py                                  248     26    90%   75, 252, 411-412, 416, 441, 454-460, 464, 485, 489-490, 493-494, 515, 573-578, 657, 675-676
+metaculus_bot/ablation/qa_iterate.py                             263     20    92%   218-219, 223, 243, 256-262, 266, 366, 369, 372, 378, 381, 384, 396, 648
+metaculus_bot/ablation/research.py                                93      0   100%
+metaculus_bot/ablation/run_pdf.py                                219     25    89%   91, 104, 106, 108, 112, 115, 117, 128, 137, 139, 154, 215, 222-227, 230, 249, 267, 285, 387, 430, 441
+metaculus_bot/ablation/run_simple_agg.py                          52      1    98%   105
+metaculus_bot/ablation/run_stacker.py                            224     17    92%   216, 219, 262, 277, 282, 376, 381, 423, 686-701, 777, 779
+metaculus_bot/ablation/scoring.py                                360     25    93%   100, 243, 250, 318, 322, 379-380, 383-384, 420-424, 438-439, 449-450, 464-465, 473-474, 479, 497, 608, 612-613, 636
+metaculus_bot/ablation/scoring_report.py                         315     16    95%   37, 192, 256, 289, 368-371, 416, 435, 450, 471, 478-479, 486, 493-494
+metaculus_bot/ablation/stage_payload.py                            7      0   100%
+metaculus_bot/ablation/window_patch.py                            57      0   100%
+metaculus_bot/aggregation_pipeline.py                            226     10    96%   89, 113, 116, 176-179, 201, 412, 439, 463, 499
+metaculus_bot/aggregation_strategies.py                           56      0   100%
+metaculus_bot/aiohttp_cleanup.py                                  41     23    44%   29, 41-69
+metaculus_bot/api_key_utils.py                                     9      0   100%
+metaculus_bot/api_preflight.py                                    44      0   100%
+metaculus_bot/backtest/__init__.py                                 0      0   100%
+metaculus_bot/backtest/__main__.py                                 3      3     0%   9-12
+metaculus_bot/backtest/analysis.py                               114      0   100%
+metaculus_bot/backtest/cli.py                                    168     17    90%   251, 299-301, 315-320, 379-381, 388, 426-438, 442
+metaculus_bot/backtest/leakage.py                                 53      2    96%   19, 60
+metaculus_bot/backtest/question_prep.py                          263     58    78%   121-124, 178, 181-182, 316, 404, 422, 447-453, 458, 465, 469, 511, 515, 521-533, 540, 544, 548, 554-583
+metaculus_bot/backtest/scoring.py                                200     69    66%   83, 97-98, 109-110, 116-118, 135-136, 153-154, 162-164, 190-191, 218-220, 267-268, 277-289, 306-336, 341-355
+metaculus_bot/benchmark/__init__.py                                0      0   100%
+metaculus_bot/benchmark/bot_factory.py                            30      6    80%   162-182
+metaculus_bot/benchmark/fixture_llm.py                           123     11    91%   69, 76-77, 192, 197, 212-213, 230-231, 247, 288
+metaculus_bot/benchmark/heartbeat.py                              53     27    49%   32, 36-37, 41, 51-66, 70-78
+metaculus_bot/benchmark/logging.py                                34     34     0%   1-67
+metaculus_bot/benchmark/logging_setup.py                          37     28    24%   15-20, 31-61
+metaculus_bot/calibration/__init__.py                              3      0   100%
+metaculus_bot/calibration/fit_platt_cli.py                       302    302     0%   24-572
+metaculus_bot/calibration/params.py                                3      0   100%
+metaculus_bot/calibration/platt.py                                70      2    97%   127, 137
+metaculus_bot/cli.py                                              90     10    89%   146-149, 152-153, 159-160, 181, 188, 297
+metaculus_bot/close_margin.py                                     20      0   100%
+metaculus_bot/comment/__init__.py                                  0      0   100%
+metaculus_bot/comment/formatting.py                               56      1    98%   129
+metaculus_bot/comment/markers.py                                  54      0   100%
+metaculus_bot/comment/trimming.py                                221     27    88%   59, 63, 77-82, 87-93, 138, 147, 233, 251, 255, 275-279, 313, 333, 370, 482-483
+metaculus_bot/config.py                                           18      1    94%   29
+metaculus_bot/constants.py                                       242      6    98%   175, 178-179, 188, 191-192
+metaculus_bot/credit_telemetry.py                                126      2    98%   115-116
+metaculus_bot/degradation_counters.py                              7      0   100%
+metaculus_bot/drop_telemetry.py                                   43      0   100%
+metaculus_bot/ensemble_analysis/__init__.py                        0      0   100%
+metaculus_bot/ensemble_analysis/__main__.py                        3      3     0%   3-6
+metaculus_bot/ensemble_analysis/benchmark_identity.py            122     33    73%   65-66, 83-91, 100-112, 140, 146-148, 154, 168, 173, 175-177, 188-194
+metaculus_bot/ensemble_analysis/cdf_cache.py                     111     90    19%   45-47, 59-183, 194-202
+metaculus_bot/ensemble_analysis/cli.py                           479    238    50%   69-73, 80, 186-273, 363-365, 384-385, 389-399, 404-406, 409-412, 420, 429, 442-460, 463-471, 482, 487, 506-513, 519, 525, 534, 562-618, 624, 641-652, 663-665, 678, 696-734, 746-748, 765
+metaculus_bot/ensemble_analysis/correlation_analysis.py          338    138    59%   66, 70, 74, 114, 118, 125, 145, 156, 276-387, 414-415, 445-446, 462-475, 493-524, 539-546, 557, 578, 587, 592, 607-609, 613-617, 633, 654, 676-678
+metaculus_bot/ensemble_analysis/ensemble_simulator.py            243    112    54%   67, 71, 125-126, 177-179, 240, 247, 264-335, 348-356, 379-449, 471-485
+metaculus_bot/ensemble_analysis/types.py                          51      0   100%
+metaculus_bot/exceptions.py                                        4      0   100%
+metaculus_bot/fallback_openrouter.py                             171      3    98%   249, 254, 723
+metaculus_bot/fetch_hardening.py                                  73      0   100%
+metaculus_bot/forecaster.py                                      373     17    95%   96, 114, 127, 192, 296, 300, 304, 308, 316, 360-366, 489, 632, 931-937
+metaculus_bot/forecaster_agreement.py                              8      0   100%
+metaculus_bot/forecaster_runners.py                               92      2    98%   194-195
+metaculus_bot/llm_configs.py                                      20      0   100%
+metaculus_bot/llm_retry.py                                        58      1    98%   340
+metaculus_bot/llm_setup.py                                        53      2    96%   79, 95
+metaculus_bot/mc_processing.py                                    67     11    84%   49, 61, 74, 78-79, 85-87, 100, 141-142
+metaculus_bot/numeric/__init__.py                                  0      0   100%
+metaculus_bot/numeric/bounds_clamping.py                          44      2    95%   55, 70
+metaculus_bot/numeric/cluster_processing.py                       84      0   100%
+metaculus_bot/numeric/config.py                                   25      0   100%
+metaculus_bot/numeric/diagnostics.py                              51      2    96%   48-49
+metaculus_bot/numeric/discrete_snap.py                            81      7    91%   122, 139-144, 166-169, 176-177
+metaculus_bot/numeric/pchip_cdf.py                               231     72    69%   26, 30, 44, 49, 59, 209, 255, 268, 271-272, 296, 314-318, 347, 360-380, 393-469, 480-485, 488, 491
+metaculus_bot/numeric/pchip_processing.py                        115     13    89%   98, 109-110, 163, 166-167, 170, 174, 178, 181, 184, 187, 190
+metaculus_bot/numeric/percentile_set.py                           47      1    98%   64
+metaculus_bot/numeric/pipeline.py                                 64      1    98%   165
+metaculus_bot/numeric/tail_widening.py                           138      5    96%   78, 161, 268-273
+metaculus_bot/numeric/utils.py                                    89      3    97%   44, 176, 179
+metaculus_bot/numeric/validation.py                               66      6    91%   98, 141, 144, 147-149
+metaculus_bot/performance_analysis/__init__.py                     7      0   100%
+metaculus_bot/performance_analysis/__main__.py                     2      2     0%   3-5
+metaculus_bot/performance_analysis/analysis.py                   276     91    67%   111, 173, 213, 219, 221, 232, 237, 299-324, 422-423, 452, 477, 482, 516-591
+metaculus_bot/performance_analysis/audit.py                      391     37    91%   72, 79, 82, 92, 102, 269, 275, 383, 385, 393-400, 409-424, 432-434, 501, 527
+metaculus_bot/performance_analysis/cli.py                         26      1    96%   46
+metaculus_bot/performance_analysis/collector.py                  228     89    61%   48, 52-63, 78-89, 94-115, 120-135, 145-153, 167-168, 172, 178-179, 217, 303-304, 445, 456, 469-470, 478-479, 497-515, 525-527
+metaculus_bot/performance_analysis/id_mapping.py                  97      3    97%   64, 67, 228
+metaculus_bot/performance_analysis/parsing.py                    389     24    94%   173, 233-234, 256, 300, 316, 558, 582, 602, 614, 617, 621, 623, 626, 831, 956, 1101-1102, 1108, 1111-1113, 1118-1119
+metaculus_bot/performance_analysis/scaling.py                      8      0   100%
+metaculus_bot/performance_analysis/scoring.py                      1      0   100%
+metaculus_bot/performance_analysis/stacker_detection.py          146     11    92%   195, 203, 215, 220, 240-242, 245, 303-306
+metaculus_bot/performance_analysis/width_monitor.py              225     21    91%   89, 163-164, 166, 179, 243, 502-521, 525
+metaculus_bot/post_processing.py                                  55      3    95%   56, 151-152
+metaculus_bot/prob_math_utils.py                                  14      0   100%
+metaculus_bot/probabilistic_tools/__init__.py                      9      0   100%
+metaculus_bot/probabilistic_tools/_numeric_helpers.py             34      1    97%   34
+metaculus_bot/probabilistic_tools/aggregation.py                  58      0   100%
+metaculus_bot/probabilistic_tools/base_rate.py                    89      2    98%   105, 108
+metaculus_bot/probabilistic_tools/binary_pooling.py               44      0   100%
+metaculus_bot/probabilistic_tools/consistency.py                 115      8    93%   51, 87-88, 96-97, 105-106, 144
+metaculus_bot/probabilistic_tools/distributions.py               152     13    91%   60, 110, 136-139, 147, 160, 189, 197-199, 245
+metaculus_bot/probabilistic_tools/mc_discrete.py                  75      2    97%   33, 38
+metaculus_bot/probabilistic_tools/mc_pooling.py                   33      0   100%
+metaculus_bot/probabilistic_tools/mixtures.py                    149      4    97%   69, 100, 221, 264
+metaculus_bot/probabilistic_tools/pdf_pooling.py                 101      8    92%   65, 133, 135, 183, 214, 221, 224, 227
+metaculus_bot/probabilistic_tools/survival.py                    116      5    96%   144, 148, 155-158
+metaculus_bot/prompts.py                                         119      2    98%   57, 186
+metaculus_bot/publish_hardening.py                                86      3    97%   243, 331, 365
+metaculus_bot/question_patches.py                                 16      0   100%
+metaculus_bot/question_types.py                                   12      0   100%
+metaculus_bot/research/__init__.py                                 0      0   100%
+metaculus_bot/research/agentic/__init__.py                         6      0   100%
+metaculus_bot/research/agentic/artifact.py                        74      0   100%
+metaculus_bot/research/agentic/driver_prompt.py                   32      0   100%
+metaculus_bot/research/agentic/llm.py                             35      0   100%
+metaculus_bot/research/agentic/loop.py                           632     48    92%   118-119, 125, 225, 464, 474, 481, 495, 533-534, 570-571, 573, 582, 585, 600, 626, 636-638, 666, 674, 743, 755, 761-762, 868-869, 1007-1008, 1021-1027, 1038-1043, 1076, 1177-1178, 1385-1386, 1388, 1450-1455, 1578
+metaculus_bot/research/agentic/tools.py                          494     66    87%   180, 184, 186, 200-205, 213, 230-231, 237, 258, 268, 285, 316, 320, 369-372, 386, 420-422, 431, 464, 468, 545, 554, 573, 582, 621-652, 672-673, 700-701, 709, 733, 736-737, 743, 753-755, 825, 839, 862-863, 866-868, 893, 920-921, 953, 996-997
+metaculus_bot/research/agentic/types.py                           84      0   100%
+metaculus_bot/research/agentic_gap_fill.py                        37      2    95%   95-99
+metaculus_bot/research/anthropic_search.py                       120     10    92%   81, 98, 115-116, 155, 160, 175, 307-309
+metaculus_bot/research/financial_data.py                         304     13    96%   440, 453-456, 522-523, 527, 535-538, 697, 720
+metaculus_bot/research/gemini_search.py                          124      9    93%   117, 214, 217, 224-227, 276-278
+metaculus_bot/research/http_fetch.py                              60      2    97%   69-71
+metaculus_bot/research/market_retrieval/__init__.py                0      0   100%
+metaculus_bot/research/market_retrieval/generation.py            156      6    96%   176, 200, 203, 228, 303-304
+metaculus_bot/research/market_retrieval/http.py                  102      8    92%   110, 125, 204-212
+metaculus_bot/research/market_retrieval/queries.py               141      2    99%   351-352
+metaculus_bot/research/market_retrieval/ranking.py               138      0   100%
+metaculus_bot/research/market_retrieval/rendering.py              81      0   100%
+metaculus_bot/research/market_retrieval/settlement_join.py        89      2    98%   137-138
+metaculus_bot/research/market_retrieval/types.py                  99      0   100%
+metaculus_bot/research/market_retrieval/venues/__init__.py         8      0   100%
+metaculus_bot/research/market_retrieval/venues/_shared.py          3      0   100%
+metaculus_bot/research/market_retrieval/venues/kalshi.py         237      9    96%   278-279, 330-333, 344-345, 536
+metaculus_bot/research/market_retrieval/venues/manifold.py       112      8    93%   76-78, 99, 165-166, 343, 347
+metaculus_bot/research/market_retrieval/venues/polymarket.py     103      9    91%   39-40, 44-45, 47-50, 234
+metaculus_bot/research/market_retrieval/venues/predictit.py       43      1    98%   75
+metaculus_bot/research/orchestrator.py                           291     20    93%   264-265, 403-406, 552-557, 572-576, 608, 809-810, 812-815, 868-884
+metaculus_bot/research/persistence.py                             34      0   100%
+metaculus_bot/research/prediction_market.py                      254      9    96%   536, 558-564, 664-666, 789
+metaculus_bot/research/provider_diagnostics.py                    54      0   100%
+metaculus_bot/research/provider_health.py                        112      0   100%
+metaculus_bot/research/providers.py                              275     52    81%   90, 163-164, 173, 204-213, 244-253, 327-352, 550, 552-565, 572-576, 581, 586, 589, 634, 697
+metaculus_bot/research/raw_log.py                                 43      1    98%   59
+metaculus_bot/research/reference_class.py                        236     36    85%   160, 229-230, 255, 394-396, 413, 544-576, 581-595
+metaculus_bot/research/resolution_source.py                      303     30    90%   147-148, 162, 184, 188-189, 275, 289-290, 308-309, 317-318, 330-331, 371, 390-391, 407-408, 498-502, 670-671, 731, 821, 863-865
+metaculus_bot/research/targeted.py                               100      6    94%   157-158, 162-163, 168, 330
+metaculus_bot/research/timeseries_anchor.py                      121      8    93%   128, 143, 161-162, 227, 342-346, 354
+metaculus_bot/research/ts_chart.py                                53      1    98%   71
+metaculus_bot/research/ts_estimators.py                           62      8    87%   38, 43-45, 64-66, 113
+metaculus_bot/research/ts_fetch.py                               145     25    83%   104, 146, 148, 195, 197, 224, 266-267, 274, 284-294, 311, 317-318, 321, 324, 328, 336-337
+metaculus_bot/research/ts_render.py                              147      8    95%   71, 110-112, 140, 158, 166, 322
+metaculus_bot/research/ts_routing.py                             118      1    99%   387
+metaculus_bot/research/url_context_telemetry.py                   29      0   100%
+metaculus_bot/resolution_state_guard.py                           46      0   100%
+metaculus_bot/scoring_common.py                                   56      5    91%   59, 65, 75, 99, 130
+metaculus_bot/scoring_patches.py                                 465    208    55%   46-56, 60-62, 82-114, 183-184, 206-227, 249-257, 263-272, 277, 302-305, 311-313, 315-323, 326-330, 334-337, 339-342, 344-345, 350-392, 415-423, 444-465, 491-495, 528-535, 542-544, 548-553, 571, 586-589, 619-627, 639-640, 659-662, 667, 682, 703-706, 717-720, 727-730, 741-745, 793-797, 803-805, 822-825, 840-843, 878-882, 890-893, 903-951
+metaculus_bot/simple_types.py                                      6      0   100%
+metaculus_bot/spread_metrics.py                                   88      3    97%   79, 193-194
+metaculus_bot/stacking.py                                         49      2    96%   158-159
+metaculus_bot/stacking_route.py                                   97      8    92%   92, 163-169, 176, 240, 294, 296
+metaculus_bot/structured_output_schema.py                        295      1    99%   244
+metaculus_bot/structured_parse.py                                 48      0   100%
+metaculus_bot/time_utils.py                                        6      0   100%
+metaculus_bot/tool_runner.py                                     374     36    90%   343-344, 354-355, 395, 402-404, 415-416, 473-474, 518, 555-556, 569-570, 605, 640, 669, 688, 701-703, 717, 762, 792, 836, 842-844, 847, 850, 853-855
+metaculus_bot/utils/__init__.py                                    0      0   100%
+metaculus_bot/utils/logging_utils.py                              24      6    75%   28-31, 38, 41
+metaculus_bot/value_extraction.py                                166      8    95%   285, 292, 330, 390, 410, 426, 429, 432
+--------------------------------------------------------------------------------------------
+TOTAL                                                          20234   2633    87%

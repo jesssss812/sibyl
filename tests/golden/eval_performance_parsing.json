@@ -1,0 +1,954 @@
+{
+  "41517": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5",
+      "3": "claude-opus-4.5",
+      "4": "gemini-3-flash-preview",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {
+      "claude-opus-4.5": {
+        "0": 0.05,
+        "1": 0.33,
+        "2": 0.42,
+        "3+": 0.2
+      },
+      "gemini-3-flash-preview": {
+        "0": 0.05,
+        "1": 0.28,
+        "2": 0.46,
+        "3+": 0.21
+      },
+      "gemini-3-pro-preview": {
+        "0": 0.02,
+        "1": 0.5,
+        "2": 0.3,
+        "3+": 0.18
+      },
+      "gpt-5": {
+        "0": 0.1,
+        "1": 0.56,
+        "2": 0.26,
+        "3+": 0.08
+      },
+      "gpt-5.2": {
+        "0": 0.12,
+        "1": 0.3,
+        "2": 0.38,
+        "3+": 0.2
+      }
+    },
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "claude-opus-4.5": "- 0: 5.0%",
+      "gemini-3-flash-preview": "- 0: 5.0%",
+      "gemini-3-pro-preview": "- 0: 2.0%",
+      "gpt-5": "- 0: 10.0%",
+      "gpt-5.2": "- 0: 12.0%"
+    },
+    "stacked_marker": null,
+    "type": "multiple_choice"
+  },
+  "41518": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5",
+      "3": "claude-opus-4.5",
+      "4": "gemini-3-flash-preview",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "claude-opus-4.5": "15.0%",
+      "gemini-3-flash-preview": "28.0%",
+      "gemini-3-pro-preview": "12.0%",
+      "gpt-5": "20.0%",
+      "gpt-5.2": "28.0%"
+    },
+    "stacked_marker": null,
+    "type": "binary"
+  },
+  "41537": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5",
+      "3": "gemini-3-flash-preview",
+      "4": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {
+      "gemini-3-flash-preview": [
+        [
+          2.5,
+          75200000000.0
+        ],
+        [
+          5.0,
+          76800000000.0
+        ],
+        [
+          10.0,
+          78100000000.0
+        ],
+        [
+          20.0,
+          79200000000.0
+        ],
+        [
+          40.0,
+          80250000000.0
+        ],
+        [
+          50.0,
+          80700000000.0
+        ],
+        [
+          60.0,
+          81150000000.0
+        ],
+        [
+          80.0,
+          82400000000.0
+        ],
+        [
+          90.0,
+          83600000000.0
+        ],
+        [
+          95.0,
+          84800000000.0
+        ],
+        [
+          97.5,
+          86500000000.0
+        ]
+      ],
+      "gemini-3-pro-preview": [
+        [
+          2.5,
+          78500000000.0
+        ],
+        [
+          5.0,
+          79200000000.0
+        ],
+        [
+          10.0,
+          79800000000.0
+        ],
+        [
+          20.0,
+          80500000000.0
+        ],
+        [
+          40.0,
+          81400000000.0
+        ],
+        [
+          50.0,
+          81800000000.0
+        ],
+        [
+          60.0,
+          82300000000.0
+        ],
+        [
+          80.0,
+          83400000000.0
+        ],
+        [
+          90.0,
+          84200000000.0
+        ],
+        [
+          95.0,
+          85000000000.0
+        ],
+        [
+          97.5,
+          86200000000.0
+        ]
+      ],
+      "gpt-5": [
+        [
+          2.5,
+          76800000000.0
+        ],
+        [
+          5.0,
+          77400000000.0
+        ],
+        [
+          10.0,
+          78000000000.0
+        ],
+        [
+          20.0,
+          78800000000.0
+        ],
+        [
+          40.0,
+          79800000000.0
+        ],
+        [
+          50.0,
+          80300000000.0
+        ],
+        [
+          60.0,
+          80800000000.0
+        ],
+        [
+          80.0,
+          81800000000.0
+        ],
+        [
+          90.0,
+          82500000000.0
+        ],
+        [
+          95.0,
+          83100000000.0
+        ],
+        [
+          97.5,
+          83700000000.0
+        ]
+      ],
+      "gpt-5.2": [
+        [
+          2.5,
+          73000000000.0
+        ],
+        [
+          5.0,
+          74000000000.0
+        ],
+        [
+          10.0,
+          75500000000.0
+        ],
+        [
+          20.0,
+          77500000000.0
+        ],
+        [
+          40.0,
+          79300000000.0
+        ],
+        [
+          50.0,
+          80200000000.0
+        ],
+        [
+          60.0,
+          81000000000.0
+        ],
+        [
+          80.0,
+          83000000000.0
+        ],
+        [
+          90.0,
+          85000000000.0
+        ],
+        [
+          95.0,
+          86800000000.0
+        ],
+        [
+          97.5,
+          88000000000.0
+        ]
+      ]
+    },
+    "per_model_forecasts": {
+      "gemini-3-flash-preview": "Probability distribution:",
+      "gemini-3-pro-preview": "Probability distribution:",
+      "gpt-5": "Probability distribution:",
+      "gpt-5.2": "Probability distribution:"
+    },
+    "stacked_marker": null,
+    "type": "numeric"
+  },
+  "41841": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5",
+      "3": "gemini-3-flash-preview",
+      "4": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {
+      "gemini-3-flash-preview": [
+        [
+          2.5,
+          57.5
+        ],
+        [
+          5.0,
+          58.8
+        ],
+        [
+          10.0,
+          60.1
+        ],
+        [
+          20.0,
+          61.8
+        ],
+        [
+          40.0,
+          63.6
+        ],
+        [
+          50.0,
+          64.4
+        ],
+        [
+          60.0,
+          65.2
+        ],
+        [
+          80.0,
+          66.9
+        ],
+        [
+          90.0,
+          68.3
+        ],
+        [
+          95.0,
+          69.4
+        ],
+        [
+          97.5,
+          70.3
+        ]
+      ],
+      "gemini-3-pro-preview": [
+        [
+          2.5,
+          56.5
+        ],
+        [
+          5.0,
+          57.4
+        ],
+        [
+          10.0,
+          58.6
+        ],
+        [
+          20.0,
+          59.9
+        ],
+        [
+          40.0,
+          61.5
+        ],
+        [
+          50.0,
+          62.3
+        ],
+        [
+          60.0,
+          63.1
+        ],
+        [
+          80.0,
+          65.2
+        ],
+        [
+          90.0,
+          66.8
+        ],
+        [
+          95.0,
+          67.9
+        ],
+        [
+          97.5,
+          68.8
+        ]
+      ],
+      "gpt-5": [
+        [
+          2.5,
+          56.5
+        ],
+        [
+          5.0,
+          57.5
+        ],
+        [
+          10.0,
+          58.5
+        ],
+        [
+          20.0,
+          60.0
+        ],
+        [
+          40.0,
+          62.0
+        ],
+        [
+          50.0,
+          63.0
+        ],
+        [
+          60.0,
+          64.0
+        ],
+        [
+          80.0,
+          66.0
+        ],
+        [
+          90.0,
+          67.2
+        ],
+        [
+          95.0,
+          68.5
+        ],
+        [
+          97.5,
+          69.8
+        ]
+      ],
+      "gpt-5.2": [
+        [
+          2.5,
+          55.6
+        ],
+        [
+          5.0,
+          56.8
+        ],
+        [
+          10.0,
+          58.4
+        ],
+        [
+          20.0,
+          60.6
+        ],
+        [
+          40.0,
+          62.9
+        ],
+        [
+          50.0,
+          64.0
+        ],
+        [
+          60.0,
+          65.1
+        ],
+        [
+          80.0,
+          67.2
+        ],
+        [
+          90.0,
+          68.5
+        ],
+        [
+          95.0,
+          69.3
+        ],
+        [
+          97.5,
+          70.0
+        ]
+      ]
+    },
+    "per_model_forecasts": {
+      "gemini-3-flash-preview": "Probability distribution:",
+      "gemini-3-pro-preview": "Probability distribution:",
+      "gpt-5": "Probability distribution:",
+      "gpt-5.2": "Probability distribution:"
+    },
+    "stacked_marker": null,
+    "type": "discrete"
+  },
+  "41848": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5",
+      "3": "claude-opus-4.5",
+      "4": "gemini-3-flash-preview",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {},
+    "per_model_forecasts": {},
+    "stacked_marker": null,
+    "type": "binary"
+  },
+  "41871": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5",
+      "3": "claude-opus-4.5",
+      "4": "gemini-3-flash-preview",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {
+      "claude-opus-4.5": [
+        [
+          2.5,
+          6100000000.0
+        ],
+        [
+          5.0,
+          6200000000.0
+        ],
+        [
+          10.0,
+          6350000000.0
+        ],
+        [
+          20.0,
+          6550000000.0
+        ],
+        [
+          40.0,
+          6850000000.0
+        ],
+        [
+          50.0,
+          7050000000.0
+        ],
+        [
+          60.0,
+          7200000000.0
+        ],
+        [
+          80.0,
+          7450000000.0
+        ],
+        [
+          90.0,
+          7650000000.0
+        ],
+        [
+          95.0,
+          7800000000.0
+        ],
+        [
+          97.5,
+          7950000000.0
+        ]
+      ],
+      "gemini-3-flash-preview": [
+        [
+          2.5,
+          6150000000.0
+        ],
+        [
+          5.0,
+          6300000000.0
+        ],
+        [
+          10.0,
+          6500000000.0
+        ],
+        [
+          20.0,
+          6750000000.0
+        ],
+        [
+          40.0,
+          7000000000.0
+        ],
+        [
+          50.0,
+          7100000000.0
+        ],
+        [
+          60.0,
+          7200000000.0
+        ],
+        [
+          80.0,
+          7450000000.0
+        ],
+        [
+          90.0,
+          7650000000.0
+        ],
+        [
+          95.0,
+          7800000000.0
+        ],
+        [
+          97.5,
+          7950000000.0
+        ]
+      ],
+      "gemini-3-pro-preview": [
+        [
+          2.5,
+          6250000000.0
+        ],
+        [
+          5.0,
+          6450000000.0
+        ],
+        [
+          10.0,
+          6600000000.0
+        ],
+        [
+          20.0,
+          6800000000.0
+        ],
+        [
+          40.0,
+          7050000000.0
+        ],
+        [
+          50.0,
+          7150000000.0
+        ],
+        [
+          60.0,
+          7250000000.0
+        ],
+        [
+          80.0,
+          7550000000.0
+        ],
+        [
+          90.0,
+          7750000000.0
+        ],
+        [
+          95.0,
+          7900000000.0
+        ],
+        [
+          97.5,
+          7980000000.0
+        ]
+      ],
+      "gpt-5": [
+        [
+          2.5,
+          6250000000.0
+        ],
+        [
+          5.0,
+          6350000000.0
+        ],
+        [
+          10.0,
+          6475000000.0
+        ],
+        [
+          20.0,
+          6625000000.0
+        ],
+        [
+          40.0,
+          6825000000.0
+        ],
+        [
+          50.0,
+          6950000000.0
+        ],
+        [
+          60.0,
+          7075000000.0
+        ],
+        [
+          80.0,
+          7300000000.0
+        ],
+        [
+          90.0,
+          7475000000.0
+        ],
+        [
+          95.0,
+          7600000000.0
+        ],
+        [
+          97.5,
+          7725000000.0
+        ]
+      ],
+      "gpt-5.2": [
+        [
+          2.5,
+          6100000000.0
+        ],
+        [
+          5.0,
+          6200000000.0
+        ],
+        [
+          10.0,
+          6400000000.0
+        ],
+        [
+          20.0,
+          6700000000.0
+        ],
+        [
+          40.0,
+          7000000000.0
+        ],
+        [
+          50.0,
+          7200000000.0
+        ],
+        [
+          60.0,
+          7350000000.0
+        ],
+        [
+          80.0,
+          7650000000.0
+        ],
+        [
+          90.0,
+          7800000000.0
+        ],
+        [
+          95.0,
+          7900000000.0
+        ],
+        [
+          97.5,
+          7970000000.0
+        ]
+      ]
+    },
+    "per_model_forecasts": {},
+    "stacked_marker": null,
+    "type": "numeric"
+  },
+  "42108": {
+    "forecaster_model_map": {
+      "1": "gpt-5.2",
+      "2": "gpt-5.1",
+      "3": "claude-4.6-opus",
+      "4": "claude-opus-4.5",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "claude-4.6-opus": "35.0%",
+      "claude-opus-4.5": "38.0%",
+      "gemini-3-pro-preview": "55.0%",
+      "gpt-5.1": "42.0%",
+      "gpt-5.2": "37.0%"
+    },
+    "stacked_marker": null,
+    "type": "binary"
+  },
+  "42110": {
+    "forecaster_model_map": {
+      "2": "gpt-5.1",
+      "3": "claude-4.6-opus",
+      "4": "claude-opus-4.5",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {
+      "Forecaster 1": {
+        "Chris Taylor": 0.89,
+        "Maria Lazar": 0.1,
+        "Someone else": 0.01
+      },
+      "claude-4.6-opus": {
+        "Chris Taylor": 0.95,
+        "Maria Lazar": 0.04,
+        "Someone else": 0.01
+      },
+      "claude-opus-4.5": {
+        "Chris Taylor": 0.9,
+        "Maria Lazar": 0.09,
+        "Someone else": 0.01
+      },
+      "gemini-3-pro-preview": {
+        "Chris Taylor": 0.93,
+        "Maria Lazar": 0.06,
+        "Someone else": 0.01
+      },
+      "gpt-5.1": {
+        "Chris Taylor": 0.89,
+        "Maria Lazar": 0.09,
+        "Someone else": 0.02
+      }
+    },
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "Forecaster 1": "- Maria Lazar: 10.0%",
+      "claude-4.6-opus": "- Maria Lazar: 4.0%",
+      "claude-opus-4.5": "- Maria Lazar: 9.0%",
+      "gemini-3-pro-preview": "- Maria Lazar: 6.0%",
+      "gpt-5.1": "- Maria Lazar: 9.0%"
+    },
+    "stacked_marker": null,
+    "type": "multiple_choice"
+  },
+  "42113": {
+    "forecaster_model_map": {
+      "2": "gpt-5.1",
+      "3": "claude-4.6-opus",
+      "4": "claude-opus-4.5",
+      "5": "gemini-3-pro-preview"
+    },
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "Forecaster 1": "12.0%",
+      "claude-4.6-opus": "1.0%",
+      "claude-opus-4.5": "9.0%",
+      "gemini-3-pro-preview": "1.0%",
+      "gpt-5.1": "7.0%"
+    },
+    "stacked_marker": null,
+    "type": "binary"
+  },
+  "43053": {
+    "forecaster_model_map": {},
+    "inferred_stacker_outcome": [
+      "primary",
+      "historical_body"
+    ],
+    "mc_option_probs": {
+      "Forecaster 1": {
+        "Another candidate officially declared winner": 0.02,
+        "Election postponed or cancelled": 0.04,
+        "Isma\u00efl Omar Guelleh officially declared winner": 0.92,
+        "Vote held but no final official result before May 1": 0.02
+      }
+    },
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "Forecaster 1": "- Isma\u00efl Omar Guelleh officially declared winner: 92.0%"
+    },
+    "stacked_marker": null,
+    "type": "multiple_choice"
+  },
+  "43054": {
+    "forecaster_model_map": {},
+    "inferred_stacker_outcome": [
+      null,
+      "none"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {},
+    "per_model_forecasts": {
+      "Forecaster 1": "10.0%"
+    },
+    "stacked_marker": null,
+    "type": "binary"
+  },
+  "43059": {
+    "forecaster_model_map": {},
+    "inferred_stacker_outcome": [
+      "primary",
+      "historical_body"
+    ],
+    "mc_option_probs": {},
+    "numeric_percentiles": {
+      "Forecaster 1": [
+        [
+          2.5,
+          87.0
+        ],
+        [
+          5.0,
+          95.0
+        ],
+        [
+          10.0,
+          105.0
+        ],
+        [
+          20.0,
+          119.0
+        ],
+        [
+          40.0,
+          137.0
+        ],
+        [
+          50.0,
+          146.0
+        ],
+        [
+          60.0,
+          155.0
+        ],
+        [
+          80.0,
+          172.0
+        ],
+        [
+          90.0,
+          184.0
+        ],
+        [
+          95.0,
+          193.0
+        ],
+        [
+          97.5,
+          197.0
+        ]
+      ]
+    },
+    "per_model_forecasts": {
+      "Forecaster 1": "Probability distribution:"
+    },
+    "stacked_marker": null,
+    "type": "numeric"
+  }
+}

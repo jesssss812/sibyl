@@ -1,0 +1,32 @@
+{
+  "counters": {
+    "alertable_count": 2,
+    "conditional_stacking_crux_failures": 0,
+    "conditional_stacking_search_failures": 0,
+    "conditional_stacking_skipped": 0,
+    "conditional_stacking_skipped_single_forecaster": 0,
+    "conditional_stacking_triggered": 0,
+    "forecasters_dropped": 1,
+    "gap_fill_v2_errors": 0,
+    "prediction_market_degraded": 0,
+    "prediction_market_source_losses": 0,
+    "provider_degradation": 0,
+    "questions_failed_to_publish": 1,
+    "research_provider_failures": 0,
+    "stacker_fallback_failed": 0,
+    "stacker_fallback_used": 0,
+    "stacker_primary_failed": 0,
+    "summarizer_failures": 0
+  },
+  "drops": [
+    {
+      "cause": "error_other",
+      "model": "fixture/raises",
+      "qid": 9001
+    }
+  ],
+  "published_report_count": 0,
+  "report_types": [
+    "ExceptionGroup"
+  ]
+}

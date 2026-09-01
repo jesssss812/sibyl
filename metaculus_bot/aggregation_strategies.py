@@ -1,0 +1,113 @@
+import statistics
+from collections.abc import Callable, Sequence
+from enum import Enum
+
+from forecasting_tools import PredictedOptionList
+from forecasting_tools.data_models.multiple_choice_report import PredictedOption
+from forecasting_tools.data_models.numeric_report import NumericDistribution
+from forecasting_tools.data_models.questions import NumericQuestion
+
+from metaculus_bot.mc_processing import clamp_and_renormalize_probs
+from metaculus_bot.numeric.utils import aggregate_binary_mean, aggregate_numeric
+
+
+class AggregationStrategy(Enum):
+    """Supported aggregation strategies for ensemble predictions."""
+
+    MEAN = "mean"
+    MEDIAN = "median"
+    STACKING = "stacking"
+    CONDITIONAL_STACKING = "conditional_stacking"
+    # Future: GEOMETRIC_MEAN = "geometric_mean"
+    # Future: TRIMMED_MEAN = "trimmed_mean"
+
+
+def aggregate_binary_median(predictions: Sequence[float]) -> float:
+    """Return the median of binary forecasts rounded to three decimals."""
+    if not predictions:
+        raise ValueError("Cannot aggregate empty list of binary predictions")
+
+    median_prediction = statistics.median(predictions)
+    return round(median_prediction, 3)
+
+
+def _aggregate_mc_options(
+    predictions: Sequence[PredictedOptionList],
+    agg_fn: Callable[[list[float]], float],
+) -> PredictedOptionList:
+    """Validate, accumulate, aggregate, and renormalize MC option probabilities."""
+    if not predictions:
+        raise ValueError("Cannot aggregate empty list of multiple choice predictions")
+
+    # Verify all predictions have the same options
+    first_options = {opt.option_name for opt in predictions[0].predicted_options}
+    for pred in predictions[1:]:
+        pred_options = {opt.option_name for opt in pred.predicted_options}
+        if pred_options != first_options:
+            raise ValueError("All predictions must have the same option names")
+
+    # Accumulate probabilities by option name
+    option_probabilities: dict[str, list[float]] = {}
+    for pred in predictions:
+        for option in pred.predicted_options:
+            if option.option_name not in option_probabilities:
+                option_probabilities[option.option_name] = []
+            option_probabilities[option.option_name].append(option.probability)
+
+    # Aggregate per option, then clamp + renormalize BEFORE constructing the
+    # PredictedOptionList so ft 0.2.92's clamp-and-renormalize validator (which raises on
+    # any >0.05 move) is a no-op on a dominant + near-floor aggregate.
+    names = list(option_probabilities.keys())
+    clamped = clamp_and_renormalize_probs([agg_fn(option_probabilities[name]) for name in names])
+    return PredictedOptionList(
+        predicted_options=[PredictedOption(option_name=name, probability=prob) for name, prob in zip(names, clamped)]
+    )
+
+
+def aggregate_multiple_choice_mean(
+    predictions: Sequence[PredictedOptionList],
+) -> PredictedOptionList:
+    """Aggregate multiple choice predictions using mean pooling across option probabilities."""
+    return _aggregate_mc_options(predictions, lambda probs: sum(probs) / len(probs))
+
+
+def aggregate_multiple_choice_median(
+    predictions: Sequence[PredictedOptionList],
+) -> PredictedOptionList:
+    """Aggregate multiple choice predictions using median pooling across option probabilities."""
+    return _aggregate_mc_options(predictions, statistics.median)
+
+
+def combine_binary_predictions(
+    predictions: Sequence[float],
+    strategy: AggregationStrategy,
+) -> float:
+    """Combine binary predictions according to the requested strategy."""
+    if strategy == AggregationStrategy.MEAN:
+        return aggregate_binary_mean(list(predictions))
+    if strategy == AggregationStrategy.MEDIAN:
+        return aggregate_binary_median(list(predictions))
+    raise ValueError(f"Unsupported binary aggregation strategy: {strategy}")
+
+
+def combine_multiple_choice_predictions(
+    predictions: Sequence[PredictedOptionList],
+    strategy: AggregationStrategy,
+) -> PredictedOptionList:
+    """Combine multiple-choice predictions according to the requested strategy."""
+    if strategy == AggregationStrategy.MEAN:
+        return aggregate_multiple_choice_mean(predictions)
+    if strategy == AggregationStrategy.MEDIAN:
+        return aggregate_multiple_choice_median(predictions)
+    raise ValueError(f"Unsupported multiple-choice aggregation strategy: {strategy}")
+
+
+def combine_numeric_predictions(
+    predictions: Sequence[NumericDistribution],
+    question: NumericQuestion,
+    strategy: AggregationStrategy,
+) -> NumericDistribution:
+    """Combine numeric distributions according to the requested strategy."""
+    if strategy in (AggregationStrategy.MEAN, AggregationStrategy.MEDIAN):
+        return aggregate_numeric(predictions, question, strategy.value)
+    raise ValueError(f"Unsupported numeric aggregation strategy: {strategy}")
