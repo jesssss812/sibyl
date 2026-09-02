@@ -20,11 +20,28 @@ from __future__ import annotations
 from forecasting_tools import GeneralLlm
 
 
-def test_free_forecaster_models_count_is_four() -> None:
-    """4 forecasters after glm-4.5-air:free was removed (Phase A.3 Package 3b, 2026-05-14)."""
+def test_free_lineup_is_the_config_roster() -> None:
+    """The ablation lineup IS the free roster; there is one free lineup in the repo.
+
+    This replaced a hard-coded count of four. The lineup was minimax-m2.5,
+    gemma-4-26b-a4b-it, nemotron and qwen3-next; it is now the roster's three. Ablation
+    results either side of that change are not directly comparable -- see the note on
+    FREE_FORECASTER_MODELS in forecaster_lineup.py.
+
+    Asserting the identity rather than a number is the point: a count goes stale every
+    time the roster rotates, and re-recording it teaches nothing.
+    """
+    from sibyl.config.models import FREE_FORECASTER_MODELS as ROSTER_MODELS
     from sibyl.eval.ablation.forecaster_lineup import FREE_FORECASTER_MODELS
 
-    assert len(FREE_FORECASTER_MODELS) == 4
+    assert FREE_FORECASTER_MODELS == list(ROSTER_MODELS)
+
+
+def test_free_lineup_has_enough_members_for_ensemble_spread() -> None:
+    """Below three, spread metrics and the stacking route stop being exercised at all."""
+    from sibyl.eval.ablation.forecaster_lineup import FREE_FORECASTER_MODELS
+
+    assert len(FREE_FORECASTER_MODELS) >= 3
 
 
 def test_glm_dropped_from_lineup() -> None:
@@ -53,13 +70,13 @@ def test_free_forecaster_models_all_openrouter_prefix() -> None:
     assert all(model.startswith("openrouter/") for model in FREE_FORECASTER_MODELS)
 
 
-def test_build_free_forecaster_llms_returns_four_plain_general_llms() -> None:
+def test_build_free_forecaster_llms_returns_plain_general_llms() -> None:
     """Builder constructs plain GeneralLlm (no api_key, no FallbackOpenRouterLlm wrap)."""
     from sibyl.eval.ablation.forecaster_lineup import FREE_FORECASTER_MODELS, build_free_forecaster_llms
     from sibyl.platform.key_fallback import FallbackOpenRouterLlm
 
     llms = build_free_forecaster_llms()
-    assert len(llms) == 4
+    assert len(llms) == len(FREE_FORECASTER_MODELS)
     for llm, expected_model in zip(llms, FREE_FORECASTER_MODELS):
         assert isinstance(llm, GeneralLlm)
         assert not isinstance(llm, FallbackOpenRouterLlm), (

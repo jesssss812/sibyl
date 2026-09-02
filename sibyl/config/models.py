@@ -13,7 +13,7 @@ from typing import Any
 
 from forecasting_tools import GeneralLlm
 
-from sibyl.config.settings import MODEL_TIER_ENV
+from sibyl.config.settings import FINANCIAL_CLASSIFIER_MODEL, MODEL_TIER_ENV
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def active_tier() -> ModelTier:
     except ValueError:
         valid = ", ".join(sorted(t.value for t in ModelTier))
         raise ValueError(f"{MODEL_TIER_ENV}={raw!r} is not a known model tier (expected one of: {valid})") from None
+
 
 __all__ = [
     "ModelTier",
@@ -441,6 +442,10 @@ class Roster:
     analyzer: GeneralLlm
     market_ranker_config: dict[str, Any]
     market_query_author_config: dict[str, Any]
+    # A model NAME rather than a built LLM: financial_data builds its classifier inside
+    # a provider factory with its own kwargs, and the provider is off by default, so
+    # constructing one at import would be waste. The free tier only needs the slug.
+    financial_classifier_model: str
 
 
 # The free lineup. Every slug ends in `:free`, which is the property the tests assert --
@@ -478,6 +483,7 @@ def _free_roster() -> Roster:
         analyzer=utility,
         market_ranker_config={**MARKET_RANKER_LLM_CONFIG, "model": FREE_UTILITY_MODEL},
         market_query_author_config={**MARKET_QUERY_AUTHOR_LLM_CONFIG, "model": FREE_UTILITY_MODEL},
+        financial_classifier_model=FREE_UTILITY_MODEL,
     )
 
 
@@ -493,6 +499,7 @@ def _prod_roster() -> Roster:
         analyzer=DISAGREEMENT_ANALYZER_LLM,
         market_ranker_config=dict(MARKET_RANKER_LLM_CONFIG),
         market_query_author_config=dict(MARKET_QUERY_AUTHOR_LLM_CONFIG),
+        financial_classifier_model=FINANCIAL_CLASSIFIER_MODEL,
     )
 
 
