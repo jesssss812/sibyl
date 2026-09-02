@@ -54,6 +54,21 @@ plan does not name" rule.
 - **docs/architecture-notes.md was never written.** [vision.md](vision.md) makes it the
   comprehension checkpoint gating repo surgery; the surgery happened first.
 
+## Free roster repairs (found by the 2026-09-02 e2e run)
+
+- **`qwen/qwen3-next-80b-a3b-instruct:free` is dead.** OpenRouter returns 404: "This model
+  is unavailable for free." Confirmed against its public model list. It needs replacing in
+  `FREE_FORECASTER_MODELS` in `sibyl/config/models.py`.
+- **`gemma-4-31b-it:free` is rate-limited into uselessness** because it is both a
+  forecaster and all five utility slots, so a single run hits one shared free pool for
+  summarize, parse, stack, analyze and forecast. Moving the forecaster slot to a different
+  vendor would leave gemma serving only the utility work.
+- Until both are fixed, `make e2e_free` publishes on one surviving forecaster and exits
+  non-zero — correct behaviour, but a permanently red lane.
+- Whatever replaces them should be checked against
+  `https://openrouter.ai/api/v1/models` first: free variants are withdrawn without notice,
+  which is exactly how this one broke.
+
 ## Constraints worth knowing before changing things
 
 - `forecasting-tools` is pinned to `==0.2.92`, and the six
