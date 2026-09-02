@@ -88,6 +88,17 @@ chase it is a treadmill. Two live questions follow from it:
   comments to score past forecasts, so performance analysis will hit the same wall until
   the token's scope is widened.
 
+## Dependency advisories (inherited)
+
+`osv-scanner.toml` suppresses five cryptography advisories, all on 46.0.6, all with fixes
+that are unreachable while `asknews 0.13.54` caps `cryptography<46.0.7`. They go the
+moment that cap lifts — re-run `make audit` at the next asknews or forecasting-tools bump
+and prune whatever no longer fires. The backlog is inherited rather than introduced:
+bottega's CI fails its audit job on the same lockfile.
+
+The three aiohttp advisories found at the same time were NOT suppressed, because their
+fix was reachable: bumped 3.14.1 -> 3.14.3, a lock diff touching that package alone.
+
 ## Constraints worth knowing before changing things
 
 - `forecasting-tools` is pinned to `==0.2.92`, and the six
