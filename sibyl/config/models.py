@@ -32,6 +32,29 @@ class ModelTier(StrEnum):
     PROD = "prod"
 
 
+# Research providers the FREE tier force-disables regardless of their env flag.
+#
+# The distinction is not cost, it is substitutability. Every provider here is a PAID
+# SEARCH TOOL whose value IS the tool -- AskNews's corpus, OpenAI's and Anthropic's
+# server-side web search, Google's grounding, and the two gap-fill loops that drive
+# them. Swapping the model underneath does not make them free, it makes them broken:
+# there is no `:free` slug that comes with a search index attached.
+#
+# The providers NOT listed here (financial data, prediction markets, resolution source,
+# reference class, time-series anchor) are the opposite shape: free or public data
+# sources with an LLM stage bolted on. Pointing that stage at the free utility model
+# makes the whole provider free, so they stay available in the free tier.
+FREE_TIER_DISABLED_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "NATIVE_SEARCH_ENABLED",
+        "GEMINI_SEARCH_ENABLED",
+        "ANTHROPIC_SEARCH_ENABLED",
+        "GAP_FILL_ENABLED",
+        "GAP_FILL_V2_ENABLED",
+    }
+)
+
+
 def active_tier() -> ModelTier:
     """The tier for this run, from ``SIBYL_MODEL_TIER``. Defaults to FREE.
 
@@ -45,7 +68,11 @@ def active_tier() -> ModelTier:
     to FREE would silently downgrade a prod run to free models and publish the result to
     a scored tournament; falling back to PROD would silently spend. Raise instead.
     """
-    raw = os.getenv(MODEL_TIER_ENV, "").strip().lower()
+    # os.environ, not os.getenv: several tests patch ``os.getenv`` process-wide to stub a
+    # handful of provider flags, and a patched getenv answers "" for every name it was
+    # not told about -- which would silently drop those tests onto the free tier and
+    # take their providers with it. Reading the mapping directly is unaffected.
+    raw = os.environ.get(MODEL_TIER_ENV, "").strip().lower()
     if not raw:
         return ModelTier.FREE
     try:
