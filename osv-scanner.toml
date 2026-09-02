@@ -17,6 +17,18 @@
 # accepted advisories are suppressed. Re-evaluate this list at the next forecasting-tools
 # or asknews bump (re-run `make audit` and prune resolved IDs).
 #
+# 2026-09-02 (sibyl clean fork): the first CI run this repo ever completed surfaced six
+# advisories, and they split cleanly by whether a fix is REACHABLE:
+#   - aiohttp 3.14.1 had three (PYSEC-2026-3545/3546/3547, up to CVSS 7.1) whose fixes
+#     ARE reachable. Bumped to 3.14.3 rather than ignored; nothing caps aiohttp, and the
+#     lock diff touched that package alone.
+#   - cryptography 46.0.6 gained three more (the entries at the bottom), all with fixes
+#     at 49.0.0/50.0.0 that remain unreachable behind the same asknews `<46.0.7` cap as
+#     the two already listed. Ignored on the same terms, and they go the moment that cap
+#     lifts.
+# This backlog is INHERITED, not introduced: bottega's CI fails its audit job on the same
+# lockfile.
+#
 # review-by: 2026-10-23  (re-audit quarterly, or at the next forecasting-tools / asknews
 #            bump, whichever comes first)
 
@@ -28,3 +40,12 @@ reason = "cryptography 46.0.6 buffer overflow when non-contiguous buffers are pa
 [[IgnoredVulns]]
 id = "GHSA-537c-gmf6-5ccf"
 reason = "cryptography 46.0.6 wheels bundle a vulnerable OpenSSL (CVSS 7.5); fix 48.0.1 unreachable while asknews 0.13.54 caps cryptography <46.0.7"
+[[IgnoredVulns]]
+id = "GHSA-g6cj-pr64-35w5"
+reason = "cryptography 46.0.6 (CVSS 8.2); fix 50.0.0 unreachable while asknews 0.13.54 caps cryptography <46.0.7"
+[[IgnoredVulns]]
+id = "GHSA-jwv3-5hgf-82ww"
+reason = "cryptography 46.0.6 (CVSS 8.7); fix 49.0.0 unreachable while asknews 0.13.54 caps cryptography <46.0.7"
+[[IgnoredVulns]]
+id = "GHSA-m2h6-j472-rp4c"
+reason = "cryptography 46.0.6 (CVSS 6.9); fix 49.0.0 unreachable while asknews 0.13.54 caps cryptography <46.0.7"
