@@ -1,0 +1,138 @@
+"""
+Configuration constants for numeric forecasting pipeline.
+
+Extracted from main.py to centralize magic numbers and make them more maintainable.
+These constants control various aspects of the numeric prediction processing pipeline.
+"""
+
+from __future__ import annotations
+
+from sibyl.config.settings import NUM_MAX_STEP
+
+# --- Percentile Processing Constants ---
+
+# Expressed as decimals in [0,1]. P1 (0.01) and P99 (0.99) give forecasters finer tail
+# anchors so they can express probability mass below an open lower bound / above an open
+# upper bound (the Minions & Monsters miss).
+STANDARD_PERCENTILES: list[float] = [
+    0.01,
+    0.025,
+    0.05,
+    0.10,
+    0.20,
+    0.40,
+    0.50,
+    0.60,
+    0.80,
+    0.90,
+    0.95,
+    0.975,
+    0.99,
+]
+
+EXPECTED_PERCENTILE_COUNT: int = len(STANDARD_PERCENTILES)
+
+# Human-readable label CSV (percentile * 100, e.g. "1,2.5,5,...,97.5,99"). The single
+# source for the label string embedded in prompts and validation errors — never hardcode
+# the list elsewhere so it stays in lockstep with STANDARD_PERCENTILES.
+STANDARD_PERCENTILES_CSV: str = ",".join(f"{p * 100:g}" for p in STANDARD_PERCENTILES)
+
+
+# --- PCHIP CDF Configuration ---
+
+PCHIP_CDF_POINTS: int = 201
+
+MIN_CDF_PROB_STEP: float = 5e-5
+
+MAX_CDF_PROB_STEP: float = NUM_MAX_STEP
+
+
+def grid_step_constraints(num_points: int) -> tuple[float, float]:
+    """Return ``(min_step, max_step)`` for an ``num_points``-point CDF grid.
+
+    Mirrors the Metaculus server's per-bin step rules, which scale with the bin
+    count ``inbound = num_points - 1``:
+
+    * min step ``round(0.01 / inbound, 9)`` — floored at ``MIN_CDF_PROB_STEP`` so
+      a fine grid never demands a step below the historical constant.
+    * max step ``0.2 * 200 / inbound`` — clamped at ``1.0`` (a probability step
+      can never exceed 1.0, so any larger bound is vacuous).
+
+    At the standard 201-point grid this returns exactly ``(MIN_CDF_PROB_STEP,
+    MAX_CDF_PROB_STEP)`` — i.e. ``(5e-5, 0.2)`` — so continuous questions are
+    unchanged. On a coarse discrete grid (``num_points < 201``) the max step
+    relaxes above 0.2 (e.g. 1.0 at ``num_points=9``), which is what lets a
+    small-count distribution keep its mass concentrated on the low integers
+    instead of being clipped to the 201-grid 0.2 cap. On a finer grid it
+    tightens below 0.2.
+    """
+    inbound = max(1, num_points - 1)
+    min_step = max(MIN_CDF_PROB_STEP, 0.01 / inbound)
+    max_step = min(1.0, 0.2 * 200.0 / inbound)
+    return min_step, max_step
+
+
+# --- Cluster Detection and Spreading Constants ---
+
+
+CLUSTER_DETECTION_ATOL: float = 1e-12
+
+CLUSTER_SPREAD_BASE_DELTA: float = 1e-6
+
+# Spacing below which a distribution is treated as "count-like" (integer-adjacent)
+COUNT_LIKE_THRESHOLD: float = 0.1
+
+COUNT_LIKE_DELTA_MULTIPLIER: float = 1.0
+
+# --- Jitter and Validation Constants ---
+
+STRICT_ORDERING_EPSILON: float = 1e-12
+
+
+# --- Boundary Handling Constants ---
+
+# As a fraction of the question range
+BOUNDARY_SAFETY_MARGIN: float = 0.01
+
+MIN_BOUNDARY_DISTANCE: float = 1e-9
+
+# --- Diagnostic and Logging Thresholds ---
+
+
+# Top/bottom-bin mass at or above this fraction, with no percentile placed beyond the open
+# edge, flags open-bound percentile piling (models treating an open edge as a hard cap).
+# n=1 calibration: fires on the two observed crammers (0.20 and 0.126 top-bin mass) but not
+# the four correct handlers (all <= 0.073). K is intentionally tunable as more data arrives.
+OPEN_BOUND_PILING_THRESHOLD: float = 0.10
+
+# --- PCHIP Fallback Configuration ---
+
+
+# --- Validation Tolerances ---
+
+
+# --- Tail Widening (identity-pass defaults; configurable) ---
+
+# Enable/disable transform-space tail widening of declared percentiles before CDF generation
+TAIL_WIDENING_ENABLE: bool = True
+
+# Tail widening stretch factor applied in transformed space around the median in tails.
+# e.g., 1.25 means 25% stretch at the deepest tails, ramping to 0% near the center.
+# Default is 1.0 (identity pass, no widening) per the 2026-05-12 empirical calibration
+# on 43 resolved numerics: k_tail=1.0 produced PIT std closest to the uniform ideal
+# (0.289) in every segment; k_tail=1.25 moved away from ideal in every segment. See
+# bottega:scratch_docs_and_planning/tail_widening_empirical_calibration.md.
+TAIL_WIDEN_K_TAIL: float = 1.0
+
+# Tail start region (fraction of percentile distance from median where widening begins)
+# Example: 0.2 means no widening for p in [0.3, 0.7], linearly ramp to full widening by p<=0.1 or p>=0.9
+TAIL_WIDEN_TAIL_START: float = 0.2
+
+# Span floor gamma to ensure tail spans are at least gamma times adjacent inner spans.
+# Applies to (p05 - p02.5) vs (p10 - p05) and (p97.5 - p95) vs (p95 - p90).
+# Floor enforcement (tail_widening.py:171/178) is gated on `> 0`. Default disabled
+# because in all 2026 data the floor never bound (see
+# bottega:scratch_docs_and_planning/tail_widening_empirical_calibration.md section 3).
+# Setting this to any positive value re-enables the existing floor enforcement —
+# kept configurable for future models with unusually sharp declared tails.
+TAIL_WIDEN_SPAN_FLOOR_GAMMA: float = 0.0

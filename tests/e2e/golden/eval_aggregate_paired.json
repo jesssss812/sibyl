@@ -1,0 +1,36 @@
+[
+  {
+    "bootstrap_ci_high": 0.023025000000000004,
+    "bootstrap_ci_low": -0.013000000000000003,
+    "comparison": "median-stack",
+    "higher_is_better": false,
+    "mean_delta": 0.007000000000000001,
+    "mean_delta_clean": 0.007000000000000001,
+    "median_ci_high": 0.03,
+    "median_ci_low": -0.02,
+    "median_delta": 0.005,
+    "metric": "brier",
+    "n": 10,
+    "n_clean": 10,
+    "question_type": "binary",
+    "sign_test_p": 1.0,
+    "wilcoxon_p": 0.59765625
+  },
+  {
+    "bootstrap_ci_high": 0.026000000000000002,
+    "bootstrap_ci_low": -0.012025,
+    "comparison": "median-stack",
+    "higher_is_better": false,
+    "mean_delta": 0.007000000000000001,
+    "mean_delta_clean": 0.007000000000000001,
+    "median_ci_high": 0.03,
+    "median_ci_low": -0.025,
+    "median_delta": 0.005,
+    "metric": "brier",
+    "n": 10,
+    "n_clean": 10,
+    "question_type": null,
+    "sign_test_p": 1.0,
+    "wilcoxon_p": 0.59765625
+  }
+]

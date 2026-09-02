@@ -1,0 +1,50 @@
+---
+name: CI
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --dev --frozen
+      # --frozen on every `uv run`: without it, uv re-resolves because the
+      # lockfile's exclude-newer stamp (from the operator's global uv config)
+      # is absent on CI runners, silently pulling newer-than-locked packages.
+      # (--locked would hard-fail on the same mismatch; --frozen is correct.)
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen basedpyright
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --dev --frozen
+      - name: Run tests
+        run: uv run --frozen pytest --cov=sibyl
+
+  # Scan uv.lock for known vulnerabilities. osv-scanner is a Go binary (not a
+  # PyPI package), so it runs via Google's published container action rather
+  # than uvx.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
+        with:
+          scan-args: |-
+            --config=osv-scanner.toml
+            --lockfile=uv.lock

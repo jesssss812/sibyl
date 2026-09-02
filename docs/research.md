@@ -1,0 +1,563 @@
+# Research subsystem
+
+This is the reference for how the bot gathers evidence before any forecaster
+LLM sees a question. If you want the forecasting/aggregation side, see the other
+docs; this file covers only the research phase.
+
+For a quick map of the code: orchestration lives in
+`sibyl/research/orchestrator.py`, provider selection in
+`sibyl/research/providers.py`, and each add-on provider is its own module
+under `sibyl/research/`.
+
+## The shape of a research run
+
+Every question goes through `ResearchOrchestrator.run_research`
+(`research/orchestrator.py`). The flow is:
+
+1. **Cache check.** In benchmarking runs the orchestrator caches research per
+   question id so a replayed backtest doesn't re-pay for the same pull. Live runs
+   don't cache (`_lookup_research_cache`, `research/orchestrator.py`).
+2. **Provider selection.** `_select_research_providers`
+   (`research/orchestrator.py`) picks exactly one **primary** provider, then
+   appends every enabled **add-on** provider. Each add-on is behind its own env
+   flag, so the set that actually runs depends on configuration.
+3. **Parallel fan-out.** `_run_providers_parallel`
+   (`research/orchestrator.py`) runs all selected providers concurrently via
+   `asyncio.gather`. One provider failing never kills the phase; the failure is
+   recorded as a per-provider result and the rest proceed. Global concurrency is
+   bounded by a semaphore sized by `DEFAULT_MAX_CONCURRENT_RESEARCH`.
+4. **Assembly.** Each provider's output is prefixed with a fixed `##` section
+   header (`_provider_header`, `research/orchestrator.py`) and the sections
+   are joined with `---` rules. Any stray `#`/`##` heading inside a provider's
+   body is demoted two levels so it never competes with the section headers.
+5. **Gap-fill.** Two second-pass gap-fill passes (v1 and v2) run concurrently on
+   the assembled bundle and append their own sections. See "Gap-fill" below.
+6. **Diagnostics + persistence.** A provider-diagnostics block (which provider
+   succeeded, char counts, latency) is logged and stashed for the published
+   Metaculus comment, but is deliberately kept OUT of the text forecasters read.
+   If a research sink is wired, the full record is written for backtest replay.
+
+The single string returned from `run_research` is what every forecaster in the
+ensemble reads verbatim.
+
+## Primary provider: a priority ladder
+
+There is always exactly one primary provider, chosen by
+`choose_provider_with_name` (`research/providers.py`). It walks a fixed
+priority order and returns the first provider whose credentials are present:
+
+1. **AskNews** if `ASKNEWS_CLIENT_ID` and `ASKNEWS_SECRET` are set. This is the
+   production case.
+2. **Exa.ai** (`SmartSearcher`) if `EXA_API_KEY` is set.
+3. **Perplexity direct** if `PERPLEXITY_API_KEY` is set. Model:
+   `PERPLEXITY_RESEARCH_MODEL` (`constants.py`).
+4. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` is set. Same model,
+   prefixed for the OpenRouter route:
+   `PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER`.
+5. **Empty stub** if none of the above — research is just the add-on providers.
+
+In production the AskNews credentials are present, so Exa and the two Perplexity
+routes never run as the primary. They are fallbacks, not peers. To force a
+specific primary regardless of credentials, set `RESEARCH_PROVIDER=<name>`
+(`asknews` / `exa` / `perplexity` / `openrouter`); any other value behaves as
+auto. Forcing `asknews` without the AskNews creds fails loudly rather than
+silently picking a different provider.
+
+### AskNews fallback (primary-only)
+
+AskNews is the only primary that gets a runtime fallback. If the AskNews fetch
+raises, `_fetch_research_with_fallback` (`research/orchestrator.py`) tries a
+prose provider instead, in a **different** order than the primary ladder:
+OpenRouter-Perplexity first (cheapest, prose-returning), then direct Perplexity,
+then Exa last (its `SmartSearcher` spins up its own multi-search loop, the most
+expensive path). The primary ladder orders by index quality; this fallback list
+orders by cost, because it only ever fires after AskNews has already failed.
+
+One AskNews error is treated specially: a `403011` "subscription is not currently
+active" signature (`is_asknews_subscription_error`, `research/providers.py`) is
+logged as `inactive` (an expected off-season state), not `errored`, so it doesn't
+inflate the timeout counter or look like a real failure in diagnostics.
+
+### AskNews dual-phase search
+
+AskNews is the one provider that returns raw article text rather than
+LLM-written prose, so it has two distinct stages: fetch, then summarize.
+
+**Fetch** (`_asknews_provider`, `research/providers.py`) runs two phases
+against the AskNews SDK, asking HISTORICAL for a larger article budget than HOT:
+
+- **Phase 1 — HOT:** `strategy="latest news"`.
+- **Phase 2 — HISTORICAL:** `strategy="news knowledge"`.
+
+Both phases share a retry budget (`ASKNEWS_MAX_TRIES`) that only retries on
+known-transient rate/concurrency errors (429, "rate limit", "concurrency
+limit"); anything else raises immediately. A process-wide semaphore
+(`ASKNEWS_MAX_CONCURRENCY`) and an RPS gate (`ASKNEWS_MAX_RPS`) throttle calls,
+plus a fixed wait before each phase (`WAIT_FOR_HOT_SEC` /
+`WAIT_FOR_HISTORICAL_SEC`, function-local in `_asknews_provider`), because the
+API rate-limits aggressively even when we stay under our own limits. All three
+throttles take env overrides, and the shipped `.env.template` deliberately sets a
+*lower* RPS than the `constants.py` default — the constant is the ceiling, not the
+operating point, so the two disagreeing is expected rather than a drift bug. A
+hard wall-clock timeout (`ASKNEWS_WALL_TIMEOUT`) backstops a network hang so a
+stuck AskNews call can't hold the whole phase hostage.
+
+The two article lists are formatted into two labeled sections — "Historical
+Context & Background" and "Recent Developments & Current News" — with within-list
+and cross-list URL deduplication (`_format_asknews_dual_sections`,
+`research/providers.py`). Dedup normalizes URLs first (drops tracking params,
+`m.` mobile subdomains, `/amp` suffixes, fragments) so the same story from two
+feeds collapses to one entry.
+
+The raw pre-summarization article markdown is captured separately and archived
+(the `asknews_raw` field) so a later audit can replay the summarizer or attribute
+a bad briefing to fetch-vs-summarize without paying for a fresh AskNews pull.
+
+### AskNews summarizer (the analyst briefing)
+
+Raw AskNews articles are compressed into an analyst briefing by an LLM before any
+forecaster sees them (`_summarize_asknews`, `research/orchestrator.py`). The
+summarizer model is a low-effort utility slot defined in `llm_configs.py`
+(`SUMMARIZER_LLM`); it runs at `allowed_tries=1` and is wrapped in an
+elapsed-gated broad retry (`invoke_with_broad_retry`, whose gate is
+`TRANSIENT_RETRY_MAX_ELAPSED_S` in `llm_retry.py`) with a wall cap
+(`SUMMARIZER_WALL_TIMEOUT`). If the summarizer hits a transient LLM error or returns
+blank, the orchestrator soft-fails to the **raw** articles rather than dropping the
+news entirely. A non-transient error
+(a prompt-construction bug, a refactor's `AttributeError`) is allowed to
+propagate, because that's a real bug, not a degradation to tolerate.
+
+The prompt (`asknews_summarizer_prompt`, `prompts.py`) tells the model to
+produce a comprehensive briefing that extracts every decision-relevant fact,
+number, quote, and expert opinion, dates each one, and separates facts from
+opinion. It also shares the source-provenance / trust-ladder vocabulary with the
+web-research prompt. Several rules are load-bearing for calibration:
+
+- **Never paraphrase numbers.** Percentages, probabilities, dates, and counts are
+  copied exactly.
+- **Pre-window flagging.** Any event that happened before the question opened —
+  and so can't itself satisfy the resolution criteria — is tagged `[PRE-WINDOW]`
+  but kept as base-rate context.
+- **Single-source labeling.** A claim resting on one outlet is tagged
+  `[SINGLE-SOURCE]` with its original hedges preserved; it's never promoted to a
+  confirmed fact.
+
+The 2026-07-18 revision to this prompt added three things worth calling out:
+
+- **Evidence-age lead.** The briefing must open by stating the date of the newest
+  article that *directly* bears on resolution ("Newest directly-relevant article:
+  2026-07-14"), or say explicitly when nothing directly reports on the resolution
+  quantity and the section is only background.
+- **Supersession.** When a newer article supersedes an older one on the same fact
+  (a withdrawal, an updated count, a final decision), the briefing states which
+  version governs today and compresses the stale version to one line, instead of
+  giving obsolete detail equal weight. Deadline/window questions must quote the
+  underlying dates and rules rather than assert a conclusion.
+- **Relevance screen + proportionality.** Each article is screened for direct
+  bearing on the resolution criteria; anything off-topic is dropped and listed on
+  a single "Screened out as not decision-relevant" line. Briefing length must
+  track surviving decision-relevant content — comprehensive when there's real
+  material, short when few articles survive, never padded to look thorough.
+
+## Add-on providers (parallel, each independently gated)
+
+On top of the single primary, every enabled add-on provider runs in parallel.
+Each is behind its own env flag and produces its own `##` section. In production
+all of these are on.
+
+### OpenAI native search — `NATIVE_SEARCH_ENABLED`
+
+OpenAI web search via OpenRouter's native web plugin
+(`_native_search_provider` / `build_native_search_llm`,
+`research/providers.py`). The model is `NATIVE_SEARCH_DEFAULT_MODEL`, run at the
+reasoning effort and verbosity in `NATIVE_SEARCH_REASONING_EFFORT_DEFAULT` /
+`NATIVE_SEARCH_VERBOSITY_DEFAULT`, under a per-request timeout
+(`NATIVE_SEARCH_TIMEOUT`) and a hard wall-clock cap
+(`NATIVE_SEARCH_WALL_TIMEOUT`) set just above it. Model, effort, and verbosity are
+overridable via `NATIVE_SEARCH_MODEL` / `NATIVE_SEARCH_REASONING_EFFORT` /
+`NATIVE_SEARCH_VERBOSITY`.
+
+The model is built at `allowed_tries=1` on purpose: an earlier incident
+(2026-05-20) had OpenRouter drip whitespace keep-alive bytes for over eight
+minutes before returning malformed JSON, and retrying that call just multiplies
+the wait. `NATIVE_SEARCH_WALL_TIMEOUT` plus a single try is what bounds the worst case.
+It routes through `build_llm_with_openrouter_fallback`, so it bills the
+Metaculus-primary `OAI_ANTH_OPENROUTER_KEY` first and falls back to the fallback
+`OPENROUTER_API_KEY` on credential/credit errors. The prompt is the shared
+`web_research_prompt` with markdown citations.
+
+### Gemini grounded search — `GEMINI_SEARCH_ENABLED` + `GOOGLE_API_KEY` (DEFAULT-OFF since 2026-08-31)
+
+Real first-party Google Search grounding via the `google-genai` SDK
+(`research/gemini_search.py`), NOT via OpenRouter. This adds a genuinely distinct
+search index to the ensemble. Model and request timeout come from
+`GEMINI_SEARCH_DEFAULT_MODEL` / `GEMINI_SEARCH_TIMEOUT` (`constants.py`). It
+enables both the `google_search` tool and the `url_context` tool, so the model
+can read specific URLs named in a question's fine print directly.
+
+Output is stitched together with inline citation markers spliced in from the
+response's grounding metadata, plus a `### Sources` list
+(`_format_grounded_response`). url_context fetches are logged and only
+*successful* fetches are surfaced to forecasters (a "fired but fetched nothing"
+run collapses to a terse `_url_context: none_` marker rather than pushing dead
+URLs at the model).
+
+This provider uses the operator's fallback `GOOGLE_API_KEY` (a paid-tier Google
+AI Studio key). There is no Metaculus-primary key on the google-genai side — the
+primary path only exists for OpenRouter-routed Gemini. If grounded search starts
+soft-failing across a run, check the AI Studio prepaid-credit balance first
+(exhaustion shows up as 429s, not surprise charges).
+
+### Financial data — `FINANCIAL_DATA_ENABLED` (+ `FRED_API_KEY` for live FRED)
+
+For questions about trackable financial/economic metrics
+(`research/financial_data.py`). A cheap LLM classifier
+(`FINANCIAL_CLASSIFIER_MODEL`, low effort) decides whether the question is
+financial and which tickers / FRED series apply, and — critically — resolving
+identifiers are *also* extracted deterministically from URLs in the resolution
+criteria (`extract_financial_identifiers_from_criteria`). That extraction is the
+load-bearing guarantee: even if the classifier misreads the question, the series
+the question actually resolves on still fires. The two sets are merged
+(extraction is additive), then fetched in parallel:
+
+- **yfinance** for tickers: current price, period returns, an annualized
+  volatility over the recent window (`FINANCIAL_YFINANCE_RECENT_DAYS`), a trailing
+  high/low range over the lookback window (`FINANCIAL_YFINANCE_LOOKBACK_DAYS`),
+  recent closes, and (live only) fundamentals.
+- **FRED** for economic series: latest/previous value, MoM and YoY change, recent
+  observations.
+
+Under benchmarking every fetch is ceilinged to the question's `open_time`:
+yfinance uses a bounded history window and skips the leaky live `.info` call, and
+FRED routes through a keyless point-in-time path (`ts_fetch`, ALFRED vintages) so
+revised macro series return the vintage known at forecast time, not today's
+revisions. A forecaster-invisible HTML-comment routing marker records which
+identifiers fired, which came from extraction vs. the classifier, and any
+unrecognized (fetched-anyway-but-flagged) IDs.
+
+### Prediction-market snapshot — `PREDICTION_MARKETS_ENABLED`
+
+A crowd-forecast cross-check (`research/prediction_market.py`, with the retrieval
+machinery in `research/market_retrieval/`). Generation is deliberately
+recall-maximal and ALL the judgment sits in one LLM ranking call, because the
+bake-off measured that selection, not generation, is the binding constraint: a
+perfect ranker over the pool that already exists reaches 14/16 questions while the
+same pool's deterministic top-4 reaches 5/16.
+
+Four stages per question:
+
+1. **Catalogue prefetch**, concurrent with a **query author**. Kalshi's complete
+   open-events catalogue is paginated (`KALSHI_CATALOGUE_WALL_TIMEOUT`,
+   `KALSHI_PREFETCH_MAX_PAGES`, `KALSHI_PAGE_SLEEP_S` between pages) and projected
+   down as each page streams in, tiered so that only the fields read across an
+   event's nested markets are kept past the first one. It is cached for
+   `KALSHI_CACHE_TTL_S` only if it **completed**: a pull cut short by a 429, the wall
+   or a runaway bound still serves the question that paid for it, but pinning that
+   partial list would let one blip on the first question starve the whole run.
+   PredictIt's whole ~197-market dump is one GET. Neither needs a query, which is
+   what makes the concurrency free. The query author is one LLM call
+   (`MARKET_QUERY_AUTHOR_LLM_CONFIG`) emitting domain vocabulary the question's own
+   tokens cannot reach; its output is ADDITIVE to a deterministic query set, so its
+   failure costs no recall.
+2. **Venue-native search** for Manifold and Polymarket — the two venues whose own
+   index is the only way in. Every deduped query is issued in parallel, with
+   per-query failure isolation, and every query is stripped of digit-bearing tokens
+   first because Manifold's `term` is a strict conjunction that one date token
+   zeroes. The enumerable venues score against the UN-stripped set, where a year is
+   real signal against a catalogue of dated market titles. Manifold is asked for
+   `contractType=ALL` rather than `BINARY`: multi-outcome markets are ~30% of its
+   catalogue and were structurally unreachable before, and their price arrives from
+   the stage-3 detail fan-out rather than the search listing, which carries no
+   per-answer data at all.
+
+   At PARSE time the author's own synonyms are filtered by a narrower rule than the
+   blanket digit strip: a synonym is **dropped whole** (never trimmed to a remnant,
+   which would reach the floorless fuzzy channel and score ~100 against every event
+   whose rules mention one generic word) only when it carries a DATE-like token — a
+   four-digit group in 1900-2099, a bare number in a synonym that names nothing else,
+   or a 1-2 digit day beside a month word. Digits belonging to a name survive
+   verbatim (`U-3`, `S&P 500`, `10-K`, `50bp`), because series-code vocabulary is
+   most of what the author exists to contribute and the conjunction cliff is a
+   property of the enumerable venues' call site, which still strips. The rule
+   knowingly mistakes `Russell 2000` for a year: a bare in-range four-digit token is
+   the measured hazard, and the question's own words reach the venues regardless.
+3. **Pool assembly**, three channels unioned, with channel order as the ranking: a
+   settlement-source join (Kalshi events settling on a publisher the question's own
+   resolution text names — the recall channel a word-overlap scorer structurally
+   cannot see), then the venue-index hits, then the enumerable universes ranked by
+   a fuzzy scorer with NO floor. A bounded Manifold detail fan-out then fills in the
+   rules text the search listing omits, and on a multi-outcome row its leading
+   answers — the only price such a row has, since the search reports none. A row
+   whose detail GET failed stays title-only rather than costing the snapshot.
+4. **Ranking**: one call (`MARKET_RANKER_LLM_CONFIG`) over the whole ~380-440
+   candidate pool, returning up to 8 rows in ranked order with a relation tier and a
+   one-phrase reason. Width is the model's choice in 0..8 — an empty array is a
+   VALID answer, not a failure — and nothing downstream re-orders, re-scores or
+   caps per venue. Everything else falls open to the pool-order top rows, marked as
+   such: unreadable output, and equally a transient LLM error on the call itself
+   (the retry wrapper catches the `openai.APIError` family, which is what every
+   litellm transport exception subclasses, and returns an empty completion the
+   parser then reports unusable). Both land on the fail-open slate rather than
+   costing the whole snapshot.
+
+The render is that order verbatim: implied probability, total volume and open
+interest (approximate USD on the real-money venues, play-money mana on Manifold —
+the legend says which, since the two are not comparable), a liquidity/participation
+`signal` label (thin / decent / deep for real-money venues, thin / decent / high by
+bettor count for Manifold, `no-liquidity-data` for PredictIt), close date,
+`open`/`RESOLVED` status, and the ranker's `relation` + `why`, followed by each
+market's resolution rules.
+
+Two row shapes have **no single probability** and render `-` rather than a number:
+a Kalshi event that is a threshold FAMILY (86.5% of that catalogue), where one
+strike's price under the event's own title would answer a question the row never
+asked, and a Manifold multi-outcome market, whose leading answers ride inside the
+rules bullet instead. Both keep their liquidity figures, which is what keeps the row
+worth its width — and on a Kalshi family those figures are the SUM over its live
+strikes, each converted at its own price, rather than the first strike's alone. The
+forecaster prompts tell models to weight by both axes — the liquidity label and the
+relation tier — and to read a RESOLVED price as a realized outcome rather than a
+forecast.
+
+This provider is **hard-disabled under benchmarking** (`is_benchmarking=True`
+returns `""`), regardless of the env flag, and that guard is the ONLY leakage
+defence: markets retain their last-trade price after resolution, so a market that
+closes between an `as_of` instant and now leaks either way. The provider path
+therefore passes `as_of=None`. The filter itself survives for explicit callers
+(backtests, replay tooling) and runs INSIDE pool assembly, ahead of the per-venue
+width slice, so a leaked market never reaches the ranker and an ineligible row
+frees its slot for an eligible one instead of consuming it. As a post-hoc filter
+over the already-truncated pool it deleted rows the width had spent its slots on
+and zeroed the per-venue counts provider health reads. Prod ran with a derived
+`as_of` until 2026-08-04, and it cost real recall: it dropped every market closing
+before the question resolved — the "same quantity, adjacent month" class that
+carries most of the evidential value —
+and prod telemetry recorded 20 of 47 archived runs where Polymarket fetched
+candidates and rendered nothing because of it.
+
+The benchmarking guard is also why this provider's forecasting value can't be
+measured by the standard backtest gate — it was validated with live
+`test_bot.yaml` runs and opt-in live integration tests.
+
+### Reference class — `REFERENCE_CLASS_ENABLED`
+
+Retrieves previously-resolved Metaculus questions as an outside-view anchor
+(`research/reference_class.py`), implementing the "look up similar previously-resolved
+questions" finding (34% of Fall-2025 winners did this; 0% of non-winners).
+
+Deterministic keyword queries (no LLM, so the generation half is free and cannot fail)
+against the Metaculus posts API with `statuses=resolved`, then ONE ranking call over the
+whole pool, mirroring the prediction-market subsystem's finding that selection rather
+than generation is the binding constraint. Each query is independently failure-isolated;
+a ranker error or unreadable output falls open to pool order rather than costing the
+section.
+
+Unlike the prediction-market and resolution-source providers, this one is **NOT
+hard-disabled under benchmarking.** Candidates are filtered to those that resolved
+strictly before the target question's `open_time`, and that filter runs inside pool
+assembly ahead of ranking, so an ineligible row never consumes a slot or reaches the
+model. There is therefore nothing to leak, which makes this the one added provider whose
+forecasting value a paired backtest can actually price.
+
+The resolve-time ceiling applies on **both** paths, live and benchmarking — not only
+under benchmarking. The rendered section tells every forecaster that each entry predates
+the question, so a live run that skipped the filter would make that claim false in the
+mode that normally ships; and a question that resolved after the target opened is not
+outside-view evidence anyway. When the ceiling is *unknowable* under benchmarking (the
+target has no `open_time`), the provider returns `""` rather than falling through with no
+filter — the same fail-closed posture as `financial_data.py` and `timeseries_anchor.py`.
+
+Untrusted text is bounded before it reaches the bundle: the Metaculus-supplied `title`
+and the model-supplied `relation` / `why` are whitespace-collapsed, stripped of `#`, and
+length-capped. Stripping `#` is load-bearing rather than cosmetic — `_demote_inner_headings`
+only *prefixes* a heading with more hashes, and `prompts.py` gates a clause on a bare
+substring test, so an inline forged `## Section Header` would otherwise still trip
+downstream consumers.
+
+### Resolution-source fetcher — `RESOLUTION_SOURCE_ENABLED`
+
+Fetches the exact URL(s) a question cites as its grading source
+(`research/resolution_source.py`), so forecasters read the ground truth the
+question resolves against. This is Tier-1 only: plain HTTP with browser-like
+headers, no LLM calls, no retries.
+
+It deterministically extracts URLs from resolution criteria + fine print (markdown
+links and bare URLs, order-preserving dedup, Metaculus markdown-escapes undone),
+skip-filters URLs that add nothing or belong to another provider (Metaculus
+self-refs, FRED series owned by financial-data, Yahoo `/quote/` pages owned by
+yfinance), and caps at `RESOLUTION_SOURCE_MAX_URLS` *after* the skip filter so
+a run of leading self-refs doesn't starve the real sources. Fetches run in
+parallel with one-request-per-host politeness (a `Semaphore(1)` per netloc, keyed
+per redirect hop). Content is extracted with trafilatura (HTML), or read raw
+(JSON / text / CSV); anything else (PDF, binary, missing Content-Type) is left
+unread.
+
+It is **SSRF-hardened** because these URLs are user-authored and fetches run from
+CI on AWS: a preflight `is_public_http_url` check rejects private / loopback /
+link-local / non-global IPs, userinfo tricks, and non-HTTP schemes, and a
+connect-time `FilteringResolver` (the actual DNS-rebinding boundary, not the
+preflight) re-checks every resolved IP. Redirects are followed manually under the
+`MAX_REDIRECTS` hop cap (`research/http_fetch.py`, shared with the v2 agentic
+tools), re-guarding each `Location`. Per-URL truncation appends a
+`[truncated at N chars — full source at URL]` marker, and the section formatter
+appends `[N additional source(s) omitted — section budget]` when later sections
+are dropped for length. Unfetchable pages (`blocked` / `js_wall`) are retained in
+the per-URL `FetchStatus` as the seam for a future Tier-2 LLM-driven fetch pass.
+
+Like prediction markets, it is **hard-disabled under benchmarking** (current page
+content post-dates any backtest window).
+
+### Time-series anchor — `TS_ANCHOR_ENABLED` (chart side-channel `TS_ANCHOR_CHART_ENABLED`, off)
+
+A deterministic empirical anchor for numeric questions whose resolution series is
+a fetchable FRED/yfinance series (`research/timeseries_anchor.py`). No LLM, no
+model selection — it renders the latest value, a multi-resolution history, a
+52-week range, and a horizon-matched empirical band built only from the series'
+own past. The Phase-A offline replay found CV-gated model picks beat naive
+out-of-sample only 43% of the time, while the naive empirical band was sharper and
+better tail-calibrated, so this ships the naive band on purpose.
+
+It is the *first* backtest-safe research provider: instead of hard-disabling under
+benchmarking, it pins `as_of` to the question's `open_time` and fetches
+point-in-time up to that date (ALFRED vintages for revising macro series), so the
+data known at forecast time is the answer without leaking the resolution. The
+text anchor is on in production; the chart-image side-channel
+(`TS_ANCHOR_CHART_ENABLED`) is a separate flag and is off.
+
+## Gap-fill (two passes, both concurrent, both on in prod)
+
+After the primary + add-on bundle is assembled, two independent gap-fill passes
+run **concurrently** in one `asyncio.gather` inside `run_research`
+(`research/orchestrator.py`), so the research-phase wall-clock is `max(v1, v2)`,
+not the sum. Each runs inside its
+own try/except so a defect in one can never zero the other's output. Both consume
+the pre-gap-fill bundle, which means the v2 driver's brief does not see v1's
+addendum; v2's section appends after v1's.
+
+### v1 — targeted gap-fill (`research/targeted.py` `run_gap_fill_pass`)
+
+Two stages, gated by `GAP_FILL_ENABLED` (and skipped when the first-pass bundle is
+shorter than `GAP_FILL_MIN_RESEARCH_CHARS`):
+
+1. A non-grounded analyzer LLM (`GAP_FILL_ANALYZER_MODEL`, low effort) reads the
+   first-pass research and emits a JSON list of up to `GAP_FILL_MAX_GAPS` factual
+   gaps.
+2. Each gap is resolved by a parallel OpenAI native web search
+   (`GAP_FILL_RESOLVER_MODEL` at `GAP_FILL_RESOLVER_REASONING_EFFORT`, via
+   OpenRouter on the primary key).
+   Because the searches run in parallel, latency is the slowest call, not the sum.
+
+The resolver migrated off direct-Google grounding on 2026-06-25, which is why
+`GOOGLE_API_KEY` is no longer required for gap-fill. The whole pass never raises —
+it returns `""` on any error — and appends its results under
+`## Targeted Gap-Fill (second pass)`.
+
+### v2 — agentic gap-fill (`research/agentic_gap_fill.py` `run_gap_fill_v2`)
+
+A bounded agentic tool loop run by a driver LLM (`GAP_FILL_V2_DRIVER_MODEL` at
+`GAP_FILL_V2_DRIVER_EFFORT`), gated by
+`GAP_FILL_V2_ENABLED`. The driver is briefed with the forecaster prompt, privately
+dry-runs a forecast to find things worth filling or verifying, then iterates over
+four tools (news search, web search, fetch, document read) under a wall deadline
+(`GAP_FILL_V2_WALL_DEADLINE`) and a tool-call budget
+(`GAP_FILL_V2_MAX_TOOL_CALLS`). It appends a
+citation-only findings artifact under `## Agentic Research Findings`, leading with
+a corrections-to-the-briefing block. Like the other leakage-sensitive providers,
+it is benchmarking-guarded off. See `docs/agentic_gap_fill.md` for the full
+tool loop, escalation ladder, telemetry, and design rationale.
+
+## Diagnostics and persistence
+
+`run_research` returns forecaster-clean text. The **provider-diagnostics block**
+(which provider succeeded, char counts, latency per provider) is computed
+separately (`format_provider_diagnostics_block`) and deliberately kept out of the
+returned research — forecasters and the v2 driver must never see it. It reaches
+three places instead: an INFO log line, the research archive (as its own field),
+and the published Metaculus comment (stashed per question id, popped by the
+forecaster at comment-build time via `pop_provider_diagnostics`).
+
+When a research sink is wired, each question's research is written for backtest
+replay by `ResearchPersistenceWriter` (`research/persistence.py`, at
+`RESEARCH_SCHEMA_VERSION`). The record carries the assembled `research_text`, the
+per-provider
+`provider_results` (the authoritative outcome list), derived
+`providers_attempted` / `providers_succeeded`, the `gap_fill_used` flag, and —
+when they exist — the v2 agentic trace (`gap_fill_v2`), the diagnostics block, and
+the raw pre-summarization AskNews articles (`asknews_raw`). Records flush to a
+timestamped JSONL file. `providers_used` is retained but legacy/ambiguous; prefer
+`provider_results` for any analysis.
+
+## Production configuration
+
+All four workflows (`.github/workflows/run_bot_on_{tournament,metaculus_cup,minibench}.yaml`
+and `test_bot.yaml`) enable the full research stack:
+
+| Flag | Provider |
+|---|---|
+| `NATIVE_SEARCH_ENABLED` | OpenAI native search |
+| `ANTHROPIC_SEARCH_ENABLED` | Claude web search (Anthropic server-side `web_search`) |
+| `GEMINI_SEARCH_ENABLED` | Gemini grounded search (default-off since 2026-08-31) |
+| `FINANCIAL_DATA_ENABLED` | yfinance + FRED |
+| `PREDICTION_MARKETS_ENABLED` | prediction-market snapshot |
+| `RESOLUTION_SOURCE_ENABLED` | resolution-source fetcher |
+| `TS_ANCHOR_ENABLED` | time-series anchor (text; chart off) |
+| `GAP_FILL_ENABLED` | v1 targeted gap-fill |
+| `GAP_FILL_V2_ENABLED` | v2 agentic gap-fill |
+
+So in production the active research stack is: AskNews (primary, summarized) +
+OpenAI native search + Claude web search + financial data (when classified
+financial) + prediction-market snapshot + resolution-source fetcher + time-series
+anchor + both gap-fill passes. Env flags, models, and timeouts live in
+`sibyl/config/settings.py`; provider models route through the shared
+primary-then-fallback OpenRouter fallback (`fallback_openrouter.py`), except
+Claude web search, which uses `ANTHROPIC_API_KEY` directly (and, while it was active, Gemini grounded search, which used the fallback Google key).
+
+## Cost note
+
+The research providers hit live, paid APIs (AskNews, Exa, Perplexity, OpenRouter
+credits, Google grounding, FRED). Running the bot or a backtest spends real money
+and, in live modes, publishes to Metaculus. Do not launch a paid run without the
+operator's approval — see `AGENTS.md` "Cost discipline". The unit/integration test
+suite is self-contained and hits no paid APIs.
+
+
+---
+
+## Agent-facing detail (relocated from `AGENTS.md`, 2026-08-26)
+
+The sections below were inline in `AGENTS.md`, which is loaded on every coding-agent
+invocation. They are reference material rather than always-true rules, so they live here
+now and are read on demand.
+
+Some of this overlaps the prose above — it was written for a different audience and is
+kept verbatim rather than merged, so nothing is silently lost. Reconciling the two is
+worthwhile follow-up, but it is an editorial pass, not a mechanical one.
+### Research providers
+
+Orchestration in `_select_research_providers` (`research/orchestrator.py`).
+
+**Primary provider** — exactly one, chosen by priority in `choose_provider_with_name` (`research/providers.py`):
+
+1. **AskNews** if `ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET` are set (the prod case): dual-phase search (HOT + HISTORICAL), rate-limited with retry/dedup (`_asknews_provider`, `research/providers.py`).
+2. **Exa.ai SmartSearcher** if `EXA_API_KEY` set (fallback when AskNews absent): generic rundown (`_exa_provider`, `research/providers.py`).
+3. **Perplexity direct** if `PERPLEXITY_API_KEY` set: `_perplexity_provider` in `research/providers.py`. Prompt explicitly requests prediction-market consideration unless benchmarking.
+4. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` set: same function, `use_open_router=True`.
+5. Empty stub.
+
+In production (AskNews creds present) Exa/Perplexity/OpenRouter do NOT run. They're priority-ordered fallbacks, not peers. `RESEARCH_PROVIDER=<name>` forces a specific one.
+
+**Additional providers run in parallel on top of the primary** (each independently gated):
+
+- **OpenAI native search** (OpenRouter web plugin, `research/providers.py`): configured entirely by `NATIVE_SEARCH_DEFAULT_MODEL`, `NATIVE_SEARCH_REASONING_EFFORT_DEFAULT` (passed as `reasoning={"effort": ...}`), `NATIVE_SEARCH_VERBOSITY_DEFAULT` (as `extra_body={"verbosity": ...}`), and `NATIVE_SEARCH_TIMEOUT` — each overridable via the matching `NATIVE_SEARCH_*` env var. Model migrated 2026-07-09 to `gpt-5.6-sol`, then 2026-07-17 to `gpt-5.6-terra` per the blind research-role audit (`bottega:scratch/research_role_audit_2026-07-17/` — terra 1st, sol 2nd, luna 3rd; verdict "MARGINAL EDGE", terra at −42% cost); effort has been low since 2026-05-20 (latency; see constants.py). Gated by `NATIVE_SEARCH_ENABLED`. **Note**: the primary-key data-policy block has been RESOLVED (verified 2026-06-25 by a live call returning 200 with grounding). OpenAI native search now routes through and bills the primary `OAI_ANTH_OPENROUTER_KEY`; `FallbackOpenRouterLlm` still falls back to fallback `OPENROUTER_API_KEY` on credential / credit errors.
+- **Claude web search** (`research/anthropic_search.py`): the Anthropic API's server-side `web_search` tool (`web_search_20260209`) via the `anthropic` SDK — not OpenRouter, not litellm. Model `claude-sonnet-5` at `medium` effort, capped at 15 searches per question (raised from 8 on 2026-08-31 after the cap was found to bind on real research, not just cost). Only the model's final synthesis reaches forecasters — inter-attempt narration is stripped — and sources are deduplicated. Applies the same grounded floor as the Gemini provider: a response with zero search results is suppressed rather than passed through, and emits `ANTHROPIC_UNGROUNDED_SUPPRESSED`. Gated by `ANTHROPIC_SEARCH_ENABLED` + `ANTHROPIC_API_KEY`. **This is the active second search index since 2026-08-31.**
+- **Gemini grounded search** (`research/gemini_search.py`): real Google Search grounding via `google-genai` SDK (not OpenRouter) + `url_context` tool for specific URL reads. Gated by `GEMINI_SEARCH_ENABLED` + `GOOGLE_API_KEY`. **Default-off since 2026-08-31** — Google meters grounded search on a MONTHLY free bucket (5k prompts on the 3.x family), so an exhausted quota stays exhausted until the month rolls over; with no billing account attached every call returned `429 RESOURCE_EXHAUSTED`. The module and its tests are retained intact: re-enabling is one env flag.
+- **Financial data** (`research/financial_data.py`): LLM classifier routes to yfinance + FRED for financial/economic questions. Gated by `FINANCIAL_DATA_ENABLED` + `FRED_API_KEY`.
+- **Prediction-market snapshot** (`research/prediction_market.py`, seam module; pipeline in `research/market_retrieval/`): **ranked retrieval** since 2026-08-04 (`e75e708`, replacing the keyword/fuzzy design after the 2026-08-03 bake-off measured it 0/17 on near-identical markets). GENERATION is recall-maximal: a settlement-source join (question resolution URLs → Kalshi event `settlement_sources` domains, via a vendored public-suffix list), venue-native search (Manifold + Polymarket, width 60 each, every deterministic query + LLM query-author additions issued unconditionally), and full-catalogue pulls (Kalshi ~10k open events streamed from `/events` and fuzzy-ranked to width 100; PredictIt all ~197 markets, unfiltered — its old fuzzy pre-filter ranked "Will the Pope visit Cuba" above the on-topic market). Manifold candidates are enriched with `textDescription` via per-market detail GETs. SELECTION is one LLM ranking call over the whole pool (`MARKET_RANKER_LLM_CONFIG`, luna low effort, ~36k-token prompt): adaptive width 0..8 where an empty array is a valid answer, each kept row stamped with a relation tier (`same_quantity_same_date` > `same_quantity_other_cut` > `driver_or_consequence` > `weak`) and a one-phrase `why`. RENDER is the model's order verbatim — no venue quota, no round-robin (the measured defect of the old design); ranker failure fails open to deterministic retrieval-order top-8 marked `[ranking unavailable — showing retrieval order]`. Liquidity labels unchanged (thin/decent/deep, thin/decent/high for Manifold, `no-liquidity-data` for PredictIt); rows also carry open/RESOLVED status. Forecaster prompts weight by BOTH the liquidity label and the relation label (shared constants in `prompts.py`). Per-question telemetry: `MARKET_RANKING: question=... pool=N outcome=ranked|failopen|empty rows=K prompt_chars=M` plus per-row `(venue, pool_index, rank)`. Harvested into the telemetry archive as `market_ranking` (`sibyl/telemetry/markers.py`), so the pool indices and prompt sizes survive the 90-day GHA log expiry. `as_of` is None on the provider path (the benchmarking guard is the leakage defense; the old derivation was destroying adjacent-month evidence). Gated by `PREDICTION_MARKETS_ENABLED` + hard `""` when `is_benchmarking=True`; that guard still means backtests can't measure it — validation is manual `test_bot.yaml` runs + opt-in live integration tests. Research section header: `## Prediction Market Snapshot`.
+- **Resolution-source fetcher** (`research/resolution_source.py`): deterministically extracts URLs from a question's resolution_criteria + fine_print (markdown + bare URLs, order-preserving dedup), skip-filters Metaculus self-refs / FRED (financial_data owns) / Yahoo-ticker (yfinance owns) URLs, caps the post-filter list at `RESOLUTION_SOURCE_MAX_URLS`, fetches in parallel (per-host politeness serialization, browser-like headers via shared `research/http_fetch.py`) and extracts main content with trafilatura — zero LLM calls. SSRF-hardened: `is_public_http_url` preflight plus a connect-time `FilteringResolver` (the resolver, not the preflight, is the real DNS-rebinding boundary) and a bounded manual redirect loop re-guarding each hop. Per-URL `FetchStatus` retains blocked/js_wall as the seam for a future Tier-2 LLM fetch pass. Per-URL truncation appends a `[truncated at N chars — full source at URL]` marker so forecasters can tell the snapshot is partial; the section formatter appends an analogous `[N additional source(s) omitted — section budget]` note when later sections are dropped. Hard `""` when `is_benchmarking=True` (same leakage rationale as prediction_market). Gated by `RESOLUTION_SOURCE_ENABLED` — **ON in all four workflows** (test_bot.yaml plus the three `run_bot_on_*.yaml` prod workflows) as of 2026-07-10 after live validation. Research section header: `## Resolution Source Snapshot`.
+
+**Second-pass gap-fill** (`research/targeted.py` `run_gap_fill_pass`): always-on when `GAP_FILL_ENABLED` is set (the resolver migrated off Google as of 2026-06-25, so `GOOGLE_API_KEY` is no longer required). Two stages: the non-grounded OpenRouter analyzer `GAP_FILL_ANALYZER_MODEL` identifies up to `GAP_FILL_MAX_GAPS` factual gaps, ranked by decision-relevance so the trailing slot holds the least forecast-moving gap → parallel OpenAI native web searches (`GAP_FILL_RESOLVER_MODEL` at `GAP_FILL_RESOLVER_REASONING_EFFORT`, via OpenRouter on the primary key; sol→terra 2026-07-20 — terra preferred-or-within-noise in all three 2026-07 blind role audits at ~40-50% lower cost, and these searches are the single biggest research line item ~44% of spend) resolve each. Soft-fails (returns `""`) on any error.
+
+**Gap-fill v2 (agentic research loop)** (`sibyl/research/agentic/`, entry `research/agentic_gap_fill.py` `run_gap_fill_v2`): a bounded tool loop run by a driver LLM (`GAP_FILL_V2_DRIVER_MODEL` / `GAP_FILL_V2_DRIVER_EFFORT` in `constants.py`, both picked by the 2026-07-17 blind driver eval — `bottega:scratch/driver_replay_2026-07-17/blind_judge_report.md`). The driver is briefed with the forecaster prompt template, privately dry-runs the forecast to find fill/verify targets, then iterates over four tools (`research/agentic/tools.py`): `search_news` (AskNews via the existing rate-gate), `search_web` (Exa direct), `fetch` (auto-escalating ladder plain → headless Chromium → `read_document`), and `read_document` (`GAP_FILL_V2_READER_MODEL` via Gemini url_context). Output is a detached citation-only findings artifact appended to the bundle under `## Agentic Research Findings`, with a `### ⚠ Corrections to the briefing` priority block first; a ghost forecast is logged for telemetry only (`GHOST_FORECAST` marker, never published). Anytime output under `GAP_FILL_V2_WALL_DEADLINE` / `GAP_FILL_V2_MAX_TOOL_CALLS` (constants.py); soft-fails to `""` at every boundary; benchmarking-guarded OFF (`is_benchmarking=True` returns `""`). Gated by `GAP_FILL_V2_ENABLED` — **ON in all four workflows since 2026-07-21T17:07Z** (`b4e9df0`; authored 2026-07-17 on the july15 branch, so 07-17 is the authoring date and NOT the era boundary — see the merge-date rule under era-bucketing); v1 gap-fill stays ON alongside for an overlap window. Per-run telemetry marker in the run logs: `GAP_FILL_V2: model=... steps=... tool_calls=... searches= fetches= rendered= reads= dup_tool_calls= deadline_hit= concluded_early= wall_s= findings= pending_leads= lint_rejections= provenance_rejections= quote_mismatch_warnings= plan_gaps= plan_skipped= conclude_gate_rejections= error=` (emitted by `_log_completion`; `docs/agentic_gap_fill.md` reads the fields). `error=` is the one field separating a step-zero crash from an idle run — both otherwise emit `steps=0 tool_calls=0 findings=0`. The turn-one plan and the concluding ghost each emit a `GHOST_PRE` / `GHOST_PRE_JSON` and `GHOST_FORECAST` / `GHOST_FORECAST_JSON` pair, the `_JSON` half carrying the full forecast for `sibyl/ops/score_ghosts.py`.
+
+**Production workflows** (`.github/workflows/run_bot_on_{tournament,metaculus_cup,minibench}.yaml`, `test_bot.yaml`) set `NATIVE_SEARCH_ENABLED=true`, `ANTHROPIC_SEARCH_ENABLED=true`, `GEMINI_SEARCH_ENABLED=false` (2026-08-31), `FINANCIAL_DATA_ENABLED=true`, `GAP_FILL_ENABLED=true`, `PREDICTION_MARKETS_ENABLED='true'`, `RESOLUTION_SOURCE_ENABLED='true'` (the last flipped in all three prod yamls 2026-07-10 after a live-output eyeball). So in prod the active stack is AskNews + OpenAI native search (on the `NATIVE_SEARCH_*` settings above) + Claude web search + financial-data (when classified as financial) + always-on OpenAI native-search gap-fill + the prediction-market snapshot + the Tier-1 resolution-source fetcher.
+

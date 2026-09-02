@@ -1,0 +1,105 @@
+name: Test Bot
+
+on:
+  workflow_dispatch:
+
+# Add concurrency group to prevent parallel runs
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+
+# Daily job to run the simple forecast bot
+jobs:
+  forecast_job:
+    runs-on: ubuntu-latest # determines the machine that will run the job - keep as is
+    # Backstop only: normal runs finish far sooner. Without this, a wedged run
+    # holds the concurrency group for GitHub's 6h default.
+    timeout-minutes: 300
+    steps: # sets up the steps that will be run in order
+      # setup repository with all necessary dependencies - keep as is
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --no-dev --frozen
+      # Chromium for gap-fill v2's rendered-fetch rung (playwright). --with-deps
+      # pulls the system libraries chromium needs on ubuntu runners. The loop
+      # degrades to plain fetch if the browser is missing, so this step is
+      # belt-and-suspenders rather than run-critical.
+      - name: Install Playwright Chromium
+        id: playwright_install
+        continue-on-error: true
+        run: uv run --frozen --no-dev playwright install --with-deps chromium
+      - name: Warn if Playwright install failed
+        if: steps.playwright_install.outcome == 'failure'
+        run: echo "::warning title=Playwright install failed::Chromium install failed — gap-fill v2 rendered-fetch rung will degrade to plain fetch this run. Transient apt/CDN blips are common; investigate only if this recurs."
+      - name: Run bot
+        shell: bash
+        # Repo is public, so uploaded artifacts are effectively public. Log content
+        # (question URLs, predictions, degradation counters) is already public via
+        # Metaculus — acceptable, no redaction. A secret-leakage audit passed: no
+        # logger emits credentials; keys travel only in request headers.
+        # shell: bash yields `set -eo pipefail`, so the `python | tee` pipeline
+        # preserves the intentional sys.exit(1) degradation alert (cli.py ~L186);
+        # a bare `run:` (bash -e, no pipefail) would swallow it as tee's exit 0.
+        run: |
+          mkdir -p run_logs
+          uv run --frozen --no-dev python -m sibyl test --tier free 2>&1 | tee "run_logs/run_${GITHUB_RUN_ID}_$(date -u +%Y%m%dT%H%M%SZ).log"
+        # this reads the environment variables from the github repository.
+        # Store under Settings --> Secrets and variables --> Actions
+        env:
+          # Unbuffered stdout/stderr so log lines stream in real time and nothing
+          # is lost if the run crashes before a buffer flush.
+          PYTHONUNBUFFERED: '1'
+          # THE FREE LANE. This workflow exists to exercise the whole pipeline end to
+          # end at zero API spend, publishing to the unscored bot-testing-area
+          # tournament. --tier free on the command line says the same thing twice on
+          # purpose: the env var is what the code reads, the flag is what a person
+          # reading the run step sees.
+          SIBYL_MODEL_TIER: 'free'
+          METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+          # The only model key. Every roster slot is an OpenRouter :free slug, built as
+          # a plain client on this key -- the primary key is deliberately not used,
+          # because :free variants are served by providers outside its allowed list and
+          # would 404.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Free key. Financial data stays enabled in the free tier because its sources
+          # (FRED, yfinance) cost nothing and its one LLM stage runs on the free model.
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FINANCIAL_DATA_ENABLED: 'true'
+          # The other providers that survive the free tier: public venue APIs, plain
+          # HTTP fetches, the read-only Metaculus search, and keyless FRED/yfinance
+          # series. Their LLM stages run on the free utility model.
+          PREDICTION_MARKETS_ENABLED: 'true'
+          RESOLUTION_SOURCE_ENABLED: 'true'
+          REFERENCE_CLASS_ENABLED: 'true'
+          TS_ANCHOR_ENABLED: 'true'
+          RESOLUTION_STATE_GUARD_ENABLED: 'true'
+          # NO AskNews, Exa, Perplexity, OpenAI, Anthropic or Google keys are passed,
+          # and no paid-search flag is set. The tier guard would veto those providers
+          # anyway; withholding the keys as well means a bug in the guard still cannot
+          # spend, which is the property worth having.
+          DISABLE_AIOHTTP_TRANSPORT: 'true'
+          OPENAI_AGENTS_DISABLE_TRACING: 'true'
+          NUMERIC_STACKING_ENABLED: 'false'
+          BINARY_STACKING_ENABLED: 'false'
+          MC_STACKING_ENABLED: 'false'
+      # Durable capture of research outputs + run logs (telemetry lives on stderr,
+      # tee'd to run_logs/). The artifact name MUST start with research-: sync_all.py
+      # gates the research harvest on that prefix, so a logs-* artifact contributes
+      # zero research records no matter what it contains. RUN_LOG_ARTIFACT_PREFIXES
+      # covers both families, so telemetry harvesting is unaffected by the name.
+      - name: Upload research outputs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: research-${{ github.run_id }}
+          path: |
+            research_outputs/
+            run_logs/
+          retention-days: 90
+          if-no-files-found: ignore
