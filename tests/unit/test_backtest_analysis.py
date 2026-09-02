@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from sibyl.eval.backtest.analysis import BacktestResult
+from sibyl.eval.backtest.analysis import BacktestResult, aggregate_scores
 from sibyl.eval.backtest.scoring import GroundTruth, QuestionScore
 
 
@@ -343,3 +343,49 @@ class TestSaveBacktestData:
 
         assert Path(filepath).exists()
         assert Path(nested_dir).is_dir()
+
+
+class TestBotMinusCommunityCi:
+    """The added paired CI, and why it is nested rather than placed beside the scalar."""
+
+    def test_absent_when_no_score_has_a_community_baseline(self) -> None:
+        scores = [QuestionScore(1, "binary", 0.25, None, "brier")]
+        assert aggregate_scores(scores)["brier"]["bot_minus_community_ci"] is None
+
+    def test_equals_the_legacy_scalar_when_every_score_is_paired(self) -> None:
+        scores = [
+            QuestionScore(1, "binary", 0.25, 0.15, "brier"),
+            QuestionScore(2, "binary", 0.35, 0.25, "brier"),
+            QuestionScore(3, "binary", 0.45, 0.35, "brier"),
+        ]
+        aggregated = aggregate_scores(scores)["brier"]
+        assert aggregated["bot_minus_community_ci"]["mean"] == pytest.approx(aggregated["bot_minus_community"])
+
+    def test_diverges_from_the_scalar_when_the_group_is_partly_unpaired(self) -> None:
+        """The reason it carries its own mean and n.
+
+        The legacy scalar subtracts two means taken over DIFFERENT denominators: the bot
+        mean spans all three questions, the community mean only the two that have a
+        baseline. That is not an estimate any interval brackets, so the CI reports the
+        mean of the per-question differences over the paired subset instead.
+        """
+        scores = [
+            QuestionScore(1, "binary", 0.20, 0.10, "brier"),
+            QuestionScore(2, "binary", 0.20, 0.10, "brier"),
+            QuestionScore(3, "binary", 0.80, None, "brier"),
+        ]
+        aggregated = aggregate_scores(scores)["brier"]
+        assert aggregated["bot_minus_community_ci"]["mean"] == pytest.approx(0.10)
+        assert aggregated["bot_minus_community_ci"]["n"] == 2
+        assert aggregated["bot_minus_community"] == pytest.approx(0.30)
+
+    def test_a_constant_gap_has_a_zero_width_interval(self) -> None:
+        scores = [QuestionScore(qid, "binary", 0.30, 0.20, "brier") for qid in range(1, 11)]
+        ci = aggregate_scores(scores)["brier"]["bot_minus_community_ci"]
+        assert ci["low"] == pytest.approx(0.10) and ci["high"] == pytest.approx(0.10)
+
+    def test_an_interval_containing_zero_means_no_edge_over_the_community(self) -> None:
+        deltas = [-0.05, 0.05, -0.04, 0.04, -0.03, 0.03, -0.02, 0.02]
+        scores = [QuestionScore(i, "binary", 0.30 + d, 0.30, "brier") for i, d in enumerate(deltas, start=1)]
+        ci = aggregate_scores(scores)["brier"]["bot_minus_community_ci"]
+        assert ci["low"] <= 0.0 <= ci["high"]

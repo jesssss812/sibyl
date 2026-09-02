@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from sibyl.eval.backtest.scoring import GroundTruth, QuestionScore
+from sibyl.eval.stats import bootstrap_mean_ci
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -56,9 +57,32 @@ def aggregate_scores(scores: list[QuestionScore]) -> dict[str, dict]:
             "community_mean": community_mean,
             "bot_minus_community": bot_minus_community,
             "n": len(metric_scores),
+            "bot_minus_community_ci": _bot_minus_community_ci(metric_scores),
         }
 
     return aggregated
+
+
+def _bot_minus_community_ci(metric_scores: list[QuestionScore]) -> dict[str, Any] | None:
+    """A paired bootstrap CI on bot-minus-community, or None when nothing is paired.
+
+    Nested under its own key with its OWN mean and n, rather than sitting beside the
+    legacy ``bot_minus_community`` scalar, because the two are not always the same
+    number. The scalar is a difference of two means taken over DIFFERENT denominators --
+    the bot mean spans every score in the group while the community mean spans only
+    those with a community score -- so when the group is partly unpaired it is not an
+    estimate any interval brackets. This one is the mean of the per-question differences
+    over the paired subset, which is the quantity Rule 1 of the eval strategy says to
+    report, and it equals the scalar exactly when every score is paired.
+
+    Added as a key rather than replacing the scalar: existing consumers and the recorded
+    golden aggregate_scores output keep their values unchanged.
+    """
+    deltas = [s.bot_score - s.community_score for s in metric_scores if s.community_score is not None]
+    if not deltas:
+        return None
+    mean, low, high = bootstrap_mean_ci(deltas, seed=0)
+    return {"mean": mean, "low": low, "high": high, "n": len(deltas)}
 
 
 def generate_backtest_report(
