@@ -92,6 +92,7 @@
   "python_m_modules": [
     "sibyl",
     "sibyl.aggregation.calibration.fit_platt_cli",
+    "sibyl.eval",
     "sibyl.eval.ablation.cli",
     "sibyl.eval.backtest",
     "sibyl.eval.ensemble",
