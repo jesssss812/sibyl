@@ -94,60 +94,61 @@ run:
 # Use it to exercise and validate the eval path. Its scores measure the PIPELINE, never
 # forecasting skill; do not report them as accuracy.
 backtest_fixture:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --fixture --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --fixture --num-questions 8)
 
 # Two identical arms must score identically — the A/A null test. A non-zero paired
 # difference here means the harness is broken, not that an arm is better.
 backtest_fixture_aa:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --fixture --fixture-seed 0 --num-questions 8)
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --fixture --fixture-seed 0 --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --fixture --fixture-seed 0 --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --fixture --fixture-seed 0 --num-questions 8)
 
 analyze_correlations:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ensemble $(if $(FILE),$(FILE),benchmarks/))
+	$(call RUN_UNBUFFERED,-m sibyl.eval ensemble $(if $(FILE),$(FILE),benchmarks/))
 
 analyze_correlations_latest:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ensemble $$(ls -t benchmarks/benchmarks_*.jsonl | head -1))
+	$(call RUN_UNBUFFERED,-m sibyl.eval ensemble $$(ls -t benchmarks/benchmarks_*.jsonl | head -1))
 
 analyze_correlations_latest_excluding:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ensemble $$(ls -t benchmarks/benchmarks_*.jsonl | head -1) --exclude-models grok-4 gemini-2.5-pro)
+	$(call RUN_UNBUFFERED,-m sibyl.eval ensemble $$(ls -t benchmarks/benchmarks_*.jsonl | head -1) --exclude-models grok-4 gemini-2.5-pro)
 
 backtest_smoke_test:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 4)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --num-questions 4)
 
 backtest_small:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 12)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --num-questions 12)
 
 backtest_medium:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 32)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --num-questions 32)
 
 backtest_large:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 100)
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --num-questions 100)
 
 # Probabilistic-tools ablation benchmark.
-# CLI: sibyl/eval/ablation/cli.py (entry point: python -m sibyl.eval.ablation.cli).
+# CLI: sibyl/eval/ablation/cli.py (entry point: python -m sibyl.eval ablation;
+# python -m sibyl.eval.ablation.cli still works).
 # Tournaments default in the CLI (spring-aib-2026 + other 2026 slugs); not pinned here.
 ablation_qa_research:
 	# Runs only fetch + research + leakage screen + QA dump, then halts.
 	# Uses 3/3/3 question mix. No forecasting, no stacking.
 	# Config-in-code: --no-gap-fill (gap-fill amplifies leakage on resolved Qs);
 	# --gemini-model gemini-2.5-flash (free tier, no Tier 1 billing required).
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash --qa-research)
+	$(call RUN_UNBUFFERED,-m sibyl.eval ablation --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash --qa-research)
 
 ablation_smoke:
 	# 9 questions: 3 binary, 3 MC, 3 numeric. Full pipeline through scoring.
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
+	$(call RUN_UNBUFFERED,-m sibyl.eval ablation --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
 
 ablation_small:
 	# 15 questions: 5/5/5.
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 5 --num-multiple-choice 5 --num-numeric 5 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
+	$(call RUN_UNBUFFERED,-m sibyl.eval ablation --num-binary 5 --num-multiple-choice 5 --num-numeric 5 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
 
 ablation_medium:
 	# 60 questions: 20/20/20. PENDING USER SIGN-OFF — do not run without explicit go-ahead.
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --num-binary 20 --num-multiple-choice 20 --num-numeric 20 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
+	$(call RUN_UNBUFFERED,-m sibyl.eval ablation --num-binary 20 --num-multiple-choice 20 --num-numeric 20 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash)
 
 ablation_score:
 	# Re-runs scoring against existing caches (no API spend).
-	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --stages score)
+	$(call RUN_UNBUFFERED,-m sibyl.eval ablation --stages score)
 
 # The free end-to-end lane. Runs the WHOLE pipeline -- fetch, research, three
 # forecasters, aggregation, publish -- at zero API spend, against the unscored
@@ -318,7 +319,7 @@ backfill_comments:
 
 # Run backtest using cached (non-leaky) research from the archive.
 backtest_with_cache:
-	$(call RUN_UNBUFFERED,-m sibyl.eval.backtest --num-questions 20 --research-dir backtests/research_archive/latest $(ARGS))
+	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --num-questions 20 --research-dir backtests/research_archive/latest $(ARGS))
 
 # Check OpenRouter key balances. Pass ARGS="--key primary" or ARGS="--key fallback"
 # to limit which key is queried (default: both).
