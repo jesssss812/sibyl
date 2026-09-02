@@ -70,9 +70,22 @@ forecaster vendors must be distinct. A third, `tests/live/test_free_tier.py`, ch
 roster against OpenRouter's live catalogue — the only check that catches a withdrawal,
 since a withdrawn slug still ends in `:free`.
 
-**Still to do:** re-run `make e2e_free` to confirm the new roster actually forecasts.
-Existence in the catalogue is not the same as working, and picking slugs off a list
-without a live run is what produced the original fault.
+Verified by a second run: survivors went 1/3 -> 2/3 and gemma was never rate-limited.
+
+**Still open, and not a roster bug:** `z-ai/glm-5.2:free` is 429 rate-limited on its
+UPSTREAM shared pool, which every `:free` slug shares with the whole of OpenRouter's free
+tier. That is a function of the hour, not of our configuration, and swapping models to
+chase it is a treadmill. Two live questions follow from it:
+
+- Should the free tier treat a dropped forecaster as alertable at all? In prod it plainly
+  should. In the free tier, upstream 429s are routine background noise, so `make e2e_free`
+  is permanently red for a reason that says nothing about the code. Changing this means
+  touching the degradation contract, which is why it is a question rather than a patch.
+- `/api/comments/` returns 403 for the current `METACULUS_TOKEN` while `/api/posts/<id>/`
+  succeeds, so the token is valid and that endpoint is specifically restricted. Nothing in
+  the bot's publishing path needs it, but `sibyl/eval/performance/collector.py` fetches
+  comments to score past forecasts, so performance analysis will hit the same wall until
+  the token's scope is widened.
 
 ## Constraints worth knowing before changing things
 

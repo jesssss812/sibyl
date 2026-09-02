@@ -174,3 +174,41 @@ The non-zero exit is correct behaviour, not a failure of the lane: six dropped
 forecasters is six alertable events, and the run still published every question it could.
 But it does mean `make e2e_free` stays red until the roster is repaired. Both items are
 in [roadmap.md](../roadmap.md).
+
+### The second run, on the repaired roster (2026-09-02)
+
+Same command, after replacing the withdrawn qwen slug and moving the forecasters off the
+utility model. **Survivors went from 1/3 to 2/3 on every question**, and dropped
+forecasters from six to three. gemma was not rate-limited once — separating the utility
+slots from the forecaster slots did what it was meant to.
+
+```
+FORECASTERS_SURVIVED: survived=2/3 models=minimax-m3:free,nemotron-3-super-120b-a12b:free
+Degradation counters: forecasters_dropped=3, questions_failed_to_publish=0, ...
+CREDIT_SPEND: key=fallback run_delta_usd=0.00
+✅ .../questions/43327 | 5.0%    ✅ .../questions/43326 | MC    ✅ .../questions/43325 | 11.0%
+```
+
+The remaining failure is a **different kind** from the two that were fixed, and the
+distinction matters:
+
+| model | failure | kind |
+| --- | --- | --- |
+| `qwen3-next-80b-a3b-instruct:free` | 404, withdrawn | permanent defect — fixed by replacing it |
+| `gemma-4-31b-it:free` | 429, our own contention | self-inflicted — fixed by separating the slots |
+| `z-ai/glm-5.2:free` | 429, upstream shared pool | **inherent to the free tier** |
+
+The third is not a roster bug. Any `:free` slug shares an upstream pool with everyone
+else on OpenRouter's free tier, and 429s there are a function of the hour rather than of
+our configuration. Swapping models to chase it is a treadmill. Two surviving forecasters
+still clear `MIN_FORECASTERS_TO_PUBLISH` and still form an ensemble, so the lane works —
+but the run keeps exiting non-zero, because a dropped forecaster is alertable and in the
+free tier that will happen routinely. Whether the free tier should treat forecaster drops
+as alertable at all is an open question, in [roadmap.md](../roadmap.md).
+
+The published comment could not be read back for confirmation: `/api/comments/` returns
+403 for this token, though `/api/posts/<id>/` succeeds with it, so the token is valid and
+that endpoint is specifically restricted. The comment cleanup is verified instead by the
+twenty unit tests — including six-parser agreement across the twelve real archived
+comments — and by the golden re-record, which showed exactly the intended −287 characters
+and no other change.
