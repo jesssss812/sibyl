@@ -24,7 +24,6 @@ from forecasting_tools.data_models.forecast_report import ForecastReport
 from forecasting_tools.data_models.multiple_choice_report import MultipleChoiceReport
 from forecasting_tools.data_models.numeric_report import NumericReport
 from forecasting_tools.data_models.questions import OutOfBoundsResolution
-from scipy import stats as scipy_stats
 
 from sibyl.eval.backtest.scoring import (
     GroundTruth,
@@ -34,10 +33,18 @@ from sibyl.eval.backtest.scoring import (
 )
 from sibyl.eval.scoring import PROB_CLAMP_MIN, binary_log_score, brier_score
 
-logger: logging.Logger = logging.getLogger(__name__)
+# Re-exported, not redefined. These four primitives and their two thresholds moved to
+# eval/stats.py so `eval compare` can call them instead of copying them; importing them
+# back under their old names here means every existing caller, and every ablation test,
+# is untouched -- which is what makes the move provably behaviour-preserving.
+from sibyl.eval.stats import (
+    bootstrap_mean_ci,
+    bootstrap_median_ci,
+    sign_test,
+    wilcoxon_signed_rank,
+)
 
-WILCOXON_MIN_N: int = 6
-BOOTSTRAP_MIN_N: int = 5
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Comparison labels — every PairedScore row carries one of these and Δ is the
 # corresponding signed difference.
@@ -131,32 +138,6 @@ def is_score_saturated(metric: str, score: float, n_mc_options: int | None = Non
     if metric == "brier":
         return score >= BRIER_FLOOR - SATURATION_EPS_BRIER
     return False
-
-
-def bootstrap_median_ci(
-    deltas: list[float], n_bootstrap: int = 5000, alpha: float = 0.05, seed: int = 0
-) -> tuple[float, float, float]:
-    """Paired bootstrap on deltas — resample, recompute MEDIAN, take CI percentiles.
-
-    For n < BOOTSTRAP_MIN_N, returns (median, median, median).
-    """
-    n = len(deltas)
-    if n == 0:
-        return (float("nan"), float("nan"), float("nan"))
-
-    arr = np.asarray(deltas, dtype=float)
-    median = float(np.median(arr))
-
-    if n < BOOTSTRAP_MIN_N:
-        return (median, median, median)
-
-    rng = np.random.default_rng(seed)
-    indices = rng.integers(0, n, size=(n_bootstrap, n))
-    boot_medians = np.median(arr[indices], axis=1)
-
-    lo = float(np.percentile(boot_medians, 100 * alpha / 2))
-    hi = float(np.percentile(boot_medians, 100 * (1 - alpha / 2)))
-    return median, lo, hi
 
 
 @dataclass
@@ -548,70 +529,6 @@ def score_arm_for_qid(
                 )
             )
     return paired
-
-
-# ---------------------------------------------------------------------------
-# Statistical primitives
-# ---------------------------------------------------------------------------
-
-
-def bootstrap_mean_ci(
-    deltas: list[float], n_bootstrap: int = 5000, alpha: float = 0.05, seed: int = 0
-) -> tuple[float, float, float]:
-    """Paired bootstrap on the deltas: resample with replacement, recompute mean, take CI percentiles.
-
-    For n < 5, returns (mean, mean, mean) — too few samples for a meaningful CI.
-    """
-    n = len(deltas)
-    if n == 0:
-        return (float("nan"), float("nan"), float("nan"))
-
-    arr = np.asarray(deltas, dtype=float)
-    mean = float(arr.mean())
-
-    if n < BOOTSTRAP_MIN_N:
-        return (mean, mean, mean)
-
-    rng = np.random.default_rng(seed)
-    indices = rng.integers(0, n, size=(n_bootstrap, n))
-    boot_means = arr[indices].mean(axis=1)
-
-    lo = float(np.percentile(boot_means, 100 * alpha / 2))
-    hi = float(np.percentile(boot_means, 100 * (1 - alpha / 2)))
-    return mean, lo, hi
-
-
-def sign_test(deltas: list[float]) -> float:
-    """Two-sided sign test on Δ vs 0. Ties (delta == 0) excluded.
-
-    Returns p-value. If all values are ties, returns 1.0.
-    """
-    nonzero = [d for d in deltas if d != 0.0]
-    n = len(nonzero)
-    if n == 0:
-        return 1.0
-
-    n_pos = sum(1 for d in nonzero if d > 0)
-    result = scipy_stats.binomtest(n_pos, n, p=0.5, alternative="two-sided")
-    return float(result.pvalue)
-
-
-def wilcoxon_signed_rank(deltas: list[float]) -> float | None:
-    """Wilcoxon signed-rank, two-sided. Returns p-value, or None if n < WILCOXON_MIN_N.
-
-    All-zero or all-equal arrays raise inside scipy; we return None in that case as well.
-    """
-    if len(deltas) < WILCOXON_MIN_N:
-        return None
-
-    if all(d == 0.0 for d in deltas):
-        return None
-
-    try:
-        result = scipy_stats.wilcoxon(deltas, zero_method="wilcox", alternative="two-sided")
-    except ValueError:
-        return None
-    return float(result.pvalue)
 
 
 # ---------------------------------------------------------------------------
