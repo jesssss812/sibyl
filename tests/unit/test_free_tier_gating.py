@@ -156,6 +156,28 @@ class TestFreeRosterShape:
         for llm in roster.forecasters:
             assert not llm.model.endswith(":free"), llm.model
 
+    def test_no_forecaster_shares_the_utility_model(self) -> None:
+        """The rate-limit fault from the 2026-09-02 run, as an assertion.
+
+        gemma was a forecaster AND all five utility slots, so one run asked a single
+        shared free pool for summarize, parse, stack, analyze and forecast, and was 429'd
+        every time. Keeping them separate spreads the load across four pools.
+        """
+        from sibyl.config.models import FREE_UTILITY_MODEL
+
+        roster = get_roster(ModelTier.FREE)
+        forecaster_slugs = {llm.model for llm in roster.forecasters}
+        assert FREE_UTILITY_MODEL not in forecaster_slugs, (
+            f"{FREE_UTILITY_MODEL} serves the utility slots; using it as a forecaster too "
+            "concentrates the whole run on one provider's free quota"
+        )
+
+    def test_forecasters_come_from_distinct_vendors(self) -> None:
+        """Three members from one vendor correlate, which is an expensive way to ask one
+        model three times -- and they share a rate-limit pool, so they fail together."""
+        vendors = [llm.model.split("/")[1] for llm in get_roster(ModelTier.FREE).forecasters]
+        assert len(set(vendors)) == len(vendors), f"duplicate vendor in the free roster: {vendors}"
+
     def test_enough_free_forecasters_to_clear_the_publish_guard(self) -> None:
         # Below MIN_FORECASTERS_TO_PUBLISH the free lane would fetch questions, run
         # models, and publish nothing -- a green run that did no work.

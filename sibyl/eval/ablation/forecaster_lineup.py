@@ -130,16 +130,16 @@ def get_lineup(name: str) -> tuple[list[GeneralLlm], list[str]]:
 #   "normal" distribution with σ=13K vs ensemble median σ ~965K (1.3% of
 #   ensemble σ). Arm B's stacker over-weighted GLM and saturated the schema
 #   floor (-220 log score). User signed off post-Phase-A.2.
-# * ``qwen3-next-80b-a3b-instruct:free`` is retained despite chronic Venice
-#   upstream rate-limiting — that's what the ``patient`` rate-limit-mode (CLI
-#   default) is for. Dropping qwen would put us at 3 free models, which is
-#   below the noise floor for ensemble diversity at 50q scale.
+# * ``qwen3-next-80b-a3b-instruct:free`` was retained for a long time despite chronic
+#   Venice upstream rate-limiting — that is what the ``patient`` rate-limit-mode (CLI
+#   default) is for. It is gone now, and not by choice: OpenRouter WITHDREW the free
+#   variant, which the 2026-09-02 end-to-end run discovered as a 404 on every question.
 # Re-exported from the config roster rather than defined here, so the repo has ONE free
-# lineup. This CHANGED the ablation lineup: it was four models (minimax-m2.5,
-# gemma-4-26b-a4b-it, nemotron, qwen3-next) and is now the roster's three
-# (gemma-4-31b-it, nemotron, qwen3-next). The note above about qwen keeping the count at
-# four is therefore stale, and ablation results either side of this change are not
-# directly comparable. Kept as a list, not the roster's tuple, because callers mutate it.
+# lineup. That changed this lineup twice: first from four models (minimax-m2.5,
+# gemma-4-26b-a4b-it, nemotron, qwen3-next) to three, then again on 2026-09-02 when the
+# roster was repaired to nemotron / minimax-m3 / glm-5.2 — three distinct vendors, none of
+# them the utility model. Ablation results either side of either change are not directly
+# comparable. Kept as a list, not the roster's tuple, because callers mutate it.
 FREE_FORECASTER_MODELS: list[str] = list(ROSTER_FREE_FORECASTER_MODELS)
 
 # Parser stays on a Google-served free model so the primary-key wrapper

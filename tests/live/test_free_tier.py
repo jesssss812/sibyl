@@ -281,3 +281,34 @@ async def test_free_roster_runs_the_real_pipeline_without_publishing():
     assert reports, "no report returned"
     prediction = cast("float", reports[0].prediction)  # type: ignore[union-attr]
     assert 0.0 <= prediction <= 1.0, prediction
+
+
+@pytest.mark.live
+def test_every_free_roster_slug_still_exists_on_openrouter():
+    """The check no structural test can make: does the slug still EXIST?
+
+    The 2026-09-02 end-to-end run failed two of three forecasters, and one of them --
+    `qwen/qwen3-next-80b-a3b-instruct:free` -- had simply been withdrawn. OpenRouter
+    answered 404 "This model is unavailable for free". No unit test caught it because the
+    unit tests assert the slug ends in `:free`, which a withdrawn slug still does.
+
+    Free variants disappear without notice, so the only real check is against the live
+    catalogue. Read-only, unauthenticated, and free -- it is a model LIST, not a model
+    call, so this costs nothing even though it lives in the live suite (which it must:
+    the suite's egress guard blocks it otherwise).
+    """
+    import json
+    import urllib.request
+
+    from sibyl.config.models import FREE_FORECASTER_MODELS, FREE_UTILITY_MODEL
+
+    with urllib.request.urlopen("https://openrouter.ai/api/v1/models", timeout=60) as response:
+        catalogue = {model["id"] for model in json.load(response)["data"]}
+
+    # The roster carries an "openrouter/" transport prefix that the catalogue does not.
+    roster = [*FREE_FORECASTER_MODELS, FREE_UTILITY_MODEL]
+    withdrawn = [slug for slug in roster if slug.removeprefix("openrouter/") not in catalogue]
+    assert not withdrawn, (
+        f"these free slugs no longer exist on OpenRouter: {withdrawn}. "
+        "Pick replacements from https://openrouter.ai/api/v1/models and re-run make e2e_free."
+    )

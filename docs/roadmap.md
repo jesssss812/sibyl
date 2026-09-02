@@ -54,20 +54,25 @@ plan does not name" rule.
 - **docs/architecture-notes.md was never written.** [vision.md](vision.md) makes it the
   comprehension checkpoint gating repo surgery; the surgery happened first.
 
-## Free roster repairs (found by the 2026-09-02 e2e run)
+## Free roster (repaired 2026-09-02, verification pending)
 
-- **`qwen/qwen3-next-80b-a3b-instruct:free` is dead.** OpenRouter returns 404: "This model
-  is unavailable for free." Confirmed against its public model list. It needs replacing in
-  `FREE_FORECASTER_MODELS` in `sibyl/config/models.py`.
-- **`gemma-4-31b-it:free` is rate-limited into uselessness** because it is both a
-  forecaster and all five utility slots, so a single run hits one shared free pool for
-  summarize, parse, stack, analyze and forecast. Moving the forecaster slot to a different
-  vendor would leave gemma serving only the utility work.
-- Until both are fixed, `make e2e_free` publishes on one surviving forecaster and exits
-  non-zero — correct behaviour, but a permanently red lane.
-- Whatever replaces them should be checked against
-  `https://openrouter.ai/api/v1/models` first: free variants are withdrawn without notice,
-  which is exactly how this one broke.
+The first end-to-end run found two faults, both now fixed in `sibyl/config/models.py`:
+
+- `qwen/qwen3-next-80b-a3b-instruct:free` had been **withdrawn** by OpenRouter and
+  answered 404 on every question. Replaced.
+- `gemma-4-31b-it:free` was 429 rate-limited every time because it served as a forecaster
+  *and* all five utility slots. The forecasters are now three distinct vendors
+  (nemotron / minimax-m3 / glm-5.2), none of them the utility model, so the load spreads
+  across four free pools instead of one.
+
+Two tests enforce the shape that broke: no forecaster may share the utility model, and
+forecaster vendors must be distinct. A third, `tests/live/test_free_tier.py`, checks the
+roster against OpenRouter's live catalogue — the only check that catches a withdrawal,
+since a withdrawn slug still ends in `:free`.
+
+**Still to do:** re-run `make e2e_free` to confirm the new roster actually forecasts.
+Existence in the catalogue is not the same as working, and picking slugs off a list
+without a live run is what produced the original fault.
 
 ## Constraints worth knowing before changing things
 

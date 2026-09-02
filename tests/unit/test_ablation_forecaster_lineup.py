@@ -24,9 +24,10 @@ def test_free_lineup_is_the_config_roster() -> None:
     """The ablation lineup IS the free roster; there is one free lineup in the repo.
 
     This replaced a hard-coded count of four. The lineup was minimax-m2.5,
-    gemma-4-26b-a4b-it, nemotron and qwen3-next; it is now the roster's three. Ablation
-    results either side of that change are not directly comparable -- see the note on
-    FREE_FORECASTER_MODELS in forecaster_lineup.py.
+    gemma-4-26b-a4b-it, nemotron and qwen3-next; it now follows the roster, which was
+    itself repaired on 2026-09-02 after OpenRouter withdrew the qwen free variant.
+    Ablation results either side of either change are not directly comparable -- see the
+    note on FREE_FORECASTER_MODELS in forecaster_lineup.py.
 
     Asserting the identity rather than a number is the point: a count goes stale every
     time the roster rotates, and re-recording it teaches nothing.
