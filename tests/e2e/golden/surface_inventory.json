@@ -66,6 +66,7 @@
     "download_raw_research",
     "download_research",
     "download_run_logs",
+    "e2e_free",
     "format",
     "install",
     "lint",

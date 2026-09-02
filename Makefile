@@ -149,6 +149,21 @@ ablation_score:
 	# Re-runs scoring against existing caches (no API spend).
 	$(call RUN_UNBUFFERED,-m sibyl.eval.ablation.cli --stages score)
 
+# The free end-to-end lane. Runs the WHOLE pipeline -- fetch, research, three
+# forecasters, aggregation, publish -- at zero API spend, against the unscored
+# bot-testing-area tournament. Every model slot is an OpenRouter :free slug and the
+# paid research providers are vetoed by the tier guard.
+#
+# It DOES publish. Free of money is not free of consequence: the comments land on real
+# Metaculus questions under the operator's account. Nothing there is scored, which is
+# why this is the only mode the free tier is allowed to run.
+#
+# Needs METACULUS_TOKEN and OPENROUTER_API_KEY in .env. The cap stays small: OpenRouter
+# allows roughly 50 :free requests a day without a balance and one question costs
+# several.
+e2e_free:
+	SIBYL_MODEL_TIER=free $(call RUN_UNBUFFERED,-m sibyl test --tier free --max-questions 3)
+
 test_e2e:
 	$(call RUN_UNBUFFERED,-m pytest -m e2e -v --tb=short)
 
