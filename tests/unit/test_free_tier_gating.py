@@ -120,7 +120,16 @@ class TestPrimaryLadderIsDisabled:
         assert await provider(MagicMock()) == ""
 
     def test_prod_tier_still_selects_a_primary(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The tier gate must not fire in prod -- with a key present, a rung is chosen.
+
+        The key is set explicitly because the ladder returns "none" when NO provider is
+        credentialed, which is indistinguishable from the free tier's veto by name alone.
+        Without it this test passed on a developer machine with a populated .env and
+        failed in CI, which has no secrets -- the exact ambient-credential dependence the
+        suite's autouse flag isolation exists to prevent.
+        """
         monkeypatch.setenv(MODEL_TIER_ENV, ModelTier.PROD.value)
+        monkeypatch.setenv(settings.OPENROUTER_API_KEY_ENV, "test-key-not-used-for-a-call")
         _provider, name = _orchestrator()._select_research_provider()
         assert name != "none"
 
