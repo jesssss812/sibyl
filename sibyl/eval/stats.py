@@ -16,6 +16,10 @@ eval layer whose own numbers wobble cannot be used to judge anything else.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 from scipy import stats as scipy_stats
 
@@ -24,6 +28,8 @@ __all__ = [
     "WILCOXON_MIN_N",
     "bootstrap_mean_ci",
     "bootstrap_median_ci",
+    "minimum_detectable_effect",
+    "paired_summary",
     "sign_test",
     "wilcoxon_signed_rank",
 ]
@@ -120,3 +126,54 @@ def bootstrap_median_ci(
     lo = float(np.percentile(boot_medians, 100 * alpha / 2))
     hi = float(np.percentile(boot_medians, 100 * (1 - alpha / 2)))
     return median, lo, hi
+
+
+def minimum_detectable_effect(sd: float, n: int, power: float = 0.8, alpha: float = 0.05) -> float:
+    """The smallest true effect this many pairs could reliably detect.
+
+    ``(z_{1-alpha/2} + z_{power}) * sd / sqrt(n)`` -- the standard two-sided paired-test
+    MDE. Reported alongside every comparison because a null result is ambiguous without
+    it: "no significant difference at n=40" and "no difference" are very different
+    claims, and only the MDE says which one the data supports. A confidence interval
+    that comfortably contains an effect the size of the MDE has not ruled that effect
+    out.
+
+    Returns NaN for a non-positive n rather than dividing by zero, so a caller that
+    dropped every pair gets a missing number instead of a crash.
+    """
+    if n <= 0:
+        return float("nan")
+    z_alpha = float(scipy_stats.norm.ppf(1 - alpha / 2))
+    z_power = float(scipy_stats.norm.ppf(power))
+    return (z_alpha + z_power) * sd / math.sqrt(n)
+
+
+def paired_summary(deltas: Sequence[float], n_bootstrap: int = 5000, seed: int = 0) -> dict[str, Any]:
+    """Everything worth saying about one set of paired deltas, in one call.
+
+    Mean and median with bootstrap CIs, the two non-parametric tests, and the MDE at the
+    surviving n. Both centres because they disagree informatively: a mean that moves
+    while the median does not is a handful of questions, not a systematic shift, and
+    reporting only one hides which case you are in.
+
+    NaN deltas are DROPPED and ``n`` counts only survivors. A question that failed in one
+    arm has no delta, and treating it as zero would understate the effect and overstate
+    the power in the same breath.
+    """
+    clean = [d for d in deltas if not math.isnan(d)]
+    n = len(clean)
+    mean_delta, mean_lo, mean_hi = bootstrap_mean_ci(clean, n_bootstrap=n_bootstrap, seed=seed)
+    median_delta, median_lo, median_hi = bootstrap_median_ci(clean, n_bootstrap=n_bootstrap, seed=seed)
+    sd = float(np.std(clean, ddof=1)) if n > 1 else 0.0
+    return {
+        "n": n,
+        "mean_delta": mean_delta,
+        "median_delta": median_delta,
+        "mean_ci_low": mean_lo,
+        "mean_ci_high": mean_hi,
+        "median_ci_low": median_lo,
+        "median_ci_high": median_hi,
+        "sign_test_p": sign_test(clean),
+        "wilcoxon_p": wilcoxon_signed_rank(clean),
+        "mde": minimum_detectable_effect(sd=sd, n=n),
+    }
