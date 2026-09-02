@@ -35,9 +35,7 @@ class TestActiveTier:
         assert active_tier() is ModelTier.PROD
 
     @pytest.mark.parametrize("raw", ["production", "paid", "cheap", "true", "1"])
-    def test_an_unrecognised_tier_raises_rather_than_guessing(
-        self, monkeypatch: pytest.MonkeyPatch, raw: str
-    ) -> None:
+    def test_an_unrecognised_tier_raises_rather_than_guessing(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
         """Neither fallback is safe, so there is no fallback.
 
         Defaulting an unrecognised value to FREE would silently downgrade a prod run and
