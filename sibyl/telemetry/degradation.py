@@ -16,6 +16,8 @@ harvesting (see the 2026-07-26 ``research_provider_timeouts`` rename).
 
 from typing import TYPE_CHECKING
 
+from sibyl.config.models import ModelTier, active_tier
+
 if TYPE_CHECKING:
     from sibyl.forecasting.bot import SibylBot
 
@@ -29,9 +31,19 @@ def alertable_total(bot: "SibylBot") -> int:
 
     The conditional-stacking counters are deliberately absent: a triggered or
     skipped stacker is normal operation, not degradation.
+
+    ``forecasters_dropped`` is absent in the FREE tier, and only there. Every
+    OpenRouter ``:free`` slug shares one upstream pool with the whole of that tier, so a
+    429 is a function of the hour rather than of anything this repo did; treating it as
+    alertable makes the free lane permanently red for a reason that says nothing about
+    the code, which is how a red signal stops being read at all. The drops are still
+    COUNTED, still logged in the degradation summary, and still raise
+    SYSTEMATIC_FORECASTER_FAILURE at WARNING -- only the exit status changes. See
+    docs/decisions/0003-model-tiers.md for the caveat this buys, because it is a real one.
     """
+    alertable_drops = 0 if active_tier() is ModelTier.FREE else bot._forecasters_dropped_count
     return (
-        bot._forecasters_dropped_count
+        alertable_drops
         + bot._questions_failed_to_publish
         + bot._stacker_primary_failed_count
         + bot._stacker_fallback_used_count

@@ -38,6 +38,39 @@ resolution source, reference class and time-series anchor are the opposite shape
 public data with an LLM stage bolted on, so they stay and that stage moves to the free
 utility model.
 
+## Amendment (2026-09-02): free-tier forecaster drops are not alertable
+
+`alertable_total` excludes `forecasters_dropped` in the FREE tier, and only there.
+
+Every OpenRouter `:free` slug shares one upstream pool with the whole of that tier, so a
+429 tracks the hour rather than anything in this repo. Two consecutive `make e2e_free`
+runs each lost a forecaster to one, which made the lane permanently red for a reason that
+said nothing about the code — and a signal that is always red stops being read, which
+costs more than the signal was worth.
+
+**The caveat, stated plainly, because this is a real trade and it cuts against
+[eval-strategy.md](../eval-strategy.md) Rule 6 ("degraded runs fail loud"):** a free-tier
+run now exits 0 with forecasters missing. If a free model breaks systematically — a
+withdrawal like the qwen 404, a refusal class, a routing change — the exit status will not
+tell you. It will look like a clean run.
+
+What still tells you, and what to actually read:
+
+- `SYSTEMATIC_FORECASTER_FAILURE` at **WARNING**, naming the model, the question ids and
+  the cause, whenever one model fails across multiple questions in a run. This is the line
+  that caught both faults so far.
+- `Degradation counters: forecasters_dropped=N` in the run summary, unchanged and still a
+  parsed telemetry contract.
+- `FORECASTERS_SURVIVED: survived=N/M` per question.
+- `tests/live/test_free_tier.py`, which checks every roster slug against OpenRouter's live
+  catalogue — the only thing that catches a withdrawal, since a withdrawn slug still ends
+  in `:free`.
+
+The exemption is deliberately narrow, and tests hold it there: it covers exactly
+`forecasters_dropped`, in exactly the free tier. Every other counter — a failure to
+publish, a research provider erroring, a stacker fallback — still exits non-zero in the
+free tier, because none of those is a fact of life about shared quotas. Prod is untouched.
+
 ## Consequences
 
 - **The plan's provider list was incomplete, and this is the finding worth keeping.** The

@@ -77,10 +77,11 @@ UPSTREAM shared pool, which every `:free` slug shares with the whole of OpenRout
 tier. That is a function of the hour, not of our configuration, and swapping models to
 chase it is a treadmill. Two live questions follow from it:
 
-- Should the free tier treat a dropped forecaster as alertable at all? In prod it plainly
-  should. In the free tier, upstream 429s are routine background noise, so `make e2e_free`
-  is permanently red for a reason that says nothing about the code. Changing this means
-  touching the degradation contract, which is why it is a question rather than a patch.
+- ~~Should the free tier treat a dropped forecaster as alertable?~~ **Decided 2026-09-02:
+  no.** `alertable_total` excludes `forecasters_dropped` in the free tier only. The caveat
+  — a green free run can have lost forecasters, so read the log rather than the exit code
+  — is in [decisions/0003-model-tiers.md](decisions/0003-model-tiers.md), AGENTS.md and
+  the README.
 - `/api/comments/` returns 403 for the current `METACULUS_TOKEN` while `/api/posts/<id>/`
   succeeds, so the token is valid and that endpoint is specifically restricted. Nothing in
   the bot's publishing path needs it, but `sibyl/eval/performance/collector.py` fetches

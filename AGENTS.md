@@ -88,6 +88,10 @@ Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_ques
   in the roadmap.
 - **`forecasting-tools` is pinned to `==0.2.92`** and `tests/integration/test_framework_*`
   pin that exact version's behaviour. A bump means re-reading them, not re-recording them.
+- **A green free-tier run can still have lost forecasters.** `forecasters_dropped` is not
+  alertable in the free tier (shared upstream `:free` quotas 429 constantly), so
+  `make e2e_free` exits 0 with models missing. Read `SYSTEMATIC_FORECASTER_FAILURE` and
+  `forecasters_dropped=` in the log, not the exit code. Prod alerts on drops as before.
 - **`bottega:` in a comment or doc** points at the [bottega](https://github.com/jesssss812/bottega)
   repo, which holds the design log and study notes this fork deliberately does not carry.
 
