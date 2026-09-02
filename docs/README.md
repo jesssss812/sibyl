@@ -33,17 +33,17 @@ bug — check the dates before treating any of it as current.
 
 | Doc | What it covers |
 | --- | --- |
-| [planning/vision.md](planning/vision.md) | The ranked purpose and what wins when goals conflict. The tie-breaker when other docs don't settle a question. |
-| [planning/design-principles.md](planning/design-principles.md) | Evidence-graded architecture decisions (Strong / Moderate / Suggestive) drawn from the Metaculus analyses and the Fall-2025 bot-maker survey. |
-| [planning/eval-strategy.md](planning/eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
-| [planning/calibration-primer.md](planning/calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
-| [planning/budget-strategy.md](planning/budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
+| [vision.md](vision.md) | The ranked purpose and what wins when goals conflict. The tie-breaker when other docs don't settle a question. |
+| [design-principles.md](design-principles.md) | Evidence-graded architecture decisions (Strong / Moderate / Suggestive) drawn from the Metaculus analyses and the Fall-2025 bot-maker survey. |
+| [eval-strategy.md](eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
+| [calibration-primer.md](calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
+| [budget-strategy.md](budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
 | `bottega:docs/planning/nostreambot-reading-guide.md` | Reading order for this codebase, written when it was still an external reference. Not carried into this repo; *partly superseded* — see its header, in bottega. |
-| [planning/improvement-plan.md](planning/improvement-plan.md) | *Audit, 2026-08-24.* What the fork already had vs. what was genuinely missing. |
-| [planning/leverage-not-cost-share.md](planning/leverage-not-cost-share.md) | *2026-08-27.* Where to spend model capability: leverage over cost share, why the summarizer is the highest-leverage slot, and what was deliberately not changed. |
-| [planning/cost-tiered-plan.md](planning/cost-tiered-plan.md) | *Plan, 2026-08-27.* Cost-tiered escalation, MC shuffling and extremization — sequenced so the assumption each rests on is tested before it is built on. |
-| [planning/eval-strategy-gaps.md](planning/eval-strategy-gaps.md) | *Audit, 2026-08-24.* `design-principles.md` and `eval-strategy.md` checked rule by rule against the code. |
-- [Moving Anthropic off OpenRouter, and Gemini search off Google](planning/anthropic-direct-swap.md) — why the Anthropic slots route direct, and what silently breaks if the OpenRouter kwargs come along.
+| [decisions/2026-08-24-improvement-plan.md](decisions/2026-08-24-improvement-plan.md) | *Audit, 2026-08-24.* What the fork already had vs. what was genuinely missing. |
+| [decisions/2026-08-27-leverage-not-cost-share.md](decisions/2026-08-27-leverage-not-cost-share.md) | *2026-08-27.* Where to spend model capability: leverage over cost share, why the summarizer is the highest-leverage slot, and what was deliberately not changed. |
+| [decisions/2026-08-27-cost-tiered-plan.md](decisions/2026-08-27-cost-tiered-plan.md) | *Plan, 2026-08-27.* Cost-tiered escalation, MC shuffling and extremization — sequenced so the assumption each rests on is tested before it is built on. |
+| [decisions/2026-08-24-eval-strategy-gaps.md](decisions/2026-08-24-eval-strategy-gaps.md) | *Audit, 2026-08-24.* `design-principles.md` and `eval-strategy.md` checked rule by rule against the code. |
+- [Moving Anthropic off OpenRouter, and Gemini search off Google](decisions/2026-08-31-anthropic-direct-swap.md) — why the Anthropic slots route direct, and what silently breaks if the OpenRouter kwargs come along.
 
 ---
 
@@ -52,7 +52,7 @@ bug — check the dates before treating any of it as current.
 - [README.md](../README.md) — install, configure, run.
 - [AGENTS.md](../AGENTS.md) — always-true rules and hard prohibitions for coding agents.
   Detail lives in the guides above rather than inline.
-- [bottega:FUTURE.md](../FUTURE.md) — the branch design log: shipped, planned, and rejected
+- `bottega:FUTURE.md` — the branch design log: shipped, planned, and rejected
   ideas. Read it for the "why", never for the current state. Expect dead paths in it.
 
 Subsystem drivers live inside their packages: `python -m sibyl.eval.backtest`,

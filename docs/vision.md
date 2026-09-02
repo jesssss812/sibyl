@@ -47,10 +47,10 @@ Third in a Venetian merchant-finance suite alongside **Rialto** (sell-planning) 
   exists, wire it to the backtest path it was never connected to, and add the pieces
   that are genuinely absent** — and, more importantly, produce a *finding* with it. A
   harness is a tool; the deliverable is a measured answer. See
-  [`improvement-plan.md`](./improvement-plan.md) Finding 1 and
-  [`eval-strategy-gaps.md`](./eval-strategy-gaps.md) for the full audit.
+  [`improvement-plan.md`](decisions/2026-08-24-improvement-plan.md) Finding 1 and
+  [`eval-strategy-gaps.md`](decisions/2026-08-24-eval-strategy-gaps.md) for the full audit.
 
-**The comprehension checkpoint — non-negotiable.** Forking only serves purpose (1) if the understanding is real. Before modifying anything, produce `docs/architecture-notes.md`: a from-scratch account of how nostreambot works — the agent loop, where research enters, how forecasts aggregate, where the seams are, what you'd change. **Written by the owner, not generated.** If that document can't be written, the system hasn't been understood, and working code doesn't compensate.
+**The comprehension checkpoint — non-negotiable.** Forking only serves purpose (1) if the understanding is real. Before modifying anything, produce **docs/architecture-notes.md** — not yet written, and tracked in [roadmap.md](roadmap.md) — a from-scratch account of how nostreambot works — the agent loop, where research enters, how forecasts aggregate, where the seams are, what you'd change. **Written by the owner, not generated.** If that document can't be written, the system hasn't been understood, and working code doesn't compensate.
 
 This doubles as interview material: *"here's a production forecasting system and how it's wired"* is a stronger answer than *"I wrote a bot."*
 

@@ -1,6 +1,6 @@
 # Plan — cost-tiered routing, MC debiasing, extremization
 
-> Written 2026-08-27. Implements C1–C4 in [`design-principles.md`](design-principles.md).
+> Written 2026-08-27. Implements C1–C4 in [`design-principles.md`](../design-principles.md).
 > Those are **candidates, not findings** — this plan is therefore ordered to *test* them
 > cheaply before building on them, not to ship them.
 

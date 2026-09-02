@@ -1,0 +1,65 @@
+# Roadmap
+
+One line per open item, with a pointer to where the detail lives. No prose is copied
+here: this is an index of things not done, not a design document.
+
+`bottega:` paths are in the [bottega](https://github.com/jesssss812/bottega) repo, whose
+`FUTURE.md` is the long-form design log this fork deliberately does not carry.
+
+## Inherited from bottega's FUTURE.md
+
+High-priority items, unchanged in status by the fork. See `bottega:FUTURE.md` for the
+argument behind each.
+
+- Frozen-triple numeric watch — the 3-member roster's fragile numeric lean vs. the full
+  roster was accepted as a ship-and-watch bet. `bottega:FUTURE.md`
+- Price the high→xhigh reasoning-effort premium — currently unmeasured on the one slot
+  still paying it. `bottega:FUTURE.md`
+- Gemini on the primary OpenRouter key — the `gemini-3.1-pro` blocklist entry is a
+  workaround for Metaculus-side BYOK routing, now a documented setting rather than a code
+  TODO. `bottega:FUTURE.md`, and the default of `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`.
+- Gap-fill v1 vs v2 comparison on ~20 prod questions — the gate v2 was meant to clear.
+  `bottega:FUTURE.md`
+- Summarizer effort and prompt were changed together and neither was measured. Measure
+  them together or not at all. `bottega:FUTURE.md`
+- Promote the core pipeline to strict type checking. `bottega:FUTURE.md`
+
+## Deferred by the clean fork
+
+Found during the restructure, deliberately not fixed under the plan's "no rewrites the
+plan does not name" rule.
+
+- **Ops scripts point at the wrong GitHub repo.** `sibyl/ops/{download_research,
+  download_run_logs,download_raw_research,backfill_research_from_logs,sync_all}.py` all
+  default `--repo` to `No-Stream/metaculus-bot`, the upstream nostreambot repo, rather
+  than the operator's own. Every artifact download therefore targets a repo whose Actions
+  artifacts the operator does not own. Inherited from bottega; likely a latent bug there
+  too.
+- **Cross-file test isolation leak, pre-existing.** Running
+  `tests/unit/test_provider_flag_and_logging.py` before
+  `tests/unit/test_research_orchestrator.py` leaves a process-global counter set, so a
+  freshly constructed bot reports `alertable_count == 4`. Reproduces on bottega. Does not
+  fire in full-suite collection order, so the suite is green. Probably the provider-health
+  or prediction-market source-loss counter; `test_cli.py`'s reset fixture covers the CLI
+  tests only.
+- **`forecasting/bot.py` imports `eval/performance/parsing.py`** for comment annotation —
+  a dependency from the forecasting path onto the eval layer. Noted in the plan as
+  known-and-left-alone.
+- **The eval `compare` command reads only backtest data.** Ablation and performance runs
+  write different shapes and cannot be compared with it yet.
+- **docs/architecture-notes.md was never written.** [vision.md](vision.md) makes it the
+  comprehension checkpoint gating repo surgery; the surgery happened first.
+
+## Constraints worth knowing before changing things
+
+- `forecasting-tools` is pinned to `==0.2.92`, and the six
+  `tests/integration/test_framework_*.py` files pin live behaviour of that exact version.
+  A version bump means re-reading them, not re-recording them.
+- Two log lines are parsed telemetry contracts and keep the pre-fork
+  donated/personal vocabulary on purpose: the `PAID PERSONAL-KEY FALLBACK` line and the
+  end-of-run summary's `personal_key_fallback=` / `donated_404=` / `donated_key=` fields.
+  Renaming them orphans every archived telemetry record. See
+  `sibyl/telemetry/markers.py`.
+- `eval/ablation/forecaster_lineup.py` re-exports the config roster's free lineup. It
+  shrank from four models to three at the fork, so ablation results either side of that
+  are not directly comparable.

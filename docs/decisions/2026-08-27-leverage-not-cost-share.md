@@ -2,7 +2,7 @@
 
 > 2026-08-27. The reasoning behind the changes in
 > `feat/agreement-telemetry-and-model-refresh`. Companion to
-> [`cost-tiered-plan.md`](cost-tiered-plan.md), which it partly supersedes.
+> [`cost-tiered-plan.md`](2026-08-27-cost-tiered-plan.md), which it partly supersedes.
 
 ---
 

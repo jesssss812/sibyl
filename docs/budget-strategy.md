@@ -23,7 +23,7 @@
 > The comparative reasoning — redundancy/overlap analysis, which providers earn their
 > keep, where leverage sits — still stands. Only the price of the second search index
 > and the key routing changed. See
-> [anthropic-direct-swap.md](./anthropic-direct-swap.md).
+> [anthropic-direct-swap.md](decisions/2026-08-31-anthropic-direct-swap.md).
 
 
 > Brainstorm, 2026-08-24. Grounded in the repo's own **measured** cost data:

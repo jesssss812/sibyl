@@ -214,7 +214,7 @@ a misread than earned. Firing is normal operation: it logs a `RESOLUTION_GUARD` 
 **Two `_base_combine` returns take a different route.** The single-prediction branch
 (the `MIN_FORECASTERS_TO_PUBLISH = 1` survivor path) and the plain-`STACKING` branch
 deliberately skip Platt — see the module docstring of
-`tests/test_main_platt_integration.py` — but they DO get the guard, via `_guard`. The
+`tests/integration/test_main_platt_integration.py` — but they DO get the guard, via `_guard`. The
 single-survivor case is the one A3 exists for: one model's raw probability with no
 median to temper it.
 

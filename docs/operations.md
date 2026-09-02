@@ -54,7 +54,7 @@ the first):
   to be replayed onto a branch. The guard moves that refusal to commit time, where the fix
   is one `git switch -c`. Its message names the recovery command and the `git commit
   --no-verify` bypass; `scripts/hooks/no_commit_to_main.sh` is a `language: script` hook,
-  so it must stay executable in the index (mode `100755` — `tests/test_no_commit_to_main_hook.py`
+  so it must stay executable in the index (mode `100755` — `tests/unit/test_no_commit_to_main_hook.py`
   asserts that, along with the behavior on a feature branch and on a detached HEAD).
 - **at push** — the full pytest suite, the same command CI runs. ~105s, too much friction
   per commit but the right price on the thing reviewers see.
@@ -655,7 +655,7 @@ deliberately: a genuine 402 links to a key hash with a small but non-negligible
 chance of containing the substring `403` somewhere in it, and reading that as
 moderation would break the long-standing 402 fallback. The odds are derived (and
 pinned as bands) by `test_key_hash_status_collision_is_small_but_nonnegligible`
-in `tests/test_llm_retry.py`, which is the only place that arithmetic lives.
+in `tests/unit/test_llm_retry.py`, which is the only place that arithmetic lives.
 
 Nothing is silenced. Every `CREDIT_*` marker line, `CREDIT_FLOOR_BREACH`
 included, and every `PAID PERSONAL-KEY FALLBACK` warning fires exactly as
