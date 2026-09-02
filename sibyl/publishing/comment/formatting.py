@@ -8,6 +8,7 @@ orchestration.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal, Sequence
 
 from forecasting_tools import BinaryQuestion, MultipleChoiceQuestion, NumericQuestion
@@ -76,6 +77,50 @@ def _forecasters_used_suffix(n_used: int | None, n_configured: int | None) -> st
     return f"\n{format_forecasters_used_marker(n_used, n_configured)}"
 
 
+# Upstream renders four metadata lines and fills each with a placeholder when
+# ``extra_metadata_in_explanation`` is off, which it is. They carry no information at all
+# -- the literal text is "extra_metadata_in_explanation is disabled" -- and they sit in
+# the first six lines of every published comment, above the forecast. Matched on the
+# placeholder rather than on the field names, so turning the metadata on later shows the
+# real values instead of silently hiding them.
+_DISABLED_METADATA_RE = re.compile(
+    r"^\*(?:Total Cost|Time Spent|LLMs|Bot Name)\*: *`?extra_metadata_in_explanation is disabled`?\n",
+    re.MULTILINE,
+)
+
+# The provider-diagnostics block: per-provider status, byte counts and latencies. Ops
+# telemetry, not reasoning -- it tells a reader nothing about why the forecast is what it
+# is. Removing it from the COMMENT loses nothing: the orchestrator already logs the same
+# block at INFO, and the research artifact stores it in its own dedicated field. It is
+# also actively unwanted here, because the comment-backfill path would otherwise replay
+# diagnostics into backtest research prompts (see sibyl/ops/download_research.py).
+_PROVIDER_DIAGNOSTICS_RE = re.compile(
+    r"\n*-{3,}\n+#{2,4} Provider Diagnostics\n.*?(?=\n#[^#]|\Z)",
+    re.DOTALL,
+)
+
+
+def strip_internal_sections(text: str) -> str:
+    """Remove the parts of the comment that are operator telemetry, not reasoning.
+
+    What deliberately STAYS, because something reads it:
+
+    * the fenced ``STRUCTURED FORECAST`` JSON in each rationale -- since 2026-07 that
+      block is the ONLY place per-model forecast values appear in a comment, and
+      ``eval/performance/parsing.py`` recovers them from the archive through it;
+    * the HTML marker comments (STACKER_OUTCOME, STACKED, TOOLS_USED, FORECASTERS_USED),
+      which are a parsed contract and render invisibly anyway;
+    * the per-forecaster summary bullets and the research bundle, which are the reasoning.
+    """
+    text = _DISABLED_METADATA_RE.sub("", text)
+    # Replaced with a newline, not nothing: the block runs up to the next top-level
+    # heading, and swallowing its trailing blank line would butt the research text
+    # straight against "# FORECASTS".
+    text = _PROVIDER_DIAGNOSTICS_RE.sub("\n", text)
+    # Collapse the blank-line runs the removals leave behind.
+    return re.sub(r"\n{3,}", "\n\n", text)
+
+
 def build_unified_explanation(
     base_text: str,
     question: object,
@@ -94,6 +139,7 @@ def build_unified_explanation(
     FORECASTERS_USED marker rides the comment tail; when omitted the comment is
     unchanged (back-compat with callers that don't track ensemble size).
     """
+    base_text = strip_internal_sections(base_text)
     ensemble_suffix = _forecasters_used_suffix(n_used, n_configured)
     if aggregation_strategy not in (AggregationStrategy.STACKING, AggregationStrategy.CONDITIONAL_STACKING):
         return trim_comment(f"{base_text}{ensemble_suffix}")
@@ -133,6 +179,7 @@ def build_unified_explanation(
 
 
 __all__ = [
+    "strip_internal_sections",
     "build_unified_explanation",
     "format_forecaster_rationales_section",
     "format_main_research_section",

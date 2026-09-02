@@ -178,6 +178,17 @@ class TestFreeRosterShape:
         vendors = [llm.model.split("/")[1] for llm in get_roster(ModelTier.FREE).forecasters]
         assert len(set(vendors)) == len(vendors), f"duplicate vendor in the free roster: {vendors}"
 
+    @pytest.mark.parametrize("tier", list(ModelTier))
+    def test_no_tier_lists_the_same_forecaster_twice(self, tier: ModelTier) -> None:
+        """A duplicate slug is an ensemble of one wearing a costume.
+
+        It would clear the min-forecasters guard, produce three identical rationales, and
+        report zero spread -- so conditional stacking would never fire and the run would
+        look healthy while being a single model asked three times.
+        """
+        slugs = [llm.model for llm in get_roster(tier).forecasters]
+        assert len(set(slugs)) == len(slugs), f"{tier.value} roster repeats a model: {slugs}"
+
     def test_enough_free_forecasters_to_clear_the_publish_guard(self) -> None:
         # Below MIN_FORECASTERS_TO_PUBLISH the free lane would fetch questions, run
         # models, and publish nothing -- a green run that did no work.

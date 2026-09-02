@@ -43,9 +43,22 @@ on mismatch records the regression instead of catching it.
 
 ## Consequences
 
-- Scenarios 1–5 are **byte-identical to the records made in bottega** and pass against
-  the restructured code. That is the fork's parity evidence, and it is evidence rather
-  than assertion.
+- Six of the nine behavioural records are **byte-identical to the records made in
+  bottega**: the CLI exit codes, comment trimming, `aggregate_paired`, the comment
+  parsers, the min-forecasters guard and the numeric pipeline. That is the fork's parity
+  evidence, and it is evidence rather than assertion.
+- Three were re-recorded deliberately, each with the diff reviewed:
+  - `eval_aggregate_scores` gained the `bot_minus_community_ci` key in Phase 4. Every
+    pre-existing key keeps its value; the recorded diff was `missing=[] added=[...]`.
+  - `pipeline_median` and `pipeline_conditional_stacking` lost ~287 characters of
+    explanation text each when the published comment stopped carrying operator
+    telemetry (see below). **Every prediction, all sixteen counters and every stacker
+    outcome are unchanged** — only the comment text moved, which is the point of that
+    change.
+
+  A re-recording is only legitimate when the diff has been read and the change is the
+  one that was intended. These three were; a fourth appearing unexplained would be a
+  finding.
 - Scenario 6 is layout-dependent by construction, so it is re-recorded when the surface
   legitimately changes and its diff is reviewed by hand. Across the whole fork it moved
   by six entries: `python -m sibyl` replacing `python main.py`, the removal of
@@ -137,6 +150,25 @@ exists to produce:
 2. `google/gemma-4-31b-it:free` was **429 rate-limited upstream** on the shared free pool
    every time. It is both a forecaster *and* all five utility slots, so one run asks the
    same shared quota for summarize, parse, stack, analyze *and* forecast.
+
+### The published comment (2026-09-02)
+
+The run also showed what the bot actually posts. Two things in it were operator
+telemetry rather than reasoning, and both are now stripped before publishing:
+
+- four metadata lines carrying the literal text `extra_metadata_in_explanation is
+  disabled` — zero information, sitting above the forecast in every comment;
+- the `Provider Diagnostics` block (per-provider status, byte counts, latencies). It is
+  already logged at INFO and stored in the research artifact's own field, and
+  `sibyl/ops/download_research.py` notes that a comment carrying it lets the backfill
+  path replay diagnostics into backtest research prompts.
+
+What deliberately stays: the fenced `STRUCTURED FORECAST` JSON in each rationale, which
+since 2026-07 is the **only** place per-model forecast values appear in a comment and is
+how `eval/performance/parsing.py` recovers them from the archive; the HTML marker
+comments, which are a parsed contract and render invisibly; and the whole of the research
+and reasoning prose. A test runs all six comment parsers over the twelve real archived
+comments before and after stripping and requires identical output.
 
 The non-zero exit is correct behaviour, not a failure of the lane: six dropped
 forecasters is six alertable events, and the run still published every question it could.
