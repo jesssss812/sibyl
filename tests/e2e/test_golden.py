@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +49,15 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 # latter for no principled reason. 1e-9 is well inside float64 noise for arithmetic of
 # this depth but far tighter than any real behaviour change would be.
 FLOAT_TOL = 1e-9
+
+# The instant every pipeline scenario runs at.
+#
+# The forecaster prompt embeds "Today: <date>" and the question's elapsed/remaining day
+# counts, and FixtureLlm seeds itself on the prompt -- so an unfrozen clock makes every
+# recorded prediction change at UTC midnight. That is not hypothetical: these records
+# were written on 2026-09-01 and began failing the moment the process crossed into
+# 2026-09-02 UTC, which read as a parity break in an unrelated change.
+GOLDEN_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 _OPEN_TIME = datetime(2026, 1, 1)
 _RESOLVE_TIME = datetime(2026, 12, 31)
@@ -242,6 +251,25 @@ def build_golden_bot(strategy: AggregationStrategy, *, n_forecasters: int = 3, s
 
 
 @pytest.fixture
+def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the prompt's notion of "now" so the recorded predictions are reproducible.
+
+    Patches the ``datetime`` bound in ``sibyl.forecasting.prompts`` rather than trying to
+    freeze the clock globally: that module is the only place the pipeline reads the wall
+    clock on this path, and a narrow patch cannot silently change what anything else
+    does.
+    """
+    from sibyl.forecasting import prompts
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:  # type: ignore[override]
+            return GOLDEN_NOW if tz is None else GOLDEN_NOW.astimezone(tz)
+
+    monkeypatch.setattr(prompts, "datetime", _FrozenDatetime)
+
+
+@pytest.fixture
 def all_providers_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every research/provider flag off, including the three stacking gates.
 
@@ -374,7 +402,9 @@ async def _run_pipeline(strategy: AggregationStrategy) -> dict[str, Any]:
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_golden_pipeline_median(request: pytest.FixtureRequest, all_providers_off: None) -> None:
+async def test_golden_pipeline_median(
+    request: pytest.FixtureRequest, all_providers_off: None, frozen_clock: None
+) -> None:
     """Scenario 1: five question types through ``forecast_questions`` under MEDIAN."""
     assert_golden(request, "pipeline_median", await _run_pipeline(AggregationStrategy.MEDIAN))
 
@@ -385,6 +415,7 @@ async def test_golden_pipeline_conditional_stacking(
     request: pytest.FixtureRequest,
     all_providers_off: None,
     per_type_stacking_on: None,
+    frozen_clock: None,
 ) -> None:
     """Scenario 2: the same questions with all three per-type stacking gates open.
 
@@ -406,7 +437,9 @@ async def test_golden_pipeline_conditional_stacking(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_golden_min_forecasters_guard(request: pytest.FixtureRequest, all_providers_off: None) -> None:
+async def test_golden_min_forecasters_guard(
+    request: pytest.FixtureRequest, all_providers_off: None, frozen_clock: None
+) -> None:
     """Scenario 3: a raising forecaster drops the question, and the drop is attributed.
 
     Three forecasters, one of which always raises, against a guard of 3. The surviving

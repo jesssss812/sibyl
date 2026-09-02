@@ -923,7 +923,12 @@ class TestCliProviderDegradationExit:
                 events.append("forecast")
                 return []
 
+            # Both entry points: `test` mode fetches the bot-testing-area tournament
+            # unless TEST_QUESTIONS_OVERRIDE names URLs, so the forecast can arrive
+            # through either. The invariant under test is the ORDERING, not which of
+            # the two ran.
             bot.forecast_questions = AsyncMock(side_effect=_record_forecast)
+            bot.forecast_on_tournament = AsyncMock(side_effect=_record_forecast)
             with patch("sibyl.cli.SibylBot", forecaster_class):
                 with pytest.raises(SystemExit) as exc_info:
                     cli_main()

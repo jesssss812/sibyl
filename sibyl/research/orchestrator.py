@@ -19,6 +19,7 @@ import openai
 from forecasting_tools import GeneralLlm, SmartSearcher, clean_indents
 from forecasting_tools.data_models.questions import MetaculusQuestion
 
+from sibyl.config.models import FREE_TIER_DISABLED_PROVIDERS, ModelTier, active_tier
 from sibyl.config.settings import (
     ANTHROPIC_SEARCH_ENABLED_ENV,
     ANTHROPIC_SEARCH_MODEL_ENV,
@@ -93,6 +94,16 @@ def _demote_inner_headings(text: str) -> str:
     keeps every provider header the minimum-level section.
     """
     return _LEADING_HEADING_RE.sub(lambda m: "##" + m.group(1), text)
+
+
+async def _no_research_provider(question: object) -> str:
+    """The primary provider when the free tier has vetoed the paid ladder.
+
+    Returns empty rather than raising: an absent primary is a narrower bundle, not a
+    failed run, and the add-on providers still contribute. The orchestrator's own
+    empty-research handling takes it from here.
+    """
+    return ""
 
 
 class ResearchOrchestrator:
@@ -498,9 +509,39 @@ class ResearchOrchestrator:
         self._research_cache[cache_key] = research
         logger.info(f"Cached research for question {cache_key}")
 
+    def _provider_enabled(self, env_name: str) -> bool:
+        """``env_flag_enabled``, except the free tier vetoes paid search providers.
+
+        A veto rather than a model swap: these providers' value is a search index or a
+        server-side web tool, and no ``:free`` slug comes with one attached. Logged per
+        provider so a free run's log says what it did NOT do -- otherwise a thin bundle
+        reads as a bad question rather than as a deliberately narrowed provider set.
+        """
+        if not env_flag_enabled(env_name):
+            return False
+        if active_tier() is ModelTier.FREE and env_name in FREE_TIER_DISABLED_PROVIDERS:
+            logger.info(
+                "FREE TIER: %s force-disabled despite its flag being set — it is a paid search "
+                "tool with no free equivalent.",
+                env_name,
+            )
+            return False
+        return True
+
     def _select_research_provider(self) -> tuple[ResearchCallable, str]:
         if self._custom_provider is not None:
             return self._custom_provider, "custom"
+
+        # The primary ladder is AskNews, then Exa, then Perplexity (direct, then via
+        # OpenRouter). Every rung is paid, and unlike the add-ons below it runs with no
+        # flag to switch it off -- so a free run would otherwise bill on the one provider
+        # nobody opted into. This is the paid path the tier guard would most easily miss.
+        if active_tier() is ModelTier.FREE:
+            logger.info(
+                "FREE TIER: primary research provider disabled — every rung of the ladder "
+                "(AskNews, Exa, Perplexity) is paid and has no free equivalent."
+            )
+            return _no_research_provider, "none"
 
         provider, provider_name = choose_provider_with_name(
             self._default_llm,
@@ -524,7 +565,7 @@ class ResearchOrchestrator:
         if primary_name != "none":
             providers.append((primary, primary_name))
 
-        if env_flag_enabled(NATIVE_SEARCH_ENABLED_ENV):
+        if self._provider_enabled(NATIVE_SEARCH_ENABLED_ENV):
             model = os.getenv(NATIVE_SEARCH_MODEL_ENV)
             providers.append(
                 (
@@ -533,7 +574,7 @@ class ResearchOrchestrator:
                 )
             )
 
-        if env_flag_enabled(GEMINI_SEARCH_ENABLED_ENV):
+        if self._provider_enabled(GEMINI_SEARCH_ENABLED_ENV):
             from sibyl.research.gemini_search import (
                 gemini_search_provider,  # noqa: PLC0415
             )
@@ -550,7 +591,7 @@ class ResearchOrchestrator:
         # replacing Gemini's grounded search (monthly free quota exhausted, no billing
         # account). Both gates are independent: enabling both runs both providers, which
         # is a supported (if redundant) configuration for a side-by-side comparison.
-        if env_flag_enabled(ANTHROPIC_SEARCH_ENABLED_ENV):
+        if self._provider_enabled(ANTHROPIC_SEARCH_ENABLED_ENV):
             from sibyl.research.anthropic_search import (
                 anthropic_search_provider,  # noqa: PLC0415
             )
@@ -563,28 +604,28 @@ class ResearchOrchestrator:
                 )
             )
 
-        if env_flag_enabled(FINANCIAL_DATA_ENABLED_ENV):
+        if self._provider_enabled(FINANCIAL_DATA_ENABLED_ENV):
             from sibyl.research.financial_data import (
                 financial_data_provider,  # noqa: PLC0415
             )
 
             providers.append((financial_data_provider(is_benchmarking=self._is_benchmarking), "financial_data"))
 
-        if env_flag_enabled(TS_ANCHOR_ENABLED_ENV):
+        if self._provider_enabled(TS_ANCHOR_ENABLED_ENV):
             from sibyl.research.timeseries_anchor import (
                 timeseries_anchor_provider,  # noqa: PLC0415
             )
 
             providers.append((timeseries_anchor_provider(is_benchmarking=self._is_benchmarking), "timeseries_anchor"))
 
-        if env_flag_enabled(PREDICTION_MARKETS_ENABLED_ENV):
+        if self._provider_enabled(PREDICTION_MARKETS_ENABLED_ENV):
             from sibyl.research.prediction_market import (
                 prediction_market_provider,  # noqa: PLC0415
             )
 
             providers.append((prediction_market_provider(is_benchmarking=self._is_benchmarking), "prediction_market"))
 
-        if env_flag_enabled(RESOLUTION_SOURCE_ENABLED_ENV):
+        if self._provider_enabled(RESOLUTION_SOURCE_ENABLED_ENV):
             from sibyl.research.resolution_source import (
                 resolution_source_provider,  # noqa: PLC0415
             )
@@ -595,7 +636,7 @@ class ResearchOrchestrator:
         # resolution_source above. It filters candidates by resolve time instead of
         # switching itself off, so there is nothing to leak and a backtest can actually
         # price it. See research/reference_class.py "Backtest safety".
-        if env_flag_enabled(REFERENCE_CLASS_ENABLED_ENV):
+        if self._provider_enabled(REFERENCE_CLASS_ENABLED_ENV):
             from sibyl.research.reference_class import (
                 default_reference_class_provider,  # noqa: PLC0415
             )

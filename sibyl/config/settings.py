@@ -25,6 +25,18 @@ TOURNAMENT_HARD_STOP_WEEKS: int = 2  # ~2 weeks of wiggle room past close before
 # Metaculus Cup tournament (human + bot competition)
 # Update when new cup starts: https://www.metaculus.com/tournament/metaculus-cup/
 METACULUS_CUP_ID: str = "metaculus-cup"  # Uses slug, auto-resolves to current cup
+# The unscored sandbox tournament. `python -m sibyl test` forecasts its open questions
+# rather than a hard-coded list of evergreen URLs, so the free lane exercises the real
+# tournament-fetch path and publishes somewhere nothing is scored.
+BOT_TESTING_AREA_ID: str = "bot-testing-area"
+# Question cap for a free-tier run. OpenRouter allows roughly 50 :free requests a day
+# without a balance, and one question costs several (three forecasters plus the utility
+# slots), so a small cap is what keeps a test run from exhausting the day's quota.
+FREE_TIER_MAX_QUESTIONS: int = 3
+# The per-run question cap a prod run has always used. Named here rather than left as a
+# literal default on SibylBot so the CLI's free-vs-prod choice reads against one source
+# of truth. Value unchanged.
+DEFAULT_MAX_QUESTIONS_PER_RUN: int = 10
 
 
 def gemini_use_primary_openrouter_key() -> bool:
@@ -150,6 +162,9 @@ OAI_ANTH_OPENROUTER_KEY_ENV: str = "OAI_ANTH_OPENROUTER_KEY"
 # specific key's server-side settings, and it changed twice in three months. The env var
 # names are new (the key names they govern are not), so an unset var reproduces today's
 # behaviour exactly. Comma-separated, case-insensitive.
+# Which model roster a run uses. Default is FREE, deliberately: a local run should not
+# be able to spend money by forgetting a flag. The prod workflows set this explicitly.
+MODEL_TIER_ENV: str = "SIBYL_MODEL_TIER"
 OPENROUTER_PRIMARY_KEY_PROVIDERS_ENV: str = "OPENROUTER_PRIMARY_KEY_PROVIDERS"
 OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS_ENV: str = "OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS"
 ASKNEWS_CLIENT_ID_ENV: str = "ASKNEWS_CLIENT_ID"

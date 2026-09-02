@@ -4,13 +4,91 @@ Keeping these objects in a single module avoids merge-conflicts and makes it
 possible to tweak/benchmark models without touching application code.
 """
 
+import logging
+import os
+from dataclasses import dataclass
+from enum import StrEnum
+from functools import cache
 from typing import Any
 
 from forecasting_tools import GeneralLlm
 
+from sibyl.config.settings import FINANCIAL_CLASSIFIER_MODEL, MODEL_TIER_ENV
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 
+logger = logging.getLogger(__name__)
+
+
+class ModelTier(StrEnum):
+    """Which roster a run uses.
+
+    FREE is every-slot-on-an-OpenRouter-:free-slug and cannot spend. PROD is the paid
+    roster below. The distinction is a tier rather than a per-slot toggle because a
+    half-free run is the worst of both: it bills, and its output is not comparable to
+    either arm.
+    """
+
+    FREE = "free"
+    PROD = "prod"
+
+
+# Research providers the FREE tier force-disables regardless of their env flag.
+#
+# The distinction is not cost, it is substitutability. Every provider here is a PAID
+# SEARCH TOOL whose value IS the tool -- AskNews's corpus, OpenAI's and Anthropic's
+# server-side web search, Google's grounding, and the two gap-fill loops that drive
+# them. Swapping the model underneath does not make them free, it makes them broken:
+# there is no `:free` slug that comes with a search index attached.
+#
+# The providers NOT listed here (financial data, prediction markets, resolution source,
+# reference class, time-series anchor) are the opposite shape: free or public data
+# sources with an LLM stage bolted on. Pointing that stage at the free utility model
+# makes the whole provider free, so they stay available in the free tier.
+FREE_TIER_DISABLED_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "NATIVE_SEARCH_ENABLED",
+        "GEMINI_SEARCH_ENABLED",
+        "ANTHROPIC_SEARCH_ENABLED",
+        "GAP_FILL_ENABLED",
+        "GAP_FILL_V2_ENABLED",
+    }
+)
+
+
+def active_tier() -> ModelTier:
+    """The tier for this run, from ``SIBYL_MODEL_TIER``. Defaults to FREE.
+
+    FREE is the default on purpose, and it is the one deliberate behaviour change this
+    phase makes to an existing entry point. A local run that forgets the flag should be
+    unable to spend; the prod workflows say ``SIBYL_MODEL_TIER: 'prod'`` explicitly, so
+    the expensive path is the one that has to be asked for. Read at call time, so a test
+    can monkeypatch it without reloading the module.
+
+    An unrecognised value is a configuration error, not a reason to guess. Falling back
+    to FREE would silently downgrade a prod run to free models and publish the result to
+    a scored tournament; falling back to PROD would silently spend. Raise instead.
+    """
+    # os.environ, not os.getenv: several tests patch ``os.getenv`` process-wide to stub a
+    # handful of provider flags, and a patched getenv answers "" for every name it was
+    # not told about -- which would silently drop those tests onto the free tier and
+    # take their providers with it. Reading the mapping directly is unaffected.
+    raw = os.environ.get(MODEL_TIER_ENV, "").strip().lower()
+    if not raw:
+        return ModelTier.FREE
+    try:
+        return ModelTier(raw)
+    except ValueError:
+        valid = ", ".join(sorted(t.value for t in ModelTier))
+        raise ValueError(f"{MODEL_TIER_ENV}={raw!r} is not a known model tier (expected one of: {valid})") from None
+
+
 __all__ = [
+    "ModelTier",
+    "Roster",
+    "active_tier",
+    "get_roster",
+    "FREE_FORECASTER_MODELS",
+    "FREE_UTILITY_MODEL",
     "FORECASTER_LLMS",
     "FORECASTER_MODEL_NAMES",
     "SUMMARIZER_LLM",
@@ -339,3 +417,93 @@ DISAGREEMENT_ANALYZER_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
     reasoning={"effort": "low"},
     **{**UTILITY_MODEL_CONFIG, "allowed_tries": 1},
 )
+
+
+# ---------------------------------------------------------------------------
+# Rosters
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Roster:
+    """Every model slot a run needs, resolved for one tier.
+
+    A dataclass rather than a dict so a missing slot is a construction error here
+    instead of a KeyError deep in a provider halfway through a run, and so adding a
+    slot forces both tiers to answer for it.
+    """
+
+    forecasters: tuple[GeneralLlm, ...]
+    summarizer: GeneralLlm
+    parser: GeneralLlm
+    researcher: GeneralLlm
+    stacker: GeneralLlm
+    stacker_fallback: GeneralLlm
+    analyzer: GeneralLlm
+    market_ranker_config: dict[str, Any]
+    market_query_author_config: dict[str, Any]
+    # A model NAME rather than a built LLM: financial_data builds its classifier inside
+    # a provider factory with its own kwargs, and the provider is off by default, so
+    # constructing one at import would be waste. The free tier only needs the slug.
+    financial_classifier_model: str
+
+
+# The free lineup. Every slug ends in `:free`, which is the property the tests assert --
+# not the specific models, which will rotate as OpenRouter's free offerings change.
+#
+# Built as plain GeneralLlm on OPENROUTER_API_KEY, deliberately NOT through
+# build_llm_with_openrouter_fallback: most `:free` variants are served only by providers
+# outside OPENROUTER_PRIMARY_KEY_PROVIDERS, so the primary key answers 404 "no allowed
+# providers", which wastes a fallback attempt and bumps the alerting counter on every
+# call. eval/ablation/forecaster_lineup.py's docstring has the long version.
+FREE_FORECASTER_MODELS: tuple[str, ...] = (
+    "openrouter/google/gemma-4-31b-it:free",
+    "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+    "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+)
+# One model for every non-forecaster slot. The utility work (summarize, parse, rank,
+# analyze) is capability-saturated rather than reasoning-bound, and a single slug keeps
+# the free tier's failure modes to one provider's rate limit instead of five.
+FREE_UTILITY_MODEL: str = "openrouter/google/gemma-4-31b-it:free"
+
+
+def _free_llm(model: str, config: dict[str, Any]) -> GeneralLlm:
+    return GeneralLlm(model=model, **config)
+
+
+def _free_roster() -> Roster:
+    utility = _free_llm(FREE_UTILITY_MODEL, UTILITY_MODEL_CONFIG)
+    return Roster(
+        forecasters=tuple(_free_llm(model, _FORECASTER_CONFIG) for model in FREE_FORECASTER_MODELS),
+        summarizer=utility,
+        parser=utility,
+        researcher=utility,
+        stacker=utility,
+        stacker_fallback=utility,
+        analyzer=utility,
+        market_ranker_config={**MARKET_RANKER_LLM_CONFIG, "model": FREE_UTILITY_MODEL},
+        market_query_author_config={**MARKET_QUERY_AUTHOR_LLM_CONFIG, "model": FREE_UTILITY_MODEL},
+        financial_classifier_model=FREE_UTILITY_MODEL,
+    )
+
+
+def _prod_roster() -> Roster:
+    """The paid roster, unchanged. Every value is the module constant it always was."""
+    return Roster(
+        forecasters=tuple(FORECASTER_LLMS),
+        summarizer=SUMMARIZER_LLM,
+        parser=PARSER_LLM,
+        researcher=RESEARCHER_LLM,
+        stacker=STACKER_LLM,
+        stacker_fallback=STACKER_FALLBACK_LLM,
+        analyzer=DISAGREEMENT_ANALYZER_LLM,
+        market_ranker_config=dict(MARKET_RANKER_LLM_CONFIG),
+        market_query_author_config=dict(MARKET_QUERY_AUTHOR_LLM_CONFIG),
+        financial_classifier_model=FINANCIAL_CLASSIFIER_MODEL,
+    )
+
+
+@cache
+def get_roster(tier: ModelTier) -> Roster:
+    """The roster for ``tier``. Cached, because a roster is immutable per process."""
+    return _prod_roster() if tier is ModelTier.PROD else _free_roster()

@@ -42,7 +42,8 @@ from __future__ import annotations
 
 from forecasting_tools import GeneralLlm
 
-from sibyl.config.models import UTILITY_MODEL_CONFIG
+from sibyl.config.models import FREE_FORECASTER_MODELS as ROSTER_FREE_FORECASTER_MODELS
+from sibyl.config.models import FREE_UTILITY_MODEL, UTILITY_MODEL_CONFIG
 from sibyl.eval.benchmark.bot_factory import MODEL_CONFIG
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 
@@ -133,12 +134,13 @@ def get_lineup(name: str) -> tuple[list[GeneralLlm], list[str]]:
 #   upstream rate-limiting — that's what the ``patient`` rate-limit-mode (CLI
 #   default) is for. Dropping qwen would put us at 3 free models, which is
 #   below the noise floor for ensemble diversity at 50q scale.
-FREE_FORECASTER_MODELS: list[str] = [
-    "openrouter/minimax/minimax-m2.5:free",
-    "openrouter/google/gemma-4-26b-a4b-it:free",
-    "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
-    "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
-]
+# Re-exported from the config roster rather than defined here, so the repo has ONE free
+# lineup. This CHANGED the ablation lineup: it was four models (minimax-m2.5,
+# gemma-4-26b-a4b-it, nemotron, qwen3-next) and is now the roster's three
+# (gemma-4-31b-it, nemotron, qwen3-next). The note above about qwen keeping the count at
+# four is therefore stale, and ablation results either side of this change are not
+# directly comparable. Kept as a list, not the roster's tuple, because callers mutate it.
+FREE_FORECASTER_MODELS: list[str] = list(ROSTER_FREE_FORECASTER_MODELS)
 
 # Parser stays on a Google-served free model so the primary-key wrapper
 # doesn't apply at all (and the gemini/gemma family is reliable for
@@ -162,7 +164,7 @@ FREE_FORECASTER_MODELS: list[str] = [
 #     interpolated correctly, within bounds. Minor: emits some adjacent
 #     duplicate values (P40=P50, P80=P90), which the prod numeric_pipeline
 #     handles via apply_jitter_for_duplicates.
-FREE_PARSER_MODEL: str = "openrouter/google/gemma-4-31b-it:free"
+FREE_PARSER_MODEL: str = FREE_UTILITY_MODEL
 
 
 def build_free_forecaster_llms() -> list[GeneralLlm]:

@@ -1,17 +1,23 @@
-"""Real-LLM smoke tests using a free OpenRouter model.
+"""Live coverage of the FREE model tier, against real OpenRouter :free models.
 
-Exercises the actual inference path end-to-end with no mocks.
-Every test requires OPENROUTER_API_KEY and is gated behind @pytest.mark.live
-so it never runs in CI or during `make test` (addopts excludes `live` by default).
+Exercises the actual inference path end-to-end with no mocks. Every test requires
+OPENROUTER_API_KEY and is gated behind ``@pytest.mark.live``, so it never runs in CI or
+during ``make test`` (addopts excludes ``live`` by default).
 
-Opt-in: pytest -m live
+These cost nothing: every model here is an OpenRouter ``:free`` slug. That is what makes
+a live test defensible in a repo whose first rule is that no test may spend. Nothing
+here publishes -- the one end-to-end case runs ``forecast_questions`` on a synthetic
+question with ``publish_reports_to_metaculus=False``. Publishing is ``make e2e_free``,
+which is a deliberate operator action against the unscored sandbox tournament.
+
+Opt-in: ``pytest -m live``
 """
 
 import asyncio
 import os
 import re
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from forecasting_tools import (
@@ -204,3 +210,74 @@ async def test_full_pipeline_single_question_free_model():
     assert isinstance(report.prediction, float)
     assert 0.0 < report.prediction < 1.0
     assert report.explanation and len(report.explanation) > 0
+
+
+@pytest.mark.live
+@pytest.mark.asyncio
+async def test_free_roster_runs_the_real_pipeline_without_publishing():
+    """The roster the free lane actually ships, driving the real pipeline once.
+
+    The other tests here pin individual model behaviours; this one pins that
+    ``get_roster(FREE)`` produces a set of slots that the pipeline can actually run
+    together. That is a different failure mode -- every slug can be individually
+    healthy while the assembled roster still fails the publish guard, or hands the
+    parser output no forecaster agrees on.
+
+    Publishing is off. This asserts a forecast came back, not that it was any good:
+    free models are not expected to forecast well, and an assertion about the VALUE
+    would be a flaky test dressed up as a quality bar.
+    """
+    from sibyl.aggregation.strategies import AggregationStrategy
+    from sibyl.config.models import ModelTier, get_roster
+    from sibyl.forecasting.bot import SibylBot
+
+    roster = get_roster(ModelTier.FREE)
+
+    async def _canned_research(_question) -> str:
+        return "No external research was performed for this smoke test."
+
+    bot = SibylBot(
+        publish_reports_to_metaculus=False,
+        research_reports_per_question=1,
+        predictions_per_research_report=1,
+        aggregation_strategy=AggregationStrategy.MEAN,
+        research_provider=_canned_research,
+        max_questions_per_run=1,
+        min_forecasters_to_publish=1,
+        # dict[str, Any] for the same reason cli.py annotates it that way: "forecasters"
+        # holds a list while every other slot holds a single LLM, and dict values are
+        # invariant, so the framework's dict[str, str | GeneralLlm] cannot express it.
+        llms=cast(
+            "dict[str, Any]",
+            {
+                "forecasters": list(roster.forecasters),
+                "stacker": roster.stacker,
+                "analyzer": roster.analyzer,
+                "default": roster.parser,
+                "summarizer": roster.summarizer,
+                "parser": roster.parser,
+                "researcher": roster.researcher,
+            },
+        ),
+    )
+
+    question = BinaryQuestion(
+        question_text="Will the sun rise tomorrow?",
+        id_of_question=999_001,
+        id_of_post=999_001,
+        page_url="https://www.metaculus.com/questions/999001/",
+        background_info="A deliberately trivial question; this test is about wiring, not skill.",
+        resolution_criteria="Resolves YES if the sun rises.",
+        fine_print="",
+        open_time=datetime.now() - timedelta(days=1),
+        scheduled_resolution_time=datetime.now() + timedelta(days=30),
+        api_json={"my_forecasts": {"latest": None}},
+    )
+
+    reports = await bot.forecast_questions([question], return_exceptions=True)
+
+    failures = [r for r in reports if isinstance(r, BaseException)]
+    assert not failures, f"free roster failed to complete a forecast: {failures!r}"
+    assert reports, "no report returned"
+    prediction = cast("float", reports[0].prediction)  # type: ignore[union-attr]
+    assert 0.0 <= prediction <= 1.0, prediction

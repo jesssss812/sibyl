@@ -448,6 +448,31 @@ def mock_binary_question() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
+# Model-tier pinning
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _pin_model_tier(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the whole suite to the PROD tier.
+
+    Every test in this repo predates the tier split and was written against the prod
+    roster and the prod provider set; the FREE tier force-disables the paid search
+    providers, so leaving the process default (free) in place would silently turn dozens
+    of provider tests into assertions about a provider that never ran.
+
+    Same stance as ``_enable_per_type_stacking`` above: the suite states the regime it
+    means to exercise rather than inheriting a production default. Tests that are ABOUT
+    the tier -- ``test_models.py``, ``test_cli_tier.py``, ``test_free_tier_gating.py`` --
+    set or delete the variable themselves, and monkeypatch ordering makes the later
+    setting win.
+    """
+    from sibyl.config.settings import MODEL_TIER_ENV
+
+    monkeypatch.setenv(MODEL_TIER_ENV, "prod")
+
+
+# ---------------------------------------------------------------------------
 # Golden-parity recording switch
 # ---------------------------------------------------------------------------
 

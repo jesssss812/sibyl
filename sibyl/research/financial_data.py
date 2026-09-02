@@ -19,8 +19,8 @@ from forecasting_tools import GeneralLlm
 from forecasting_tools.data_models.questions import MetaculusQuestion
 from fredapi import Fred
 
+from sibyl.config.models import active_tier, get_roster
 from sibyl.config.settings import (
-    FINANCIAL_CLASSIFIER_MODEL,
     FINANCIAL_CLASSIFIER_TIMEOUT,
     FINANCIAL_YFINANCE_LOOKBACK_DAYS,
     FINANCIAL_YFINANCE_RECENT_DAYS,
@@ -582,8 +582,11 @@ def financial_data_provider(is_benchmarking: bool = False) -> ResearchCallable:
     routes through the keyless ``ts_fetch`` fredgraph / ALFRED-vintage path so revised
     macro series return the vintage known at forecast time rather than today's revisions.
     """
+    # From the roster, not the constant: this provider stays ENABLED in the free tier
+    # (its data sources -- FRED and yfinance -- are free), so its one LLM stage is what
+    # would otherwise bill on a free run.
     classifier_llm = build_llm_with_openrouter_fallback(
-        model=FINANCIAL_CLASSIFIER_MODEL,
+        model=get_roster(active_tier()).financial_classifier_model,
         # temperature=None defers reasoning models to provider defaults; redundant
         # on ft 0.2.92 (GeneralLlm ctor default is already None). No top_p.
         temperature=None,

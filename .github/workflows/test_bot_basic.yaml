@@ -73,6 +73,11 @@ jobs:
           # Unbuffered stdout/stderr so log lines stream in real time and nothing
           # is lost if the run crashes before a buffer flush.
           PYTHONUNBUFFERED: '1'
+          # Pinned explicitly: the process default is the FREE tier, so a prod run has
+          # to ask for the paid roster. Removing this line does not break the run, it
+          # downgrades it -- and the CLI refuses a free-tier run on a scored tournament
+          # rather than publishing free-model forecasts, so the failure is loud.
+          SIBYL_MODEL_TIER: 'prod'
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }} # replace this with the name of the variable under which you stored your own Metaculus token
           PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           # Exa semantic search (gap-fill v2's search_web tool; also the legacy
