@@ -456,14 +456,35 @@ class Roster:
 # outside OPENROUTER_PRIMARY_KEY_PROVIDERS, so the primary key answers 404 "no allowed
 # providers", which wastes a fallback attempt and bumps the alerting counter on every
 # call. eval/ablation/forecaster_lineup.py's docstring has the long version.
+# Three distinct vendors, and deliberately NOT the utility model below. Both constraints
+# were learned from the first free end-to-end run (2026-09-02, recorded in
+# docs/decisions/0001-parity-contract.md), where two of three forecasters failed on every
+# question:
+#
+#   * `qwen/qwen3-next-80b-a3b-instruct:free` had been WITHDRAWN and answered 404. Free
+#     variants disappear without notice, and no structural test catches it -- a withdrawn
+#     slug still ends in `:free`. tests/live/test_free_tier.py now checks the roster
+#     against OpenRouter's live catalogue instead.
+#   * `gemma-4-31b-it:free` was 429 rate-limited every time, because it was serving as a
+#     forecaster AND all five utility slots. One run asked a single shared free pool for
+#     summarize, parse, stack, analyze and forecast. Keeping the forecasters off the
+#     utility model spreads the load across four pools instead of concentrating it on one.
+#
+# Vendor spread is the same reasoning the prod roster uses: three members drawn from one
+# vendor correlate, and an ensemble of correlated forecasters is an expensive way to ask
+# one model twice.
 FREE_FORECASTER_MODELS: tuple[str, ...] = (
-    "openrouter/google/gemma-4-31b-it:free",
     "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
-    "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+    "openrouter/minimax/minimax-m3:free",
+    "openrouter/z-ai/glm-5.2:free",
 )
 # One model for every non-forecaster slot. The utility work (summarize, parse, rank,
 # analyze) is capability-saturated rather than reasoning-bound, and a single slug keeps
 # the free tier's failure modes to one provider's rate limit instead of five.
+#
+# It must not appear in FREE_FORECASTER_MODELS. Sharing one slug between the forecasters
+# and the utility slots is what rate-limited the 2026-09-02 run into a single surviving
+# forecaster; a test enforces the separation.
 FREE_UTILITY_MODEL: str = "openrouter/google/gemma-4-31b-it:free"
 
 

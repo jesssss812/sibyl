@@ -64,7 +64,10 @@ uv run python -m sibyl test --tier free --max-questions 3
    socket for the whole suite. The live tests, which opt out, use `:free` models only.
 
 `make e2e_free` costs nothing but it does **publish** — real comments on real questions,
-in a tournament where nothing is scored.
+in a tournament where nothing is scored. It also exits 0 even when free models drop out
+(their shared upstream quotas rate-limit constantly), so read the log's
+`SYSTEMATIC_FORECASTER_FAILURE` and `forecasters_dropped=` lines rather than the exit
+status. Production runs still go red on a dropped forecaster.
 
 ## Where to look next
 

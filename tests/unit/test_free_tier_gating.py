@@ -156,6 +156,39 @@ class TestFreeRosterShape:
         for llm in roster.forecasters:
             assert not llm.model.endswith(":free"), llm.model
 
+    def test_no_forecaster_shares_the_utility_model(self) -> None:
+        """The rate-limit fault from the 2026-09-02 run, as an assertion.
+
+        gemma was a forecaster AND all five utility slots, so one run asked a single
+        shared free pool for summarize, parse, stack, analyze and forecast, and was 429'd
+        every time. Keeping them separate spreads the load across four pools.
+        """
+        from sibyl.config.models import FREE_UTILITY_MODEL
+
+        roster = get_roster(ModelTier.FREE)
+        forecaster_slugs = {llm.model for llm in roster.forecasters}
+        assert FREE_UTILITY_MODEL not in forecaster_slugs, (
+            f"{FREE_UTILITY_MODEL} serves the utility slots; using it as a forecaster too "
+            "concentrates the whole run on one provider's free quota"
+        )
+
+    def test_forecasters_come_from_distinct_vendors(self) -> None:
+        """Three members from one vendor correlate, which is an expensive way to ask one
+        model three times -- and they share a rate-limit pool, so they fail together."""
+        vendors = [llm.model.split("/")[1] for llm in get_roster(ModelTier.FREE).forecasters]
+        assert len(set(vendors)) == len(vendors), f"duplicate vendor in the free roster: {vendors}"
+
+    @pytest.mark.parametrize("tier", list(ModelTier))
+    def test_no_tier_lists_the_same_forecaster_twice(self, tier: ModelTier) -> None:
+        """A duplicate slug is an ensemble of one wearing a costume.
+
+        It would clear the min-forecasters guard, produce three identical rationales, and
+        report zero spread -- so conditional stacking would never fire and the run would
+        look healthy while being a single model asked three times.
+        """
+        slugs = [llm.model for llm in get_roster(tier).forecasters]
+        assert len(set(slugs)) == len(slugs), f"{tier.value} roster repeats a model: {slugs}"
+
     def test_enough_free_forecasters_to_clear_the_publish_guard(self) -> None:
         # Below MIN_FORECASTERS_TO_PUBLISH the free lane would fetch questions, run
         # models, and publish nothing -- a green run that did no work.
@@ -168,3 +201,95 @@ class TestFreeRosterShape:
             roster = get_roster(tier)
             for field in dataclasses.fields(roster):
                 assert getattr(roster, field.name), f"{tier.value}: {field.name} is empty"
+
+
+class TestFreeTierDropsAreNotAlertable:
+    """A dropped forecaster reddens a prod run and not a free one.
+
+    Every OpenRouter `:free` slug shares one upstream pool with the whole free tier, so a
+    429 tracks the hour rather than anything this repo did. Treating it as alertable made
+    `make e2e_free` permanently red for a reason that says nothing about the code, and a
+    signal that is always red stops being read.
+
+    The exemption has to be NARROW, which is what most of these tests check: it covers
+    exactly `forecasters_dropped`, in exactly the free tier, and nothing else. Widening it
+    by accident would silence real failures in the lane meant to catch them.
+    """
+
+    class _Counters:
+        """A stand-in exposing the eleven counters alertable_total reads."""
+
+        def __init__(self, **overrides: int) -> None:
+            for name in (
+                "_forecasters_dropped_count",
+                "_questions_failed_to_publish",
+                "_stacker_primary_failed_count",
+                "_stacker_fallback_used_count",
+                "_stacker_fallback_failed_count",
+                "_research_provider_failure_count",
+                "_summarizer_failure_count",
+                "_gap_fill_v2_error_count",
+                "_prediction_market_degraded_count",
+                "_prediction_market_source_loss_count",
+                "_provider_degradation_count",
+            ):
+                setattr(self, name, 0)
+            for name, value in overrides.items():
+                assert hasattr(self, name), name
+                setattr(self, name, value)
+
+    def _alertable(self, monkeypatch: pytest.MonkeyPatch, tier: ModelTier, **counters: int) -> int:
+        from sibyl.telemetry.degradation import alertable_total
+
+        monkeypatch.setenv(MODEL_TIER_ENV, tier.value)
+        return alertable_total(self._Counters(**counters))  # type: ignore[arg-type]
+
+    def test_drops_do_not_alert_in_the_free_tier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._alertable(monkeypatch, ModelTier.FREE, _forecasters_dropped_count=3) == 0
+
+    def test_drops_still_alert_in_prod(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._alertable(monkeypatch, ModelTier.PROD, _forecasters_dropped_count=3) == 3
+
+    @pytest.mark.parametrize(
+        "counter",
+        [
+            "_questions_failed_to_publish",
+            "_stacker_primary_failed_count",
+            "_stacker_fallback_used_count",
+            "_stacker_fallback_failed_count",
+            "_research_provider_failure_count",
+            "_summarizer_failure_count",
+            "_gap_fill_v2_error_count",
+            "_prediction_market_degraded_count",
+            "_prediction_market_source_loss_count",
+            "_provider_degradation_count",
+        ],
+    )
+    def test_every_other_counter_still_alerts_in_the_free_tier(
+        self, monkeypatch: pytest.MonkeyPatch, counter: str
+    ) -> None:
+        """The narrowness check, one counter at a time.
+
+        A failure to PUBLISH is not a free-tier fact of life; nor is a research provider
+        erroring. Only the shared-pool 429 is, and only it is exempt.
+        """
+        assert self._alertable(monkeypatch, ModelTier.FREE, **{counter: 2}) == 2
+
+    def test_drops_do_not_mask_a_real_failure_in_the_same_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The exemption subtracts the drops, not the whole total.
+        total = self._alertable(
+            monkeypatch, ModelTier.FREE, _forecasters_dropped_count=5, _questions_failed_to_publish=2
+        )
+        assert total == 2
+
+    def test_drops_are_still_counted_and_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Not alertable is not invisible.
+
+        The whole evidence trail stays: the summary line still carries the count, and it
+        is a parsed telemetry contract besides.
+        """
+        from sibyl.telemetry.degradation import format_degradation_summary
+
+        monkeypatch.setenv(MODEL_TIER_ENV, ModelTier.FREE.value)
+        summary = format_degradation_summary(self._Counters(_forecasters_dropped_count=3))  # type: ignore[arg-type]
+        assert "forecasters_dropped=3" in summary
