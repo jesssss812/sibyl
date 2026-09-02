@@ -42,6 +42,10 @@ plan does not name" rule.
   fire in full-suite collection order, so the suite is green. Probably the provider-health
   or prediction-market source-loss counter; `test_cli.py`'s reset fixture covers the CLI
   tests only.
+- **Two lines of `value_extraction.py`'s JSON-repair error branch lost coverage** in the
+  full-suite run, though the same test files give identical coverage in isolation. An
+  ordering artifact rather than a lost test; see
+  [decisions/0001-parity-contract.md](decisions/0001-parity-contract.md).
 - **`forecasting/bot.py` imports `eval/performance/parsing.py`** for comment annotation —
   a dependency from the forecasting path onto the eval layer. Noted in the plan as
   known-and-left-alone.
