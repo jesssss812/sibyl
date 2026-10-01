@@ -48,16 +48,16 @@ class TestBootstrapMeanCi:
     def test_empty_is_nan_not_an_exception(self) -> None:
         assert all(math.isnan(v) for v in bootstrap_mean_ci([]))
 
-    def test_below_the_minimum_the_ci_collapses_to_the_point(self) -> None:
-        # A percentile interval on four points is resampling noise, not a sampling
-        # distribution; collapsing says "no width earned" rather than inventing one.
+    def test_below_the_minimum_the_ci_is_unavailable(self) -> None:
+        # Small samples have a point estimate, but do not earn an interval.
         deltas = [0.1, 0.2, 0.3, 0.4][: BOOTSTRAP_MIN_N - 1]
         point, lo, hi = bootstrap_mean_ci(deltas, seed=0)
-        assert lo == point == hi
+        assert point == pytest.approx(sum(deltas) / len(deltas))
+        assert math.isnan(lo) and math.isnan(hi)
 
     def test_below_the_minimum_the_seed_cannot_matter(self) -> None:
         deltas = [0.1, 0.2, 0.3, 0.4]
-        assert bootstrap_mean_ci(deltas, seed=0) == bootstrap_mean_ci(deltas, seed=99)
+        assert bootstrap_mean_ci(deltas, seed=0)[0] == bootstrap_mean_ci(deltas, seed=99)[0]
 
     def test_same_seed_reproduces_across_calls(self) -> None:
         deltas = [0.05, -0.02, 0.01, 0.0, -0.04, 0.03, 0.02, -0.01]
@@ -164,14 +164,12 @@ class TestPairedSummary:
             "sign_test_p",
             "wilcoxon_p",
             "mde",
+            "inference_status",
         }
 
-    def test_nan_deltas_are_dropped_and_n_reflects_it(self) -> None:
-        # A question that failed in one arm has no delta; counting it would understate
-        # the effect and overstate the power at once.
-        summary = paired_summary([0.2] * 10 + [float("nan")] * 3, n_bootstrap=200, seed=0)
-        assert summary["n"] == 10
-        assert summary["mean_delta"] == pytest.approx(0.2)
+    def test_nonfinite_deltas_require_explicit_upstream_exclusion(self) -> None:
+        with pytest.raises(ValueError, match="finite"):
+            paired_summary([0.2] * 10 + [float("nan")], seed=0)
 
     def test_empty_input_is_reported_not_raised(self) -> None:
         summary = paired_summary([], n_bootstrap=200, seed=0)
@@ -184,6 +182,6 @@ class TestPairedSummary:
         assert paired_summary(deltas, n_bootstrap=300, seed=1) == paired_summary(deltas, n_bootstrap=300, seed=1)
 
     def test_the_mde_uses_the_surviving_pair_count(self) -> None:
-        deltas = [0.2] * 10 + [float("nan")] * 90
+        deltas = [0.2] * 10
         summary = paired_summary(deltas, n_bootstrap=200, seed=0)
         assert summary["mde"] == pytest.approx(minimum_detectable_effect(sd=0.0, n=10), abs=1e-12)
