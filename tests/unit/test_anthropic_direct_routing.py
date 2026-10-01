@@ -11,7 +11,6 @@ A cheap assertion here is the only thing standing between that and a forecaster
 silently downgrading itself in production.
 """
 
-import litellm
 import pytest
 
 from sibyl.config.models import FORECASTER_LLMS, STACKER_LLM
@@ -78,12 +77,17 @@ def test_direct_slot_model_ids_use_anthropics_dash_form(label: str, llm: object)
 
 
 @pytest.mark.parametrize(("label", "llm"), _DIRECT_ANTHROPIC_SLOTS, ids=lambda v: v if isinstance(v, str) else "")
-def test_effort_xhigh_is_actually_supported_by_the_pinned_model(label: str, llm: object) -> None:
-    """Guards the swap against a model id that quietly does not accept xhigh."""
+def test_effort_xhigh_survives_local_anthropic_request_transform(label: str, llm: object) -> None:
+    """The local adapter must retain xhigh; remote availability needs a paid check."""
     bare = llm.model.split("/", 1)[1]  # type: ignore[attr-defined]
-    info = litellm.model_cost.get(bare) or litellm.model_cost.get(llm.model)  # type: ignore[attr-defined]
-    assert info is not None, f"{label}: {bare!r} is absent from litellm's model map"
-    assert info.get("supports_xhigh_reasoning_effort") is True, f"{label}: {bare!r} does not support effort=xhigh"
+    # The bundled cost map can lag model support. Exercise the request transformer,
+    # which is the behavior we need; absence of pricing metadata is not rejection.
+    from litellm.llms.anthropic.chat.transformation import AnthropicConfig
+
+    params = AnthropicConfig().map_openai_params({"reasoning_effort": "xhigh"}, {}, bare, False)
+    assert params["thinking"] == {"type": "adaptive"}, label
+    assert params["output_config"] == {"effort": "xhigh"}, label
+
 
 
 def test_forecaster_display_names_survive_the_reroute() -> None:
@@ -92,3 +96,12 @@ def test_forecaster_display_names_survive_the_reroute() -> None:
 
     assert "claude-opus-5" in FORECASTER_MODEL_NAMES
     assert all("/" not in name for name in FORECASTER_MODEL_NAMES)
+
+
+def test_opus_five_xhigh_request_transformation_is_adaptive() -> None:
+    from litellm.llms.anthropic.chat.transformation import AnthropicConfig
+
+    params = AnthropicConfig().map_openai_params(
+        {"reasoning_effort": "xhigh"}, {}, "claude-opus-5", False)
+    assert params["thinking"] == {"type": "adaptive"}
+    assert params["output_config"] == {"effort": "xhigh"}

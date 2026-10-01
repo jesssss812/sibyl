@@ -1,7 +1,7 @@
 # Evaluation integrity: implementation handoff
 
 Date: 2026-09-25  
-Status: proposed implementation plan; no fixes implemented by this document  
+Status: engineering fixes implemented on `codex/evaluation-integrity-plan`; scientific registration pending
 Audience: the coding agent implementing the repository review findings
 
 ## Objective
@@ -40,7 +40,7 @@ completion of this plan as completion of either scientific study.
 
 ## Review evidence and baseline
 
-The review ran `.venv/bin/python -m pytest -q`, `.venv/bin/ruff check .`, and
+The review ran `.venv/bin/pytest -q`, `.venv/bin/ruff check .`, and
 `.venv/bin/basedpyright` without changing repository files.
 
 - Tests: **5,432 passed, 2 failed, 21 skipped, 7 deselected**.
@@ -399,3 +399,13 @@ The coding agent's completion report must include:
 Completion of the engineering work means the harness can enforce a valid experiment.
 It does not mean routing works, leakage cancels, or retrospective rankings predict
 forward results. Those remain empirical questions for separately authorized studies.
+
+## Implementation validation note (2026-10-01)
+
+The production pipeline golden scenarios 1–4 remained byte-identical. Scenario 5
+`eval_aggregate_scores` moved for the intended small-sample correction: its two-pair
+confidence bounds had been recorded as point estimates, although an interval is
+unavailable below five pairs. The corrected JSON uses `null` bounds. That one
+fixture was deliberately re-recorded after inspecting the exact old and new values.
+The surface-inventory check also detected the plan's quoted Python/pytest module invocation as a new CLI surface; that prose was corrected to the equivalent
+`.venv/bin/pytest` invocation without changing runtime behavior or its golden file.
