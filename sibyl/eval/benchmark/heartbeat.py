@@ -25,7 +25,12 @@ def install_benchmarker_heartbeat(interval_seconds: int, progress_state: dict) -
         start_time = datetime.now()
         task = asyncio.create_task(_orig(self, batch))
         while not task.done():
-            await asyncio.sleep(interval_seconds)
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=interval_seconds)
+            except asyncio.TimeoutError:
+                pass
+            if task.done() and interval_seconds > 0:
+                break
             elapsed_min = (datetime.now() - start_time).total_seconds() / 60.0
             try:
                 if progress_state.get("pbar") is not None:

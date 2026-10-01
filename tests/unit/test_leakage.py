@@ -75,7 +75,7 @@ class TestCheckSingleQuestionLeakage:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_returns_false_on_llm_failure(self):
+    async def test_returns_unknown_on_llm_failure(self):
         detector_llm = AsyncMock()
         detector_llm.invoke.side_effect = RuntimeError("LLM call failed")
 
@@ -83,7 +83,7 @@ class TestCheckSingleQuestionLeakage:
         gt = _make_ground_truth(1)
 
         result = await _check_single_question_leakage(question, gt, "research text", detector_llm)
-        assert result is False
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_prompt_contains_question_and_ground_truth(self):
@@ -140,7 +140,7 @@ class TestProcessSingleQuestion:
         assert is_leaked is True
 
     @pytest.mark.asyncio
-    async def test_research_failure_keeps_question(self):
+    async def test_research_failure_excludes_question(self):
         research_provider = AsyncMock(side_effect=RuntimeError("API down"))
         detector_llm = AsyncMock()
         semaphore = asyncio.Semaphore(5)
@@ -154,7 +154,7 @@ class TestProcessSingleQuestion:
 
         assert qid == 42
         assert research_text is None
-        assert is_leaked is False
+        assert is_leaked is None
         detector_llm.invoke.assert_not_called()
 
     @pytest.mark.asyncio
@@ -284,7 +284,7 @@ class TestScreenResearchForLeakage:
     @pytest.mark.asyncio
     @patch("sibyl.eval.backtest.leakage.GeneralLlm")
     @patch("sibyl.eval.backtest.leakage.choose_provider_with_name")
-    async def test_research_failure_keeps_question_no_cache(self, mock_choose_provider_with_name, mock_llm_class):
+    async def test_research_failure_excludes_question_no_cache(self, mock_choose_provider_with_name, mock_llm_class):
         call_count = 0
 
         async def research_side_effect(text: str) -> str:  # noqa: ASYNC124  # test double; awaited by code under test
@@ -310,8 +310,8 @@ class TestScreenResearchForLeakage:
             _as_questions(questions), ground_truths, concurrency=5
         )
 
-        assert len(clean_questions) == 3
-        assert len(clean_gts) == 3
+        assert len(clean_questions) == 2
+        assert len(clean_gts) == 2
         assert len(research_cache) == 2
 
     @pytest.mark.asyncio
