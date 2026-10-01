@@ -25,11 +25,8 @@ Multi-file pairs (meta+blob in ``write_research`` / ``write_pruned_research``)
 are NOT atomic across both files. ``write_research`` writes meta FIRST, blob
 SECOND; an interruption between the two leaves a partial state with the
 NEWER meta on disk and the OLDER blob (rather than the silently-corrupt
-inverse, NEW blob + OLD meta). The meta-first order is operator-detectable
-from the meta payload (e.g. timestamp, redactor_invocation_id) — a downstream
-consumer that distrusts the pair re-runs the producing stage. Future hardening
-could add a ``blob_sha`` field to the meta so consumers verify; we accept the
-detect-and-rerun tradeoff for now.
+inverse, NEW blob + OLD meta). The meta includes a blob hash. Readers verify the pair and treat an interrupted
+write as a cache miss, so the producing stage must run again.
 
 JSON payloads carry a top-level ``cache_schema_version`` field. Reads raise
 ``ValueError`` on a mismatch instead of returning silently-stale data; writes
@@ -40,6 +37,8 @@ import json
 import os
 import tempfile
 from pathlib import Path
+
+from sibyl.eval.artifacts import code_identity, fingerprint, json_safe
 
 CACHE_SCHEMA_VERSION = 1
 
@@ -86,7 +85,7 @@ _atomic_write_text = atomic_write_text
 
 
 def _dump_json(payload: dict) -> str:
-    return json.dumps(payload, indent=2, sort_keys=True, default=str)
+    return json.dumps(json_safe(payload), indent=2, sort_keys=True, default=str, allow_nan=False)
 
 
 def _load_versioned_json(path: Path) -> dict:
@@ -109,6 +108,30 @@ class AblationCache:
 
     def __init__(self, root: Path | str = _DEFAULT_ROOT) -> None:
         self.root = Path(root)
+        self._input_hashes: dict[tuple[str, int, str], str] = {}
+        self._code_hash: str | None = None
+        self.valid_hits: dict[str, int] = {}
+        self.verified_reads: list[tuple[str, int, str]] = []
+
+    def bind_inputs(self, stage: str, qid: int, key: str, inputs: dict) -> None:
+        """Bind reads and writes to the same computation, including its implementation."""
+        if self._code_hash is None:
+            self._code_hash = code_identity()["source_hash"]
+        self._input_hashes[(stage, qid, key)] = fingerprint({"code": self._code_hash, "inputs": inputs})
+
+    def _verified(self, payload: dict, stage: str, qid: int, key: str) -> dict | None:
+        expected = self._input_hashes.get((stage, qid, key))
+        if expected is not None and payload.get("input_hash") != expected:
+            return None
+        if expected is not None and not (stage == "forecaster" and
+                                        (payload.get("prediction_value") is None or payload.get("errors") or payload.get("error"))):
+            self.valid_hits[stage] = self.valid_hits.get(stage, 0) + 1
+            self.verified_reads.append((stage, qid, key))
+        return payload
+
+    def _stamped(self, payload: dict, stage: str, qid: int, key: str) -> dict:
+        expected = self._input_hashes.get((stage, qid, key))
+        return {**payload, "input_hash": expected} if expected is not None else payload
 
     # ------------------------------------------------------------------
     # qids manifest
@@ -153,6 +176,8 @@ class AblationCache:
             return None
         blob = blob_path.read_text(encoding="utf-8")
         meta = _load_versioned_json(meta_path)
+        if meta.get("blob_hash") != fingerprint(blob):
+            return None
         return blob, meta
 
     def write_research(self, qid: int, blob: str, meta: dict) -> None:
@@ -162,11 +187,11 @@ class AblationCache:
         # on disk with the OLD blob (caller can detect via stale data signals
         # or re-run the producing stage), rather than the silently-corrupt
         # state of NEW blob + OLD meta.
-        _atomic_write_text(self._research_meta_path(qid), _dump_json(_inject_version(meta)))
+        _atomic_write_text(self._research_meta_path(qid), _dump_json(_inject_version({**meta, "blob_hash": fingerprint(blob)})))
         _atomic_write_text(self._research_blob_path(qid), blob)
 
     def has_research(self, qid: int) -> bool:
-        return self._research_blob_path(qid).exists() and self._research_meta_path(qid).exists()
+        return self.read_research(qid) is not None
 
     # ------------------------------------------------------------------
     # Pruned research (sanitized blob written by the redactor subagent)
@@ -185,15 +210,17 @@ class AblationCache:
             return None
         blob = blob_path.read_text(encoding="utf-8")
         meta = _load_versioned_json(meta_path)
+        if meta.get("blob_hash") != fingerprint(blob):
+            return None
         return blob, meta
 
     def write_pruned_research(self, qid: int, sanitized_blob: str, meta: dict) -> None:
         # Same M2 invariant as write_research: meta first, blob second.
-        _atomic_write_text(self._pruned_research_meta_path(qid), _dump_json(_inject_version(meta)))
+        _atomic_write_text(self._pruned_research_meta_path(qid), _dump_json(_inject_version({**meta, "blob_hash": fingerprint(sanitized_blob)})))
         _atomic_write_text(self._pruned_research_blob_path(qid), sanitized_blob)
 
     def has_pruned_research(self, qid: int) -> bool:
-        return self._pruned_research_blob_path(qid).exists() and self._pruned_research_meta_path(qid).exists()
+        return self.read_pruned_research(qid) is not None
 
     # ------------------------------------------------------------------
     # Leakage screens
@@ -222,12 +249,12 @@ class AblationCache:
         path = self._forecaster_output_path(qid, model_slug)
         if not path.exists():
             return None
-        return _load_versioned_json(path)
+        return self._verified(_load_versioned_json(path), "forecaster", qid, model_slug)
 
     def write_forecaster_output(self, qid: int, model_slug: str, payload: dict) -> None:
         _atomic_write_text(
             self._forecaster_output_path(qid, model_slug),
-            _dump_json(_inject_version(payload)),
+            _dump_json(_inject_version(self._stamped(payload, "forecaster", qid, model_slug))),
         )
 
     def list_forecaster_outputs(
@@ -276,12 +303,12 @@ class AblationCache:
         path = self._stacker_output_path(qid, arm, stacker_slug)
         if not path.exists():
             return None
-        return _load_versioned_json(path)
+        return self._verified(_load_versioned_json(path), "stacker", qid, arm + (stacker_slug or ""))
 
     def write_stacker_output(self, qid: int, arm: str, payload: dict, stacker_slug: str | None = None) -> None:
         _atomic_write_text(
             self._stacker_output_path(qid, arm, stacker_slug),
-            _dump_json(_inject_version(payload)),
+            _dump_json(_inject_version(self._stamped(payload, "stacker", qid, arm + (stacker_slug or "")))),
         )
 
     # ------------------------------------------------------------------

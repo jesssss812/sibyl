@@ -1233,7 +1233,7 @@ class TestFullPipeline:
         )
         exit_code = await run_ablation(args)
 
-        assert exit_code == 0
+        assert exit_code == 1  # Diagnostic artifact written; missing comparison pairs trigger the 5% refusal.
 
         # Each stage was invoked exactly once.
         assert mocks["fetch"].await_count == 1
@@ -1841,7 +1841,7 @@ class TestQaIterateStage:
         )
         exit_code = await run_ablation(args)
 
-        assert exit_code == 0
+        assert exit_code == 1  # Diagnostic artifact written; missing comparison pairs trigger the 5% refusal.
         # Skip mode = no verifier/redactor invocations.
         assert verifier_mock.await_count == 0
         assert redactor_mock.await_count == 0
@@ -1954,7 +1954,7 @@ class TestQaIterateStage:
         )
         exit_code = await run_ablation(args)
 
-        assert exit_code == 0
+        assert exit_code == 1  # Diagnostic artifact written; missing comparison pairs trigger the 5% refusal.
         summaries = list(cache_dir.glob("qa_summary_*.md"))
         assert len(summaries) == 1
         rejects_path = cache_dir / "manual_rejects.json"
@@ -2148,7 +2148,7 @@ class TestQaIterateStage:
         )
         exit_code = await run_ablation(args)
 
-        assert exit_code == 0
+        assert exit_code == 1  # Diagnostic artifact written; missing comparison pairs trigger the 5% refusal.
         qa_reports_dir = cache_dir / "qa_reports"
         assert qa_reports_dir.is_dir(), "expected qa_reports/ subdirectory under cache root"
         report_path = qa_reports_dir / "7030.json"
@@ -3072,7 +3072,7 @@ class TestQaResearch:
 
 class TestIdempotency:
     @pytest.mark.asyncio
-    async def test_re_run_is_idempotent_with_existing_caches(
+    async def test_mocked_runners_are_revalidated_on_resume(
         self,
         cache_dir: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -3135,7 +3135,7 @@ class TestIdempotency:
         # First run: all mocks called.
         args = _build_parser().parse_args(argv)
         exit_code1 = await run_ablation(args)
-        assert exit_code1 == 0
+        assert exit_code1 == 1  # Missing median arm exceeds the 5% paired drop gate.
         assert mocks["fetch"].await_count == 1
         assert mocks["research"].await_count == 1
         assert mocks["screen"].await_count == 1
@@ -3147,16 +3147,16 @@ class TestIdempotency:
         # are below request — here they match (1 binary requested, 1 binary in manifest).
         args = _build_parser().parse_args(argv)
         exit_code2 = await run_ablation(args)
-        assert exit_code2 == 0
+        assert exit_code2 == 1
 
-        # Research, screen, forecasters, stackers should have read all values from cache.
+        # Mock runners do not verify input hashes; upstream research and screen still hit.
         # The mocks should not have been called a second time. The runners themselves
         # short-circuit on cache hits, so the orchestrator either skips the call or
         # passes empty work to it. We assert nothing fresh hit the wire.
         assert mocks["research"].await_count == 1
         assert mocks["screen"].await_count == 1
-        assert mocks["forecasters"].await_count == 1
-        assert mocks["stacker"].await_count == 2
+        assert mocks["forecasters"].await_count == 2
+        assert mocks["stacker"].await_count == 4
 
 
 class TestForceStages:
@@ -3329,12 +3329,12 @@ class TestForecastCacheContentAware:
         )
 
     @pytest.mark.asyncio
-    async def test_forecast_uses_cache_when_surviving_meets_threshold(
+    async def test_unverified_forecast_cache_is_recomputed_even_with_enough_survivors(
         self,
         cache_dir: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Sanity check: a fully-valid cache is honored (didn't break the happy path)."""
+        """Old payloads lack input fingerprints and cannot certify a cache hit."""
         from sibyl.eval.ablation.cli import _build_parser, run_ablation
         from sibyl.eval.ablation.forecaster_lineup import FREE_FORECASTER_MODELS
 
@@ -3354,8 +3354,8 @@ class TestForecastCacheContentAware:
         args = _build_parser().parse_args(["--stages", "forecast", "--cache-dir", str(cache_dir)])
         await run_ablation(args)
 
-        # Forecasters mock NOT called — cached payloads are valid.
-        assert mocks["forecasters"].await_count == 0
+        # Existing payloads have no input fingerprint; the batch must revalidate.
+        assert mocks["forecasters"].await_count == 1
 
 
 class TestStagesScoreOnly:
@@ -3434,7 +3434,7 @@ class TestStagesScoreOnly:
 
         args = _build_parser().parse_args(["--stages", "score", "--cache-dir", str(cache_dir)])
         exit_code = await run_ablation(args)
-        assert exit_code == 0
+        assert exit_code == 1  # Diagnostic artifact written; missing comparison pairs trigger the 5% refusal.
 
         # Scoring-only: no fetch, research, screen, forecast, or stacker calls.
         assert mocks["fetch"].await_count == 0
@@ -3555,7 +3555,7 @@ class TestQidsBypassesFetch:
             ["--qids", "100,200", "--cache-dir", str(cache_dir), "--qa-iterate-mode", "advisory"]
         )
         exit_code = await run_ablation(args)
-        assert exit_code == 0
+        assert exit_code == 1  # Missing valid comparison pairs are refused.
 
         # Fetch never called.
         assert mocks["fetch"].await_count == 0
@@ -3978,21 +3978,22 @@ class TestSpendReport:
         captured2 = capsys.readouterr()
         out2 = captured2.out
 
-        # All fresh calls zero.
+        # Research and screen are reused; mocked forecast/stack runners cannot
+        # validate content hashes, so their dispatch is charged as fresh.
         assert "primary: 0 calls" in out2
         assert "gap-fill: 0 calls" in out2
         assert "Leakage detector     0 LLM calls" in out2
-        assert "Forecasters          0 LLM calls" in out2
-        assert "Stacker (stack)      0 calls (0 fallback)" in out2
-        assert "Stacker (stack_aug)        0 calls (0 fallback)" in out2
-        assert "Parser               0 calls" in out2
+        assert "Forecasters          6 LLM calls" in out2
+        assert "Stacker (stack)      2 calls (0 fallback)" in out2
+        assert "Stacker (stack_aug)        2 calls (0 fallback)" in out2
+        assert "Parser               4 calls" in out2
 
         # Cache hits reflect what was cached: 2 qids fully cached at every stage.
         assert "research=2" in out2
         assert "screen=2" in out2
-        assert f"forecast={2 * n_forecasters}" in out2
-        assert "stack=2" in out2
-        assert "stack_aug=2" in out2
+        assert "forecast=0" in out2
+        assert "stack=0" in out2
+        assert "stack_aug=0" in out2
 
     @pytest.mark.asyncio
     async def test_spend_report_counts_fallback_stacker(
@@ -5855,7 +5856,7 @@ class TestQidsFilterAppliedAfterHydration:
 
         args = _build_parser().parse_args(["--qids", "100", "--stages", "score", "--cache-dir", str(cache_dir)])
         exit_code = await run_ablation(args)
-        assert exit_code == 0
+        assert exit_code == 0  # The filtered question has every required arm.
 
         # Only qid 100's score should appear; qid 200 must be filtered out.
         summaries = sorted((cache_dir / "scores").glob("summary_*.md"))
@@ -5956,11 +5957,11 @@ class TestScoreOnlyZeroOverlapCheck:
         cache_dir: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Disjoint single-arm sets produce 0 comparisons but exit 0 (valid empty result).
+        """Disjoint single-arm sets produce no valid pairs and must refuse inference.
 
         With per-comparison N, a qid needs >= 2 arms for any comparison. When
         each qid only has 1 arm, no comparisons are possible — the summary is
-        empty but the run succeeds (exit 0). This is correct: the data simply
+        empty and the run refuses inference (exit 1). The data simply
         doesn't support any pairwise comparison.
         """
         from sibyl.eval.ablation.cli import _build_parser, run_ablation
@@ -5987,8 +5988,8 @@ class TestScoreOnlyZeroOverlapCheck:
         exit_code = await run_ablation(args)
 
         # Per-comparison N: each qid has only 1 arm, so no comparisons are
-        # possible. Exit 0 is correct — it's not a config error, just empty data.
-        assert exit_code == 0
+        # possible. Exit 1 is correct: no comparison has usable pairs.
+        assert exit_code == 1  # Diagnostic artifact written; missing comparison pairs trigger the 5% refusal.
 
     @pytest.mark.asyncio
     async def test_score_only_succeeds_when_arms_overlap(

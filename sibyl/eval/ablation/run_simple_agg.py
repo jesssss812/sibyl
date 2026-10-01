@@ -39,6 +39,7 @@ from sibyl.eval.ablation.run_stacker import (
     _surviving_forecasters,
 )
 from sibyl.eval.ablation.stage_payload import make_error_payload, make_success_payload
+from sibyl.eval.artifacts import question_identity
 from sibyl.forecasting.numeric.utils import aggregate_numeric
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ async def _run_simple_agg_for_qid(
     force: bool = False,
 ) -> dict:
     """Shared logic for deterministic simple-aggregation arms (mean / median)."""
+    cache.bind_inputs("stacker", qid, arm, {"question": question_identity(question), "forecasters": forecaster_payloads, "method": method})
     if not force:
         cached = cache.read_stacker_output(qid=qid, arm=arm)
         if cached is not None:

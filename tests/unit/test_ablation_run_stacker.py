@@ -752,6 +752,11 @@ class TestCacheBehavior:
             "tools_enabled_at_runtime": False,
             "errors": [],
         }
+        from sibyl.eval.artifacts import model_identity, question_identity
+        cache.bind_inputs("stacker", 1, ARM_STACK, {
+            "question": question_identity(_make_binary_q(qid=1)), "research": "R",
+            "forecasters": _three_binary_forecasters(), "model": model_identity(stacker_llm),
+            "fallback": model_identity(fallback_stacker_llm), "parser": model_identity(parser_llm)})
         cache.write_stacker_output(qid=1, arm=ARM_STACK, payload=cached_payload)
 
         runner_mock = MagicMock(return_value="")
@@ -784,7 +789,8 @@ class TestCacheBehavior:
                     parser_llm=parser_llm,
                 )
             )
-        assert payload == {**cached_payload, "cache_schema_version": 1}
+        assert {key: payload[key] for key in cached_payload} == cached_payload
+        assert payload["cache_schema_version"] == 1
         runner_mock.assert_not_called()
         agg_mock.assert_not_called()
         stacker_mock.assert_not_called()

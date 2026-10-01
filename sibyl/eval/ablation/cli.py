@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -81,7 +82,6 @@ from sibyl.eval.ablation.run_pdf import (  # noqa: E402
 # used in multiple places across the orchestrator so top-level is cleaner.
 from sibyl.eval.ablation.run_simple_agg import run_mean_for_qid, run_median_for_qid
 from sibyl.eval.ablation.run_stacker import (
-    ABLATION_MIN_FORECASTERS,
     ARM_MEAN,
     ARM_MEDIAN,
     ARM_PDF,
@@ -90,6 +90,9 @@ from sibyl.eval.ablation.run_stacker import (
     run_stacker_batch,
 )
 from sibyl.eval.ablation.scoring import (
+    COMPARISONS_3ARM,
+    COMPARISONS_5ARM,
+    COMPARISONS_6ARM,
     PairedScore,
     aggregate_paired,
     score_arm_for_qid,
@@ -436,6 +439,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Logs are tee'd to stderr and to <cache-dir>/logs/run_<timestamp>.log."
         ),
     )
+    parser.add_argument("--tier", choices=["free", "prod"], help="Explicit spending tier for API stages")
     parser.add_argument(
         "--lineup",
         type=str,
@@ -724,6 +728,7 @@ class WorkingSet:
     leakage_verdicts: dict[int, dict] = field(default_factory=dict)
     forecaster_payloads: dict[int, dict[str, dict]] = field(default_factory=dict)
     stacker_payloads: dict[str, dict[int, dict]] = field(default_factory=dict)
+    inference_refused: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -1176,30 +1181,8 @@ async def _stage_forecast(
     forecaster_llms, lineup_models = get_lineup(lineup_name)
 
     cached_per_qid: dict[int, dict[str, dict]] = {}
-    pre_snapshot_slugs: dict[int, set[str]] = {}
-    for qid in qids:
-        # m2: filter the on-disk listing to the CURRENT lineup so obsolete
-        # files don't pollute cache hit accounting or downstream stacker calls.
-        on_disk = cache.list_forecaster_outputs(qid, lineup_filter=lineup_models)
-        pre_snapshot_slugs[qid] = set(on_disk.keys())
-        if force or not on_disk:
-            continue
-        # Task #23: content-aware cache hit. A forecaster cache that contains
-        # only error payloads (prediction_value=None or non-empty errors) would
-        # cause the stacker stage to permanently cache "insufficient_forecasters"
-        # and skip the qid at score time. Re-run if the surviving count is below
-        # the stacker's downstream threshold.
-        n_valid = sum(1 for p in on_disk.values() if p.get("prediction_value") is not None and not p.get("errors"))
-        if n_valid < ABLATION_MIN_FORECASTERS:
-            logger.info(
-                "forecast | qid=%d cache has %d valid forecasters (< %d threshold); re-running",
-                qid,
-                n_valid,
-                ABLATION_MIN_FORECASTERS,
-            )
-            continue
-        cached_per_qid[qid] = on_disk
-
+    hits_before = cache.valid_hits.get("forecaster", 0)
+    # Per-model runner validates exact research, prompt/code and model inputs.
     needs_run = [qid for qid in qids if qid not in cached_per_qid]
     questions_with_research = [(working.questions[qid], working.research_blobs[qid]) for qid in needs_run]
 
@@ -1216,14 +1199,9 @@ async def _stage_forecast(
             max_retries=rate_limit_kwargs["max_retries"],
         )
 
-    for qid in qids:
-        cached_slugs = pre_snapshot_slugs[qid] if not force else set()
-        for model in lineup_models:
-            slug = model_slug_to_filename(model)
-            if slug in cached_slugs:
-                spend.cached_forecaster_hits += 1
-            else:
-                spend.forecaster_llm_calls += 1
+    verified_hits = cache.valid_hits.get("forecaster", 0) - hits_before
+    spend.cached_forecaster_hits += verified_hits
+    spend.forecaster_llm_calls += len(qids) * len(lineup_models) - verified_hits
 
     for qid, payloads in cached_per_qid.items():
         working.forecaster_payloads[qid] = payloads
@@ -1273,14 +1251,9 @@ async def _stage_simple_agg(
     cached_payloads: dict[int, dict] = {}
     needs_run: list[int] = []
     for qid in qids:
-        if not force:
-            cached = cache.read_stacker_output(qid=qid, arm=arm)
-            if cached is not None:
-                cached_payloads[qid] = cached
-                spend.cached_stacker_hits[arm] = spend.cached_stacker_hits.get(arm, 0) + 1
-                continue
         needs_run.append(qid)
 
+    hits_before = cache.valid_hits.get("stacker", 0)
     fresh_results: dict[int, dict] = {}
     if needs_run:
         run_fn = run_median_for_qid if arm == ARM_MEDIAN else run_mean_for_qid
@@ -1293,6 +1266,7 @@ async def _stage_simple_agg(
                 force=force,
             )
 
+    spend.cached_stacker_hits[arm] = spend.cached_stacker_hits.get(arm, 0) + cache.valid_hits.get("stacker", 0) - hits_before
     working.stacker_payloads[arm] = {**cached_payloads, **fresh_results}
 
 
@@ -1312,12 +1286,6 @@ async def _stage_pdf(
     cached_payloads: dict[int, dict] = {}
     needs_run: list[int] = []
     for qid in qids:
-        if not force:
-            cached = cache.read_stacker_output(qid=qid, arm=ARM_PDF)
-            if cached is not None:
-                cached_payloads[qid] = cached
-                spend.cached_stacker_hits[ARM_PDF] = spend.cached_stacker_hits.get(ARM_PDF, 0) + 1
-                continue
         needs_run.append(qid)
 
     results_min1: dict[int, dict] = {}
@@ -1378,15 +1346,10 @@ async def _stage_llm_stacker(
     cached_payloads: dict[int, dict] = {}
     needs_run: list[int] = []
     for qid in qids:
-        if not force:
-            cached = cache.read_stacker_output(qid=qid, arm=arm, stacker_slug=stacker_slug)
-            if cached is not None:
-                cached_payloads[qid] = cached
-                spend.cached_stacker_hits[arm] = spend.cached_stacker_hits.get(arm, 0) + 1
-                continue
         needs_run.append(qid)
 
     fresh_results: dict[int, dict] = {}
+    verified_before = len(cache.verified_reads)
     if needs_run:
         qid_to_data = {
             qid: {
@@ -1440,9 +1403,13 @@ async def _stage_llm_stacker(
             **batch_kwargs,
         )
 
+    cached_qids = {qid for stage, qid, key in cache.verified_reads[verified_before:] if stage == "stacker" and key == arm + stacker_slug} if needs_run else set()
+    spend.cached_stacker_hits[arm] = spend.cached_stacker_hits.get(arm, 0) + len(cached_qids)
     # Count LLM calls and fallback usage from fresh results.
     is_arm_a = arm == ARM_STACK
-    for payload in fresh_results.values():
+    for qid, payload in fresh_results.items():
+        if qid in cached_qids:
+            continue
         used = payload["stacker_model_used"]
         if used in ("primary", "fallback"):
             if is_arm_a:
@@ -1662,6 +1629,12 @@ def _stage_score(
         def _report_or_none(payload: dict | None) -> Any:
             if payload is None or not payload.get("success"):
                 return None
+            if payload.get("errors") or payload.get("stacker_model_used") in ("fallback", "fallback_llm"):
+                return None
+            configured = len(working.forecaster_payloads.get(qid, {}))
+            used = payload.get("n_forecasters_used")
+            if configured and isinstance(used, (int, float)) and used < configured:
+                return None
             return _build_report_shim(qid, question, payload)
 
         payload_stack = working.stacker_payloads.get(ARM_STACK, {}).get(qid)
@@ -1723,6 +1696,21 @@ def _stage_score(
             n_scored += 1
         paired_scores.extend(scores)
 
+    # The scheduled denominator is the frozen working set, including questions
+    # that disappeared before either arm produced a payload.
+    prepared = set(working.research_blobs) if working.research_blobs else set(working.questions)
+    scheduled = prepared & set(working.ground_truths)
+    eligibility: dict[str, dict[str, int | float]] = {}
+    comparisons = COMPARISONS_6ARM if has_pdf_arms and has_mean_arm else COMPARISONS_5ARM if has_pdf_arms else COMPARISONS_3ARM
+    for comparison in comparisons:
+        observed = {score.qid for score in paired_scores if score.comparison == comparison}
+        dropped = scheduled - observed
+        rate = len(dropped) / len(scheduled) if scheduled else 1.0
+        eligibility[comparison] = {"scheduled": len(scheduled), "paired": len(observed),
+                                   "dropped": len(dropped), "drop_rate": rate}
+        if rate > 0.05:
+            working.inference_refused = True
+
     stats = aggregate_paired(paired_scores, n_bootstrap=5000, seed=args.seed)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -1731,11 +1719,24 @@ def _stage_score(
         "n_questions": n_scored,
         "tournaments": ", ".join(args.tournaments),
         "resolved_after": args.resolved_after,
+        "eligibility": eligibility,
+        "inference_status": "refused" if working.inference_refused else "exploratory_unregistered",
     }
     summary_md = render_summary_markdown(stats, paired_scores, metadata)
+    if working.inference_refused:
+        summary_md = "# REFUSED: more than 5% of scheduled questions dropped in at least one comparison\n\n" + summary_md
+    else:
+        summary_md = "# EXPLORATORY: no prospective endpoint registration for ablation\n\n" + summary_md
 
     run_payload = {
         "metadata": metadata,
+        "arm_results": {str(qid): {arm: {"status": "ok" if payload.get("success") else "failed",
+                                          "errors": payload.get("errors", []),
+                                          "model_used": payload.get("stacker_model_used"),
+                                          "n_forecasters_used": payload.get("n_forecasters_used")}
+                                     for arm, records in working.stacker_payloads.items()
+                                     if (payload := records.get(qid)) is not None}
+                        for qid in sorted(scheduled)},
         "stats": [
             {
                 "metric": s.metric,
@@ -1939,7 +1940,10 @@ def _print_spend_report(spend: SpendReport, working: WorkingSet, summary_path: P
         print()
         print(f"Summary written to: {summary_path}")
         print()
-        print(f"Ready for sign-off — please review summary at {summary_path} before expanding the run.")
+        if working.inference_refused:
+            print("REFUSED: per-comparison drop rate exceeds 5%; inspect the diagnostic summary.")
+        else:
+            print(f"Exploratory summary: review {summary_path} before any registered experiment.")
     print(border)
 
 
@@ -1990,7 +1994,7 @@ async def run_ablation(args: argparse.Namespace) -> int:
             return 2
         summary_path = _stage_score(args, cache, working)
         _print_spend_report(spend, working, summary_path)
-        return 0
+        return 1 if working.inference_refused else 0
 
     # Full pipeline (or any subset that includes upstream stages).
     if "fetch" in requested:
@@ -2149,7 +2153,7 @@ async def run_ablation(args: argparse.Namespace) -> int:
             logger.info("stage=score DONE | summary=%s", summary_path)
 
     _print_spend_report(spend, working, summary_path)
-    return 0
+    return 1 if working.inference_refused else 0
 
 
 # ---------------------------------------------------------------------------
@@ -2192,6 +2196,14 @@ def _configure_logging(args: argparse.Namespace, cache_dir: Path) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    from sibyl.config.models import ModelTier, active_tier
+    tier = ModelTier(args.tier) if args.tier else active_tier()
+    paid_stages = {"research", "prune", "screen", "qa_iterate", "stack", "stack_aug"}
+    if tier == ModelTier.FREE and (paid_stages & set(args.stages) or args.lineup == "prod"):
+        print("Ablation API stages require explicit --tier prod or SIBYL_MODEL_TIER=prod", file=sys.stderr)
+        return 2
+    if args.tier:
+        os.environ["SIBYL_MODEL_TIER"] = args.tier
     cache_dir = Path(args.cache_dir) if args.cache_dir else Path(DEFAULT_CACHE_DIR)
     log_path = _configure_logging(args, cache_dir)
     logger.info("ablation run starting; log file: %s", log_path)

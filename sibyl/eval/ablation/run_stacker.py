@@ -61,6 +61,7 @@ from sibyl.eval.ablation.forecasters import (
 )
 from sibyl.eval.ablation.stage_payload import make_error_payload, make_success_payload
 from sibyl.eval.ablation.window_patch import patched_window_for_question
+from sibyl.eval.artifacts import model_identity, question_identity
 from sibyl.forecasting import tool_runner
 from sibyl.forecasting.numeric.utils import bound_messages
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
@@ -480,6 +481,7 @@ async def run_stacker_for_arm(
     qid = question.id_of_question
     assert qid is not None, "run_stacker_for_arm requires question.id_of_question"
 
+    cache.bind_inputs("stacker", qid, arm + (stacker_slug or ""), {"question": question_identity(question), "research": research_blob, "forecasters": forecaster_payloads, "model": model_identity(stacker_llm), "fallback": model_identity(fallback_stacker_llm), "parser": model_identity(parser_llm)})
     if not force:
         cached = cache.read_stacker_output(qid=qid, arm=arm, stacker_slug=stacker_slug)
         if cached is not None:
