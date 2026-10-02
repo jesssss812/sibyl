@@ -727,7 +727,11 @@ class FallbackOpenRouterLlm(GeneralLlm):
                 # primary's exception is intentionally discarded because the
                 # caller asked for a fallback, not a re-raise.
                 await record_primary_key_fallback(self.model, e)  # noqa: ASYNC120
-                return await self._invoke_once_using_secondary(prompt, system_prompt)  # noqa: ASYNC120
+                from sibyl.platform.personal_fallback_spend import invoke_personal_fallback  # noqa: PLC0415
+
+                return await invoke_personal_fallback(  # noqa: ASYNC120
+                    lambda: self._invoke_once_using_secondary(prompt, system_prompt), model=self.model
+                )
             raise
 
     async def _invoke_once_using_primary(self, prompt: Any, system_prompt: str | None = None) -> str:

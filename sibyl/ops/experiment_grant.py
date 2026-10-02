@@ -130,6 +130,7 @@ def _preview() -> dict[str, object]:
         "market_query_author": grant_route_for(str(roster.market_query_author_config["model"])),
         "financial_classifier": grant_route_for(roster.financial_classifier_model),
         "research": research,
+        "route_validation": "offline configuration only; confirm public catalogue before a live run",
         "allocation_usd": "100",
         "local_reserve_usd": str(GRANT_RESERVE_USD),
     }
@@ -219,7 +220,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "report":
             ledger = SpendLedger(args.ledger)
-            print(json.dumps({"totals": ledger.summary(args.run_id), "by_model_stage": ledger.breakdown(args.run_id)}, indent=2))
+            from sibyl.platform.personal_fallback_spend import PersonalFallbackLedger
+
+            print(json.dumps({"grant": {"totals": ledger.summary(args.run_id),
+                                        "by_model_stage": ledger.breakdown(args.run_id)},
+                              "personal_fallback": PersonalFallbackLedger(args.ledger).summary()}, indent=2))
             return 0
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)
