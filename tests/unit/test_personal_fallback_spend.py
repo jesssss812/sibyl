@@ -6,10 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from sibyl.platform import key_fallback
+from sibyl.platform import key_fallback, personal_fallback_spend
 from sibyl.platform.experiment_usage import _GrantUsageObserver
 from sibyl.platform.key_fallback import FallbackOpenRouterLlm
-from sibyl.platform import personal_fallback_spend
 from sibyl.platform.personal_fallback_spend import LEDGER_ENV, PersonalFallbackLedger
 
 

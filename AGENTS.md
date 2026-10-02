@@ -17,10 +17,13 @@ These are the only rules that can cost real money if broken.
 3. **Free models never publish to a scored tournament.** `tournament`, `minibench` and
    `cup` are refused on the free tier before any client is built. Only `test`, which
    publishes to the unscored `bot-testing-area`, is allowed.
-4. **"Operator go" means for one specific run.** `make e2e_free` and anything under
-   `pytest -m live` need the operator to say go for *that* run. Prior approval of a
-   similar run is not approval of this one. `make e2e_free` costs nothing but does
-   publish real comments on real questions.
+4. **"Operator go" means for one specific run.** `make e2e_free` and live tests other
+   than the nonpublishing `make e2e_free_no_publish` need the operator to say go for
+   *that* run. Prior approval of a similar run is not approval of this one.
+   `make e2e_free` costs nothing but publishes real comments on real questions.
+   The operator has authorized `make e2e_free_no_publish` as the required pre-push
+   check after code changes: it uses only OpenRouter `:free` models on a synthetic
+   question and blocks all Metaculus publish calls.
 5. **Never** re-enable a `schedule:` block, dispatch a workflow, or commit a secret.
 
 ## Working rules
@@ -46,6 +49,14 @@ make test        # suite; live tests deselected by default
 make lint        # ruff
 make typecheck   # basedpyright, must report 0 errors
 ```
+
+## Before pushing code changes
+
+Run `make e2e_free_no_publish` after the final code edit and before every push.
+It requires `OPENROUTER_API_KEY`, makes live free-model calls, and must never
+publish. If the key, network, or a free provider is unavailable, do not substitute
+`make e2e_free` or claim the check passed; report the blocker and hold the push.
+This standing authorization applies only to this nonpublishing check.
 
 ## Layout
 
