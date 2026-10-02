@@ -1,4 +1,5 @@
 """Score-stage refusal uses the complete scheduled set for each comparison."""
+
 import json
 
 from sibyl.eval.ablation.cache import AblationCache
@@ -36,5 +37,7 @@ def test_upstream_screening_losses_count_against_scheduled_denominator(tmp_path)
     assert working.inference_refused
     assert path.read_text().startswith("# REFUSED")
     run = json.loads((path.parent / path.name.replace("summary_", "run_").replace(".md", ".json")).read_text())
-    assert all(row["scheduled"] == 20 and row["dropped"] == 5 and row["drop_rate"] == 0.25
-               for row in run["metadata"]["eligibility"].values())
+    assert all(
+        row["scheduled"] == 20 and row["dropped"] == 5 and row["drop_rate"] == 0.25
+        for row in run["metadata"]["eligibility"].values()
+    )

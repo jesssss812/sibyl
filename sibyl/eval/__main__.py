@@ -60,6 +60,7 @@ def _run_fit_platt(argv: list[str]) -> int:
 
 def _run_preflight(argv: list[str]) -> int:
     from sibyl.eval.power import main
+
     return main(argv)
 
 

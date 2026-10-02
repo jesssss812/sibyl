@@ -123,8 +123,10 @@ class AblationCache:
         expected = self._input_hashes.get((stage, qid, key))
         if expected is not None and payload.get("input_hash") != expected:
             return None
-        if expected is not None and not (stage == "forecaster" and
-                                        (payload.get("prediction_value") is None or payload.get("errors") or payload.get("error"))):
+        if expected is not None and not (
+            stage == "forecaster"
+            and (payload.get("prediction_value") is None or payload.get("errors") or payload.get("error"))
+        ):
             self.valid_hits[stage] = self.valid_hits.get(stage, 0) + 1
             self.verified_reads.append((stage, qid, key))
         return payload
@@ -187,7 +189,9 @@ class AblationCache:
         # on disk with the OLD blob (caller can detect via stale data signals
         # or re-run the producing stage), rather than the silently-corrupt
         # state of NEW blob + OLD meta.
-        _atomic_write_text(self._research_meta_path(qid), _dump_json(_inject_version({**meta, "blob_hash": fingerprint(blob)})))
+        _atomic_write_text(
+            self._research_meta_path(qid), _dump_json(_inject_version({**meta, "blob_hash": fingerprint(blob)}))
+        )
         _atomic_write_text(self._research_blob_path(qid), blob)
 
     def has_research(self, qid: int) -> bool:
@@ -216,7 +220,10 @@ class AblationCache:
 
     def write_pruned_research(self, qid: int, sanitized_blob: str, meta: dict) -> None:
         # Same M2 invariant as write_research: meta first, blob second.
-        _atomic_write_text(self._pruned_research_meta_path(qid), _dump_json(_inject_version({**meta, "blob_hash": fingerprint(sanitized_blob)})))
+        _atomic_write_text(
+            self._pruned_research_meta_path(qid),
+            _dump_json(_inject_version({**meta, "blob_hash": fingerprint(sanitized_blob)})),
+        )
         _atomic_write_text(self._pruned_research_blob_path(qid), sanitized_blob)
 
     def has_pruned_research(self, qid: int) -> bool:

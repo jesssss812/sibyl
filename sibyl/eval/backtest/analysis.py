@@ -82,8 +82,12 @@ def _bot_minus_community_ci(metric_scores: list[QuestionScore]) -> dict[str, Any
     if not deltas:
         return None
     mean, low, high = bootstrap_mean_ci(deltas, seed=0)
-    return {"mean": mean, "low": low if np.isfinite(low) else None,
-            "high": high if np.isfinite(high) else None, "n": len(deltas)}
+    return {
+        "mean": mean,
+        "low": low if np.isfinite(low) else None,
+        "high": high if np.isfinite(high) else None,
+        "n": len(deltas),
+    }
 
 
 def generate_backtest_report(
@@ -249,6 +253,7 @@ def save_backtest_data(
     }
 
     from sibyl.eval.artifacts import write_json
+
     data["experiment"] = data["fetch_metadata"].get("experiment", {})
     write_json(filepath, data)
     logger.info(f"Backtest data saved to {filepath}")

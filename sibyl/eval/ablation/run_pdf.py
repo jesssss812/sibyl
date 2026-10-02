@@ -317,7 +317,17 @@ async def run_pdf_for_qid(
     output payload. Use ``ARM_PDF_MIN1`` / ``ARM_PDF_MIN2`` / ``ARM_PDF_MIN1_MEAN``
     to write separate cache files for the dual-panel pdf analysis.
     """
-    cache.bind_inputs("stacker", qid, arm_label, {"question": question_identity(question), "forecasters": forecaster_payloads, "aggregation": aggregation, "min_forecasters": min_forecasters})
+    cache.bind_inputs(
+        "stacker",
+        qid,
+        arm_label,
+        {
+            "question": question_identity(question),
+            "forecasters": forecaster_payloads,
+            "aggregation": aggregation,
+            "min_forecasters": min_forecasters,
+        },
+    )
     if not force:
         cached = cache.read_stacker_output(qid=qid, arm=arm_label)
         if cached is not None:

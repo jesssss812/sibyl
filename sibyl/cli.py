@@ -196,6 +196,7 @@ def main() -> None:
     _refuse_free_tier_on_scored_tournament(tier, run_mode)
     if run_mode == "tournament":
         from sibyl.config.settings import TOURNAMENT_ENABLED
+
         if not TOURNAMENT_ENABLED:
             parser.error("Tournament execution is disabled pending operator selection of a new competition")
         check_tournament_dates(logging.getLogger(__name__))

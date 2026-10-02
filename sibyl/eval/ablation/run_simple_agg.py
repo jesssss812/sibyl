@@ -73,7 +73,12 @@ async def _run_simple_agg_for_qid(
     force: bool = False,
 ) -> dict:
     """Shared logic for deterministic simple-aggregation arms (mean / median)."""
-    cache.bind_inputs("stacker", qid, arm, {"question": question_identity(question), "forecasters": forecaster_payloads, "method": method})
+    cache.bind_inputs(
+        "stacker",
+        qid,
+        arm,
+        {"question": question_identity(question), "forecasters": forecaster_payloads, "method": method},
+    )
     if not force:
         cached = cache.read_stacker_output(qid=qid, arm=arm)
         if cached is not None:

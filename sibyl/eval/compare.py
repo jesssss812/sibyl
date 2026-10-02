@@ -94,8 +94,11 @@ def _scores_by_key(data: dict[str, Any], path: Path) -> tuple[dict[tuple[int, st
     scores: dict[tuple[int, str], float] = {}
     types: dict[int, str] = {}
     seen = set()
-    invalid = {int(qid) for qid, status in results[0].get("question_status", {}).items()
-               if status.get("status") != "ok" or status.get("degraded", False)}
+    invalid = {
+        int(qid)
+        for qid, status in results[0].get("question_status", {}).items()
+        if status.get("status") != "ok" or status.get("degraded", False)
+    }
     for row in results[0].get("scores", []):
         qid, metric = int(row["question_id"]), str(row["metric_name"])
         key = (qid, metric)
@@ -128,13 +131,17 @@ def pair_scores(
     return dict(deltas), all_qids - paired_qids
 
 
-def _format_section(title: str, metric: str, rows: list[tuple[int, float]], seed: int, *, confirmatory: bool = True) -> str:
+def _format_section(
+    title: str, metric: str, rows: list[tuple[int, float]], seed: int, *, confirmatory: bool = True
+) -> str:
     summary = paired_summary([d for _qid, d in rows], seed=seed)
     direction = "lower is better" if metric in LOWER_IS_BETTER else "higher is better"
     verdict = _verdict(metric, summary) if confirmatory else "exploratory only; no confirmatory verdict"
+
     def interval(low: str, high: str) -> str:
         lo, hi = summary[low], summary[high]
         return "unavailable" if not math.isfinite(lo) or not math.isfinite(hi) else f"[{lo:+.5f}, {hi:+.5f}]"
+
     mde = f"{summary['mde']:.5f}" if math.isfinite(summary["mde"]) else "unavailable"
     return (
         f"  {title}\n"
@@ -197,6 +204,7 @@ def render_report(path_a: Path, path_b: Path, by_question_type: bool = False, se
     registered = bool(plan_a and plan_b and plan_a == plan_b and identity_a.get("manifest_id") and not fixture)
     if registered:
         from sibyl.eval.power import assess_plan
+
         checked = assess_plan(plan_a["plan"])
         if checked["plan_id"] != plan_a["plan_id"] or checked["decision"] != "proceed":
             raise CompareError("Invalid or underpowered registered plan")
@@ -243,13 +251,21 @@ def render_report(path_a: Path, path_b: Path, by_question_type: bool = False, se
         out.append("DESCRIPTIVE/EXPLORATORY DATA: no matched registration; no confirmatory verdict.\n")
     for metric in sorted(deltas):
         out.append(f"\n{metric}:\n")
-        out.append(_format_section("overall", metric, deltas[metric], seed, confirmatory=registered and metric == primary_metric))
+        out.append(
+            _format_section(
+                "overall", metric, deltas[metric], seed, confirmatory=registered and metric == primary_metric
+            )
+        )
         if by_question_type:
             per_type: dict[str, list[tuple[int, float]]] = defaultdict(list)
             for qid, delta in deltas[metric]:
                 per_type[types.get(qid, "unknown")].append((qid, delta))
             for qtype in sorted(per_type):
-                out.append(_format_section(f"question_type={qtype} (exploratory slice)", metric, per_type[qtype], seed, confirmatory=False))
+                out.append(
+                    _format_section(
+                        f"question_type={qtype} (exploratory slice)", metric, per_type[qtype], seed, confirmatory=False
+                    )
+                )
     out.append(CAVEATS)
     return "".join(out)
 

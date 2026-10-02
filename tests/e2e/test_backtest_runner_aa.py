@@ -1,4 +1,5 @@
 """Real offline runner A/A: immutable inputs through ensemble and persisted scoring."""
+
 import asyncio
 import json
 from datetime import datetime, timezone
@@ -15,16 +16,23 @@ from sibyl.eval.compare import render_report
 
 async def test_real_fixture_runner_aa(tmp_path, monkeypatch):
     import sibyl.eval.backtest.cli as cli
+
     question_set = BacktestQuestionSet([], {})
     for qid in range(1, 7):
-        q = BinaryQuestion(question_text=f"Will event {qid} happen?", id_of_question=qid,
-                           background_info="Synthetic fixture", resolution_criteria="Event happens",
-                           fine_print="", open_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                           scheduled_resolution_time=datetime(2024, 3, 1, tzinfo=timezone.utc),
-                           community_prediction_at_access_time=0.5)
+        q = BinaryQuestion(
+            question_text=f"Will event {qid} happen?",
+            id_of_question=qid,
+            background_info="Synthetic fixture",
+            resolution_criteria="Event happens",
+            fine_print="",
+            open_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            scheduled_resolution_time=datetime(2024, 3, 1, tzinfo=timezone.utc),
+            community_prediction_at_access_time=0.5,
+        )
         question_set.questions.append(q)
-        question_set.ground_truths[qid] = GroundTruth(qid, "binary", bool(qid % 2),
-                                                      str(bool(qid % 2)), 0.5, None, q.question_text)
+        question_set.ground_truths[qid] = GroundTruth(
+            qid, "binary", bool(qid % 2), str(bool(qid % 2)), 0.5, None, q.question_text
+        )
         question_set.research_cache[qid] = "Canned research for offline pipeline validation."
     manifest = tmp_path / "manifest.json"
     write_json(manifest, prepare_manifest(question_set, source="fixture"))

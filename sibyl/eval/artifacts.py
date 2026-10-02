@@ -54,8 +54,10 @@ def code_identity() -> dict[str, str]:
     except (OSError, subprocess.CalledProcessError):
         sha, dirty = "unknown", True
     # Hash source bytes, never environment or git diffs that could contain secrets.
-    sources = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-               for p in sorted((root / "sibyl").rglob("*.py"))}
+    sources = {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted((root / "sibyl").rglob("*.py"))
+    }
     return {"git_sha": sha, "dirty_source": str(dirty).lower(), "source_hash": fingerprint(sources)}
 
 
@@ -80,15 +82,28 @@ def prepare_manifest(question_set: BacktestQuestionSet, *, source: str) -> dict[
             raise ValueError(f"Q{qid}: mid-window forecast time is after actual resolution")
         gt = asdict(question_set.ground_truths[qid])
         gt["resolution"] = question_set.ground_truths[qid].resolution
-        entries.append({"question_id": qid, "question_class": type(q).__name__,
-                        "question": q.model_dump(mode="json"), "ground_truth": json_safe(gt),
-                        "as_of": as_of.isoformat(), "research": research,
-                        "research_hash": fingerprint(research),
-                        "research_source": json_safe(question_set.fetch_metadata.get("research_provenance", {}).get(qid, {"category": source}))})
-    payload = {"schema_version": SCHEMA_VERSION, "as_of_policy": "mid-window",
-               "scoring_version": SCORING_VERSION, "preparation": json_safe(question_set.fetch_metadata), "entries": entries}
-    return {**payload, "manifest_id": fingerprint(payload),
-            "prepared_at": datetime.now(timezone.utc).isoformat()}
+        entries.append(
+            {
+                "question_id": qid,
+                "question_class": type(q).__name__,
+                "question": q.model_dump(mode="json"),
+                "ground_truth": json_safe(gt),
+                "as_of": as_of.isoformat(),
+                "research": research,
+                "research_hash": fingerprint(research),
+                "research_source": json_safe(
+                    question_set.fetch_metadata.get("research_provenance", {}).get(qid, {"category": source})
+                ),
+            }
+        )
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "as_of_policy": "mid-window",
+        "scoring_version": SCORING_VERSION,
+        "preparation": json_safe(question_set.fetch_metadata),
+        "entries": entries,
+    }
+    return {**payload, "manifest_id": fingerprint(payload), "prepared_at": datetime.now(timezone.utc).isoformat()}
 
 
 def load_manifest(path: Path) -> tuple[dict[str, Any], BacktestQuestionSet]:
@@ -121,9 +136,14 @@ def load_manifest(path: Path) -> tuple[dict[str, Any], BacktestQuestionSet]:
 
 def model_identity(llm: Any) -> dict[str, Any]:
     kwargs = getattr(llm, "litellm_kwargs", {})
-    return {"model": str(getattr(llm, "model", "default")), "settings": {
-        k: kwargs[k] for k in ("temperature", "max_tokens", "reasoning", "reasoning_effort", "timeout", "seed")
-        if isinstance(kwargs, dict) and k in kwargs}}
+    return {
+        "model": str(getattr(llm, "model", "default")),
+        "settings": {
+            k: kwargs[k]
+            for k in ("temperature", "max_tokens", "reasoning", "reasoning_effort", "timeout", "seed")
+            if isinstance(kwargs, dict) and k in kwargs
+        },
+    }
 
 
 def question_identity(question: Any) -> Any:
@@ -132,5 +152,7 @@ def question_identity(question: Any) -> Any:
         value = question.model_dump(mode="json")
         if isinstance(value, dict):
             return value
-    return {key: str(getattr(question, key, None)) for key in
-            ("id_of_question", "question_text", "resolution_criteria", "open_time", "scheduled_resolution_time")}
+    return {
+        key: str(getattr(question, key, None))
+        for key in ("id_of_question", "question_text", "resolution_criteria", "open_time", "scheduled_resolution_time")
+    }

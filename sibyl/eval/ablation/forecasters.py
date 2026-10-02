@@ -693,11 +693,25 @@ async def run_forecasters_for_question(
     to_run: list[GeneralLlm] = []
     for llm in forecaster_llms:
         slug = model_slug_to_filename(llm.model)
-        cache.bind_inputs("forecaster", qid, slug, {"question": question_identity(question), "research": research_blob, "model": model_identity(llm), "parser": model_identity(parser_llm)})
+        cache.bind_inputs(
+            "forecaster",
+            qid,
+            slug,
+            {
+                "question": question_identity(question),
+                "research": research_blob,
+                "model": model_identity(llm),
+                "parser": model_identity(parser_llm),
+            },
+        )
         if not force:
             cached = cache.read_forecaster_output(qid=qid, model_slug=slug)
-            if (cached is not None and cached.get("prediction_value") is not None
-                    and not cached.get("errors") and not cached.get("error")):
+            if (
+                cached is not None
+                and cached.get("prediction_value") is not None
+                and not cached.get("errors")
+                and not cached.get("error")
+            ):
                 results[slug] = cached
                 continue
         to_run.append(llm)

@@ -147,20 +147,35 @@ def _build_parser() -> argparse.ArgumentParser:
 def _create_real_bots(research_cache: dict[int, str], *, individual: bool = False) -> list[SibylBot]:
     """Use the authoritative roster for the selected tier; never a stale paid catalog."""
     roster = get_roster(active_tier())
-    helpers = {"parser": roster.parser, "researcher": roster.researcher, "summarizer": roster.summarizer,
-               "stacker": roster.stacker, "analyzer": roster.analyzer}
+    helpers = {
+        "parser": roster.parser,
+        "researcher": roster.researcher,
+        "summarizer": roster.summarizer,
+        "stacker": roster.stacker,
+        "analyzer": roster.analyzer,
+    }
     if individual:
         return create_individual_bots(
-            [{"name": llm.model, "forecaster": llm} for llm in roster.forecasters], helpers,
-            BENCHMARK_BOT_CONFIG, batch_size=BENCHMARK_BATCH_SIZE, research_cache=research_cache)
-    bot = SibylBot(**BENCHMARK_BOT_CONFIG, aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
-                  llms=cast("Any", {"forecasters": list(roster.forecasters), **helpers}),
-                  max_concurrent_research=BENCHMARK_BATCH_SIZE, research_cache=research_cache)
+            [{"name": llm.model, "forecaster": llm} for llm in roster.forecasters],
+            helpers,
+            BENCHMARK_BOT_CONFIG,
+            batch_size=BENCHMARK_BATCH_SIZE,
+            research_cache=research_cache,
+        )
+    bot = SibylBot(
+        **BENCHMARK_BOT_CONFIG,
+        aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
+        llms=cast("Any", {"forecasters": list(roster.forecasters), **helpers}),
+        max_concurrent_research=BENCHMARK_BATCH_SIZE,
+        research_cache=research_cache,
+    )
     bot.name = f"{active_tier().value}-production-ensemble"
     return [bot]
 
 
-def _create_fixture_bots(*, count: int, seed: int, research_cache: dict[int, str], individual: bool = True) -> list[SibylBot]:
+def _create_fixture_bots(
+    *, count: int, seed: int, research_cache: dict[int, str], individual: bool = True
+) -> list[SibylBot]:
     """Deterministic forecasters plus canned research. Cannot make a paid call.
 
     Every LLM slot is a FixtureLlm — forecasters AND the helper slots (summarizer, parser,
@@ -188,10 +203,21 @@ def _create_fixture_bots(*, count: int, seed: int, research_cache: dict[int, str
     config = {**BENCHMARK_BOT_CONFIG, "research_provider": fixture_research_provider}
 
     if not individual:
-        bot = SibylBot(**config, aggregation_strategy=AggregationStrategy.MEDIAN,
-                      llms=cast("Any", {"forecasters": forecasters, "default": helper,
-                                      "summarizer": helper, "parser": helper, "researcher": helper}),
-                      research_cache=research_cache)
+        bot = SibylBot(
+            **config,
+            aggregation_strategy=AggregationStrategy.MEDIAN,
+            llms=cast(
+                "Any",
+                {
+                    "forecasters": forecasters,
+                    "default": helper,
+                    "summarizer": helper,
+                    "parser": helper,
+                    "researcher": helper,
+                },
+            ),
+            research_cache=research_cache,
+        )
         bot.name = "fixture-median-ensemble"
         return [bot]
 
@@ -288,10 +314,16 @@ def _load_research_from_archive(
                 continue
             cache[cache_key] = record.get("research_text", "")
             if evidence_records is not None:
-                as_of = q.open_time + (q.scheduled_resolution_time - q.open_time) / 2 if q.open_time and q.scheduled_resolution_time else None
+                as_of = (
+                    q.open_time + (q.scheduled_resolution_time - q.open_time) / 2
+                    if q.open_time and q.scheduled_resolution_time
+                    else None
+                )
                 raw_time = record.get("timestamp")
                 try:
-                    retrieval = datetime.fromisoformat(raw_time.replace("Z", "+00:00")) if isinstance(raw_time, str) else None
+                    retrieval = (
+                        datetime.fromisoformat(raw_time.replace("Z", "+00:00")) if isinstance(raw_time, str) else None
+                    )
                     post_cutoff = retrieval is None or as_of is None or retrieval > as_of
                 except (TypeError, ValueError):
                     retrieval, post_cutoff = None, True
@@ -335,9 +367,11 @@ async def run_backtest(args: argparse.Namespace) -> None:
         manifest, question_set = load_manifest(args.manifest)
     else:
         question_set = await fetch_resolved_questions(
-            total_questions=args.num_questions, resolved_after=args.resolved_after,
-            tournament=args.tournament, seed=args.seed)
-
+            total_questions=args.num_questions,
+            resolved_after=args.resolved_after,
+            tournament=args.tournament,
+            seed=args.seed,
+        )
 
     logger.info(
         f"Prepared {len(question_set.questions)} questions with {len(question_set.ground_truths)} ground truths"
@@ -354,7 +388,8 @@ async def run_backtest(args: argparse.Namespace) -> None:
         clean_ground_truths = question_set.ground_truths
         research_cache = {
             q.id_of_question: await fixture_research_provider(q)
-            for q in clean_questions if q.id_of_question is not None
+            for q in clean_questions
+            if q.id_of_question is not None
         }
     elif args.research_dir:
         archive_evidence: dict[int, dict] = {}
@@ -374,14 +409,15 @@ async def run_backtest(args: argparse.Namespace) -> None:
         )
         question_set.fetch_metadata["screening"] = screening_records
         question_set.fetch_metadata["research_provenance"] = {
-            qid: {"category": "live_after_resolution", "post_cutoff_or_unknown": True}
-            for qid in research_cache}
+            qid: {"category": "live_after_resolution", "post_cutoff_or_unknown": True} for qid in research_cache
+        }
         question_set.questions = clean_questions
         question_set.ground_truths = clean_ground_truths
 
     if args.fixture and manifest is None:
         question_set.fetch_metadata["research_provenance"] = {
-            qid: {"category": "fixture", "post_cutoff_or_unknown": False} for qid in research_cache}
+            qid: {"category": "fixture", "post_cutoff_or_unknown": False} for qid in research_cache
+        }
     question_set.research_cache = research_cache
     logger.info(f"After research setup: {len(clean_questions)} questions, {len(research_cache)} cached")
 
@@ -402,11 +438,17 @@ async def run_backtest(args: argparse.Namespace) -> None:
             eligible.append(q)
         question_set.fetch_metadata["preparation_exclusions"] = excluded
         question_set.questions = eligible
-        question_set.ground_truths = {q.id_of_question: question_set.ground_truths[q.id_of_question]
-                                      for q in eligible if q.id_of_question is not None}
-        question_set.research_cache = {q.id_of_question: research_cache[q.id_of_question]
-                                       for q in eligible if q.id_of_question in research_cache}
-        manifest = manifest or prepare_manifest(question_set, source="fixture" if args.fixture else "retrospective-research")
+        question_set.ground_truths = {
+            q.id_of_question: question_set.ground_truths[q.id_of_question]
+            for q in eligible
+            if q.id_of_question is not None
+        }
+        question_set.research_cache = {
+            q.id_of_question: research_cache[q.id_of_question] for q in eligible if q.id_of_question in research_cache
+        }
+        manifest = manifest or prepare_manifest(
+            question_set, source="fixture" if args.fixture else "retrospective-research"
+        )
         write_json(args.prepare_only, manifest)
         return
     if not args.fixture:
@@ -415,10 +457,18 @@ async def run_backtest(args: argparse.Namespace) -> None:
         endpoint = json.loads(args.power_plan.read_text())["plan"]["endpoint"]
         if endpoint == "crps":
             raise ValueError("Backtest does not yet score CRPS; choose numeric_log_score")
-        endpoint_type = "BinaryQuestion" if endpoint in ("brier", "binary_log_score") else "MultipleChoiceQuestion" if endpoint == "mc_log_score" else "NumericQuestion"
-        eligible_count = sum(entry["question_class"] == endpoint_type or
-                             (endpoint_type == "NumericQuestion" and entry["question_class"] == "DiscreteQuestion")
-                             for entry in manifest["entries"])
+        endpoint_type = (
+            "BinaryQuestion"
+            if endpoint in ("brier", "binary_log_score")
+            else "MultipleChoiceQuestion"
+            if endpoint == "mc_log_score"
+            else "NumericQuestion"
+        )
+        eligible_count = sum(
+            entry["question_class"] == endpoint_type
+            or (endpoint_type == "NumericQuestion" and entry["question_class"] == "DiscreteQuestion")
+            for entry in manifest["entries"]
+        )
         validate_preflight(args.power_plan, eligible_count, manifest["manifest_id"])
 
     started_at = datetime.now().astimezone().isoformat()
@@ -446,7 +496,9 @@ async def run_backtest(args: argparse.Namespace) -> None:
 
     # Apply scoring patches for mixed question types
     apply_scoring_patches()
-    historical_times = {int(e["question_id"]): datetime.fromisoformat(e["as_of"]) for e in manifest["entries"]} if manifest else {}
+    historical_times = (
+        {int(e["question_id"]): datetime.fromisoformat(e["as_of"]) for e in manifest["entries"]} if manifest else {}
+    )
     with forecast_times(historical_times), MonetaryCostManager() as cost_manager:
         # Run Benchmarker
         total_predictions = len(bots) * len(clean_questions)
@@ -496,10 +548,14 @@ async def run_backtest(args: argparse.Namespace) -> None:
                     continue
 
                 from sibyl.eval.performance.parsing import parse_forecasters_used_marker
+
                 used = parse_forecasters_used_marker(report.explanation)
                 degraded = bool(report.errors) or (used is not None and used[0] < used[1])
-                statuses[qid] = {"status": "degraded" if degraded else "ok",
-                                 "errors": list(report.errors), "forecasters_used": used}
+                statuses[qid] = {
+                    "status": "degraded" if degraded else "ok",
+                    "errors": list(report.errors),
+                    "forecasters_used": used,
+                }
                 report_scores = score_report(report, clean_ground_truths[qid])
                 if report_scores and any(not math.isfinite(float(row.bot_score)) for row in report_scores):
                     statuses[qid] = {"status": "invalid_score"}
@@ -532,14 +588,21 @@ async def run_backtest(args: argparse.Namespace) -> None:
 
         # Generate report and save data
         question_set.fetch_metadata["experiment"] = {
-            **code_identity(), "manifest_id": manifest["manifest_id"] if manifest else None,
-            "scoring_version": "per-type-v1", "fixture": args.fixture,
-            "bot_mode": args.bot_mode, "arm_id": args.arm_id or "fixture", "started_at": started_at, "tier": active_tier().value,
+            **code_identity(),
+            "manifest_id": manifest["manifest_id"] if manifest else None,
+            "scoring_version": "per-type-v1",
+            "fixture": args.fixture,
+            "bot_mode": args.bot_mode,
+            "arm_id": args.arm_id or "fixture",
+            "started_at": started_at,
+            "tier": active_tier().value,
             "power_plan": json.loads(args.power_plan.read_text()) if args.power_plan else None,
             "research_policy": "frozen retrospective research; differs from live fan-out",
             "roster": [] if args.fixture else [model_identity(m) for m in get_roster(active_tier()).forecasters],
         }
-        report_text = generate_backtest_report(results, question_set, output_path=str(args.output_dir / "backtest_report.md"))
+        report_text = generate_backtest_report(
+            results, question_set, output_path=str(args.output_dir / "backtest_report.md")
+        )
         save_backtest_data(question_set, results, output_dir=str(args.output_dir))
 
         logger.info(f"\nTotal Cost: {cost_manager.current_usage}")

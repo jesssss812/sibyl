@@ -119,5 +119,7 @@ async def _check_single_question_leakage(
         verdict = re.match(r"^\s*(YES|NO)\b", response, re.IGNORECASE)
         return verdict.group(1).upper() == "YES" if verdict else None
     except Exception:
-        logger.warning(f"Leakage check failed for Q{question.id_of_question}, excluding question with unknown leakage status")
+        logger.warning(
+            f"Leakage check failed for Q{question.id_of_question}, excluding question with unknown leakage status"
+        )
         return None

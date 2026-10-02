@@ -1266,7 +1266,9 @@ async def _stage_simple_agg(
                 force=force,
             )
 
-    spend.cached_stacker_hits[arm] = spend.cached_stacker_hits.get(arm, 0) + cache.valid_hits.get("stacker", 0) - hits_before
+    spend.cached_stacker_hits[arm] = (
+        spend.cached_stacker_hits.get(arm, 0) + cache.valid_hits.get("stacker", 0) - hits_before
+    )
     working.stacker_payloads[arm] = {**cached_payloads, **fresh_results}
 
 
@@ -1403,7 +1405,15 @@ async def _stage_llm_stacker(
             **batch_kwargs,
         )
 
-    cached_qids = {qid for stage, qid, key in cache.verified_reads[verified_before:] if stage == "stacker" and key == arm + stacker_slug} if needs_run else set()
+    cached_qids = (
+        {
+            qid
+            for stage, qid, key in cache.verified_reads[verified_before:]
+            if stage == "stacker" and key == arm + stacker_slug
+        }
+        if needs_run
+        else set()
+    )
     spend.cached_stacker_hits[arm] = spend.cached_stacker_hits.get(arm, 0) + len(cached_qids)
     # Count LLM calls and fallback usage from fresh results.
     is_arm_a = arm == ARM_STACK
@@ -1700,13 +1710,19 @@ def _stage_score(
     # removed from research_blobs by screening or QA before any arm ran.
     scheduled = set(working.questions) & set(working.ground_truths)
     eligibility: dict[str, dict[str, int | float]] = {}
-    comparisons = COMPARISONS_6ARM if has_pdf_arms and has_mean_arm else COMPARISONS_5ARM if has_pdf_arms else COMPARISONS_3ARM
+    comparisons = (
+        COMPARISONS_6ARM if has_pdf_arms and has_mean_arm else COMPARISONS_5ARM if has_pdf_arms else COMPARISONS_3ARM
+    )
     for comparison in comparisons:
         observed = {score.qid for score in paired_scores if score.comparison == comparison}
         dropped = scheduled - observed
         rate = len(dropped) / len(scheduled) if scheduled else 1.0
-        eligibility[comparison] = {"scheduled": len(scheduled), "paired": len(observed),
-                                   "dropped": len(dropped), "drop_rate": rate}
+        eligibility[comparison] = {
+            "scheduled": len(scheduled),
+            "paired": len(observed),
+            "dropped": len(dropped),
+            "drop_rate": rate,
+        }
         if rate > 0.05:
             working.inference_refused = True
 
@@ -1723,19 +1739,27 @@ def _stage_score(
     }
     summary_md = render_summary_markdown(stats, paired_scores, metadata)
     if working.inference_refused:
-        summary_md = "# REFUSED: more than 5% of scheduled questions dropped in at least one comparison\n\n" + summary_md
+        summary_md = (
+            "# REFUSED: more than 5% of scheduled questions dropped in at least one comparison\n\n" + summary_md
+        )
     else:
         summary_md = "# EXPLORATORY: no prospective endpoint registration for ablation\n\n" + summary_md
 
     run_payload = {
         "metadata": metadata,
-        "arm_results": {str(qid): {arm: {"status": "ok" if payload.get("success") else "failed",
-                                          "errors": payload.get("errors", []),
-                                          "model_used": payload.get("stacker_model_used"),
-                                          "n_forecasters_used": payload.get("n_forecasters_used")}
-                                     for arm, records in working.stacker_payloads.items()
-                                     if (payload := records.get(qid)) is not None}
-                        for qid in sorted(scheduled)},
+        "arm_results": {
+            str(qid): {
+                arm: {
+                    "status": "ok" if payload.get("success") else "failed",
+                    "errors": payload.get("errors", []),
+                    "model_used": payload.get("stacker_model_used"),
+                    "n_forecasters_used": payload.get("n_forecasters_used"),
+                }
+                for arm, records in working.stacker_payloads.items()
+                if (payload := records.get(qid)) is not None
+            }
+            for qid in sorted(scheduled)
+        },
         "stats": [
             {
                 "metric": s.metric,
@@ -2196,6 +2220,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     from sibyl.config.models import ModelTier, active_tier
+
     tier = ModelTier(args.tier) if args.tier else active_tier()
     paid_stages = {"research", "prune", "screen", "qa_iterate", "stack", "stack_aug"}
     if tier == ModelTier.FREE and (paid_stages & set(args.stages) or args.lineup == "prod"):

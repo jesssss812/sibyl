@@ -21,17 +21,28 @@ def assess_plan(plan: dict[str, Any]) -> dict[str, Any]:
     n, sd, effect = plan["n"], float(plan["sd"]), float(plan["effect"])
     scheduled_n = plan.get("scheduled_n")
     attrition = plan.get("attrition_allowance")
-    if (not plan.get("manifest_id") or not isinstance(scheduled_n, int)
-            or scheduled_n < n or attrition is None or not isinstance(attrition, (int, float))
-            or not 0 <= attrition < 1 or n > math.floor(scheduled_n * (1 - attrition))):
+    if (
+        not plan.get("manifest_id")
+        or not isinstance(scheduled_n, int)
+        or scheduled_n < n
+        or attrition is None
+        or not isinstance(attrition, (int, float))
+        or not 0 <= attrition < 1
+        or n > math.floor(scheduled_n * (1 - attrition))
+    ):
         raise ValueError("Plan needs manifest_id, scheduled_n and feasible attrition allowance")
     if not isinstance(n, int) or n < 5 or not math.isfinite(effect) or effect <= 0 or not math.isfinite(sd) or sd <= 0:
         raise ValueError("Need n >= 5 and positive finite sd/expected effect")
     mde = minimum_detectable_effect(sd, n, power=plan.get("power", 0.8), alpha=plan.get("alpha", 0.05))
-    return {"schema_version": 1, "plan": plan, "plan_id": fingerprint(plan),
-            "assessed_at": datetime.now(timezone.utc).isoformat(), "mde": mde,
-            "decision": "proceed" if effect >= mde else "decline",
-            "assumption": "Independent question pairs; normal approximation; variance supplied prospectively"}
+    return {
+        "schema_version": 1,
+        "plan": plan,
+        "plan_id": fingerprint(plan),
+        "assessed_at": datetime.now(timezone.utc).isoformat(),
+        "mde": mde,
+        "decision": "proceed" if effect >= mde else "decline",
+        "assumption": "Independent question pairs; normal approximation; variance supplied prospectively",
+    }
 
 
 def validate_preflight(path: Path, available_n: int, manifest_id: str) -> dict[str, Any]:

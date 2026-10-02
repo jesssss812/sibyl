@@ -89,7 +89,6 @@ def test_effort_xhigh_survives_local_anthropic_request_transform(label: str, llm
     assert params["output_config"] == {"effort": "xhigh"}, label
 
 
-
 def test_forecaster_display_names_survive_the_reroute() -> None:
     """performance_analysis maps 'Forecaster N' back to a model via these names."""
     from sibyl.config.models import FORECASTER_MODEL_NAMES
@@ -101,7 +100,6 @@ def test_forecaster_display_names_survive_the_reroute() -> None:
 def test_opus_five_xhigh_request_transformation_is_adaptive() -> None:
     from litellm.llms.anthropic.chat.transformation import AnthropicConfig
 
-    params = AnthropicConfig().map_openai_params(
-        {"reasoning_effort": "xhigh"}, {}, "claude-opus-5", False)
+    params = AnthropicConfig().map_openai_params({"reasoning_effort": "xhigh"}, {}, "claude-opus-5", False)
     assert params["thinking"] == {"type": "adaptive"}
     assert params["output_config"] == {"effort": "xhigh"}

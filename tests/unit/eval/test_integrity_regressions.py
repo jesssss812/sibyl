@@ -28,11 +28,21 @@ def test_shared_failures_are_counted_against_scheduled_questions(tmp_path):
     paths = []
     for arm, score in [("a", 0.2), ("b", 0.1)]:
         path = tmp_path / f"{arm}.json"
-        path.write_text(json.dumps({
-            "ground_truths": {str(q): {} for q in range(100)},
-            "results": [{"bot_name": arm, "num_questions": 100, "num_failed": 99,
-                         "scores": [{"question_id": 0, "metric_name": "brier", "bot_score": score}]}],
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "ground_truths": {str(q): {} for q in range(100)},
+                    "results": [
+                        {
+                            "bot_name": arm,
+                            "num_questions": 100,
+                            "num_failed": 99,
+                            "scores": [{"question_id": 0, "metric_name": "brier", "bot_score": score}],
+                        }
+                    ],
+                }
+            )
+        )
         paths.append(path)
     with pytest.raises(CompareError, match="99.*dropped"):
         render_report(*paths)
@@ -59,10 +69,15 @@ def test_historical_prompt_uses_one_date():
     from sibyl.eval.ablation.window_patch import patched_window_for_question
     from sibyl.forecasting.prompts import binary_prompt
 
-    q = SimpleNamespace(id_of_question=1, question_text="Will X occur?", background_info="",
-                        resolution_criteria="X occurs by close", fine_print="",
-                        open_time=datetime(2025, 1, 1, tzinfo=timezone.utc),
-                        scheduled_resolution_time=datetime(2025, 3, 1, tzinfo=timezone.utc))
+    q = SimpleNamespace(
+        id_of_question=1,
+        question_text="Will X occur?",
+        background_info="",
+        resolution_criteria="X occurs by close",
+        fine_print="",
+        open_time=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        scheduled_resolution_time=datetime(2025, 3, 1, tzinfo=timezone.utc),
+    )
     with patched_window_for_question(q):
         prompt = binary_prompt(q, "research")  # type: ignore[arg-type]
     assert "Today: 2025-01-30" in prompt
@@ -90,6 +105,7 @@ async def test_historical_clocks_are_task_local():
     import asyncio
 
     from sibyl.common.forecast_context import forecast_time, forecast_times
+
     q = SimpleNamespace(id_of_question=1)
 
     async def clock(year):
@@ -104,17 +120,56 @@ async def test_historical_clocks_are_task_local():
 
 def test_registered_primary_missing_fails_instead_of_reporting_secondary(tmp_path):
     from sibyl.eval.artifacts import fingerprint
-    plan = {"endpoint": "brier", "hypothesis": "synthetic", "variance_source": "independent",
-            "manifest_id": "m1", "n": 5, "scheduled_n": 5, "attrition_allowance": 0.0, "sd": 0.1, "effect": 0.2}
-    saved = {"plan": plan, "plan_id": fingerprint(plan), "decision": "proceed",
-             "assessed_at": "2025-01-01T00:00:00+00:00"}
+
+    plan = {
+        "endpoint": "brier",
+        "hypothesis": "synthetic",
+        "variance_source": "independent",
+        "manifest_id": "m1",
+        "n": 5,
+        "scheduled_n": 5,
+        "attrition_allowance": 0.0,
+        "sd": 0.1,
+        "effect": 0.2,
+    }
+    saved = {
+        "plan": plan,
+        "plan_id": fingerprint(plan),
+        "decision": "proceed",
+        "assessed_at": "2025-01-01T00:00:00+00:00",
+    }
     paths = []
     for arm in ("a", "b"):
         path = tmp_path / f"{arm}.json"
-        path.write_text(json.dumps({"ground_truths": {str(q): {} for q in range(5)},
-             "experiment": {"manifest_id": "m1", "scoring_version": "per-type-v1", "power_plan": saved, "arm_id": arm, "started_at": "2026-01-01T00:00:00+00:00"},
-             "results": [{"bot_name": arm, "question_status": {str(q): {"status": "ok"} for q in range(5)},
-                          "scores": [{"question_id": q, "question_type": "binary", "metric_name": "binary_log_score", "bot_score": -0.2} for q in range(5)]}]}))
+        path.write_text(
+            json.dumps(
+                {
+                    "ground_truths": {str(q): {} for q in range(5)},
+                    "experiment": {
+                        "manifest_id": "m1",
+                        "scoring_version": "per-type-v1",
+                        "power_plan": saved,
+                        "arm_id": arm,
+                        "started_at": "2026-01-01T00:00:00+00:00",
+                    },
+                    "results": [
+                        {
+                            "bot_name": arm,
+                            "question_status": {str(q): {"status": "ok"} for q in range(5)},
+                            "scores": [
+                                {
+                                    "question_id": q,
+                                    "question_type": "binary",
+                                    "metric_name": "binary_log_score",
+                                    "bot_score": -0.2,
+                                }
+                                for q in range(5)
+                            ],
+                        }
+                    ],
+                }
+            )
+        )
         paths.append(path)
     with pytest.raises(CompareError, match="primary brier"):
         render_report(*paths)
@@ -124,13 +179,21 @@ def test_matching_plan_id_cannot_hide_different_registration_payloads(tmp_path):
     paths = []
     for arm, effect in (("a", 0.02), ("b", 0.03)):
         path = tmp_path / f"{arm}.json"
-        path.write_text(json.dumps({
-            "ground_truths": {"1": {}},
-            "experiment": {"manifest_id": "frozen", "scoring_version": "per-type-v1",
-                           "power_plan": {"plan_id": "same", "plan": {"effect": effect}}},
-            "results": [{"bot_name": arm, "scores": [
-                {"question_id": 1, "metric_name": "brier", "bot_score": 0.2}]}],
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "ground_truths": {"1": {}},
+                    "experiment": {
+                        "manifest_id": "frozen",
+                        "scoring_version": "per-type-v1",
+                        "power_plan": {"plan_id": "same", "plan": {"effect": effect}},
+                    },
+                    "results": [
+                        {"bot_name": arm, "scores": [{"question_id": 1, "metric_name": "brier", "bot_score": 0.2}]}
+                    ],
+                }
+            )
+        )
         paths.append(path)
     with pytest.raises(CompareError, match="payload differs"):
         render_report(*paths)
@@ -139,22 +202,56 @@ def test_matching_plan_id_cannot_hide_different_registration_payloads(tmp_path):
 def _registered_binary_log_pair(tmp_path, *, fixture_a=False, fixture_b=False):
     from sibyl.eval.artifacts import fingerprint
 
-    plan = {"endpoint": "binary_log_score", "hypothesis": "synthetic", "variance_source": "independent",
-            "manifest_id": "m1", "n": 5, "scheduled_n": 5, "attrition_allowance": 0.0,
-            "sd": 0.1, "effect": 0.2}
-    saved = {"plan": plan, "plan_id": fingerprint(plan), "decision": "proceed",
-             "assessed_at": "2025-01-01T00:00:00+00:00"}
+    plan = {
+        "endpoint": "binary_log_score",
+        "hypothesis": "synthetic",
+        "variance_source": "independent",
+        "manifest_id": "m1",
+        "n": 5,
+        "scheduled_n": 5,
+        "attrition_allowance": 0.0,
+        "sd": 0.1,
+        "effect": 0.2,
+    }
+    saved = {
+        "plan": plan,
+        "plan_id": fingerprint(plan),
+        "decision": "proceed",
+        "assessed_at": "2025-01-01T00:00:00+00:00",
+    }
     paths = []
     for arm, fixture, score in (("a", fixture_a, -0.3), ("b", fixture_b, -0.2)):
         path = tmp_path / f"{arm}.json"
-        path.write_text(json.dumps({
-            "ground_truths": {str(q): {} for q in range(5)},
-            "experiment": {"manifest_id": "m1", "scoring_version": "per-type-v1", "power_plan": saved,
-                           "arm_id": arm, "fixture": fixture, "started_at": "2026-01-01T00:00:00+00:00"},
-            "results": [{"bot_name": arm, "question_status": {str(q): {"status": "ok"} for q in range(5)},
-                         "scores": [{"question_id": q, "question_type": "binary", "metric_name": "log_score",
-                                     "bot_score": score} for q in range(5)]}],
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "ground_truths": {str(q): {} for q in range(5)},
+                    "experiment": {
+                        "manifest_id": "m1",
+                        "scoring_version": "per-type-v1",
+                        "power_plan": saved,
+                        "arm_id": arm,
+                        "fixture": fixture,
+                        "started_at": "2026-01-01T00:00:00+00:00",
+                    },
+                    "results": [
+                        {
+                            "bot_name": arm,
+                            "question_status": {str(q): {"status": "ok"} for q in range(5)},
+                            "scores": [
+                                {
+                                    "question_id": q,
+                                    "question_type": "binary",
+                                    "metric_name": "log_score",
+                                    "bot_score": score,
+                                }
+                                for q in range(5)
+                            ],
+                        }
+                    ],
+                }
+            )
+        )
         paths.append(path)
     return paths
 
@@ -178,11 +275,19 @@ def test_fixture_power_plan_does_not_certify_inference(tmp_path):
 
 def test_archive_research_after_forecast_time_is_labeled(tmp_path):
     from sibyl.eval.backtest.cli import _load_research_from_archive
-    q = SimpleNamespace(id_of_question=55, id_of_post=55, page_url="https://metaculus.com/questions/55",
-                        open_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                        scheduled_resolution_time=datetime(2024, 3, 1, tzinfo=timezone.utc))
-    (tmp_path / "55.json").write_text(json.dumps({"qid": 55, "research_text": "known outcome",
-                             "timestamp": "2025-01-01T00:00:00Z", "source": "live_capture"}))
+
+    q = SimpleNamespace(
+        id_of_question=55,
+        id_of_post=55,
+        page_url="https://metaculus.com/questions/55",
+        open_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        scheduled_resolution_time=datetime(2024, 3, 1, tzinfo=timezone.utc),
+    )
+    (tmp_path / "55.json").write_text(
+        json.dumps(
+            {"qid": 55, "research_text": "known outcome", "timestamp": "2025-01-01T00:00:00Z", "source": "live_capture"}
+        )
+    )
     evidence = {}
     assert _load_research_from_archive(str(tmp_path), [q], evidence)[55] == "known outcome"
     assert evidence[55]["post_cutoff_or_unknown"] is True
@@ -194,15 +299,20 @@ async def test_prepare_manifest_records_early_resolution_exclusion(tmp_path, mon
     from sibyl.eval.backtest import cli
     from sibyl.eval.backtest.question_prep import BacktestQuestionSet
     from sibyl.eval.backtest.scoring import GroundTruth
-    q = BinaryQuestion(question_text="Synthetic early close", id_of_question=8,
-                       resolution_criteria="Event occurs", open_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                       scheduled_resolution_time=datetime(2024, 3, 1, tzinfo=timezone.utc))
-    gt = GroundTruth(8, "binary", True, "Yes", None,
-                     datetime(2024, 1, 10, tzinfo=timezone.utc), q.question_text)
+
+    q = BinaryQuestion(
+        question_text="Synthetic early close",
+        id_of_question=8,
+        resolution_criteria="Event occurs",
+        open_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        scheduled_resolution_time=datetime(2024, 3, 1, tzinfo=timezone.utc),
+    )
+    gt = GroundTruth(8, "binary", True, "Yes", None, datetime(2024, 1, 10, tzinfo=timezone.utc), q.question_text)
     monkeypatch.setattr(cli, "fetch_resolved_questions", AsyncMock(return_value=BacktestQuestionSet([q], {8: gt})))
     output = tmp_path / "manifest.json"
     await cli.run_backtest(cli._build_parser().parse_args(["--fixture", "--prepare-only", str(output)]))
     artifact = json.loads(output.read_text())
     assert artifact["entries"] == []
     assert artifact["preparation"]["preparation_exclusions"] == [
-        {"question_id": 8, "reason": "resolved_before_simulated_forecast"}]
+        {"question_id": 8, "reason": "resolved_before_simulated_forecast"}
+    ]
