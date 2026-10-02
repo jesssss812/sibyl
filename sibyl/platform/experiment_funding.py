@@ -183,7 +183,9 @@ class SpendLedger:
         completion_tokens: int | None,
         provider_request_id: str | None = None,
     ) -> None:
-        charge = _amount(charged_usd)
+        charge = Decimal(charged_usd)
+        if not charge.is_finite() or charge < 0:
+            raise ValueError("Settled cost must be a finite nonnegative decimal")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(

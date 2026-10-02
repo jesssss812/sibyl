@@ -745,6 +745,13 @@ def build_llm_with_openrouter_fallback(model: str, **kwargs: Any) -> GeneralLlm:
     key to the operator's general key for providers covered by the primary key (see
     ``OPENROUTER_PRIMARY_KEY_PROVIDERS``). For other models, returns a plain GeneralLlm.
     """
+    from sibyl.platform.experiment_funding import active_grant  # noqa: PLC0415
+
+    if active_grant() is not None:
+        from sibyl.platform.experiment_llm import build_grant_llm  # noqa: PLC0415
+
+        return build_grant_llm(model, **kwargs)
+
     if should_route_via_primary_key(model):
         special_key = os.getenv(OAI_ANTH_OPENROUTER_KEY_ENV)
         fallback_key = os.getenv(OPENROUTER_API_KEY_ENV)

@@ -884,7 +884,11 @@ class ResearchOrchestrator:
             """
         )
         model_name = PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER if use_open_router else PERPLEXITY_RESEARCH_MODEL
-        model = GeneralLlm(
+        from sibyl.platform.experiment_funding import active_grant
+        from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
+
+        llm_factory = build_llm_with_openrouter_fallback if active_grant() is not None else GeneralLlm
+        model = llm_factory(
             model=model_name,
             # temperature=None defers to provider defaults; redundant on ft 0.2.92
             # (GeneralLlm ctor default is already None). No top_p.

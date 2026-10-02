@@ -68,6 +68,10 @@ def active_tier() -> ModelTier:
     to FREE would silently downgrade a prod run to free models and publish the result to
     a scored tournament; falling back to PROD would silently spend. Raise instead.
     """
+    from sibyl.platform.experiment_funding import active_grant  # noqa: PLC0415
+
+    if active_grant() is not None:
+        return ModelTier.PROD
     # os.environ, not os.getenv: several tests patch ``os.getenv`` process-wide to stub a
     # handful of provider flags, and a patched getenv answers "" for every name it was
     # not told about -- which would silently drop those tests onto the free tier and

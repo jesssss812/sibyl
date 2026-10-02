@@ -372,7 +372,13 @@ def _perplexity_provider(use_open_router: bool = False, is_benchmarking: bool = 
         # the fallback key while the orchestrator's switches. The real fix is to
         # collapse the two builders (forge flagged the duplication); until then, don't
         # "clean up" this asymmetry by deleting the orchestrator's api_key argument.
-        model = GeneralLlm(model=model_name, temperature=None, allowed_tries=1)
+        from sibyl.platform.experiment_funding import active_grant
+
+        model = (
+            build_llm_with_openrouter_fallback(model_name, temperature=None, allowed_tries=1)
+            if active_grant() is not None
+            else GeneralLlm(model=model_name, temperature=None, allowed_tries=1)
+        )
         # Exclude prediction markets research when benchmarking to avoid data leakage
         prediction_markets_instruction = (
             "" if is_benchmarking else "In addition to news, consider all relevant prediction markets.\n"
@@ -476,6 +482,10 @@ def build_native_search_llm(
     # OPENROUTER_API_KEY on credential/credit/guardrail errors. Non-primary
     # providers (x-ai, etc.) get a plain GeneralLlm — same as before.
 
+    from sibyl.platform.experiment_funding import active_grant
+
+    if active_grant() is not None:
+        kwargs["stage"] = "native_search"
     return build_llm_with_openrouter_fallback(**kwargs)
 
 
@@ -541,6 +551,14 @@ def choose_provider_with_name(
     4. Perplexity via OpenRouter (OPENROUTER_API_KEY)
     5. Fallback stub that returns an empty string.
     """
+    from sibyl.platform.experiment_funding import active_grant
+
+    if active_grant() is not None:
+        # The Perplexity/OpenRouter route has no cost tracking in the pinned
+        # framework, so grant accounting would fail after its first request.
+        # Native web search stays on OpenRouter and is accounted per model call.
+        return native_search_provider(is_benchmarking=is_benchmarking), "native_search_grant"
+
     forced = os.getenv(RESEARCH_PROVIDER_ENV)
     if forced:
         forced_lc = forced.strip().lower()

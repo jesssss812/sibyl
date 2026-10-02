@@ -1,0 +1,116 @@
+"""Explicit grant-key OpenRouter clients with per-attempt local accounting."""
+
+from __future__ import annotations
+
+from typing import Any
+from uuid import uuid4
+
+from forecasting_tools import GeneralLlm
+from forecasting_tools.ai_models.ai_utils.response_types import TextTokenCostResponse
+
+from sibyl.platform.experiment_funding import BudgetExceeded, GrantSession, active_grant, active_grant_question
+from sibyl.platform.experiment_usage import capture_grant_usage, resolve_grant_cost
+
+
+class GrantCostUnknown(RuntimeError):
+    """Provider returned a response whose bill could not be established."""
+
+
+class GrantCallError(RuntimeError):
+    """A failed request may have incurred spend; its reservation is retained."""
+
+
+class FundedGeneralLlm(GeneralLlm):
+    def __init__(self, model: str, *, session: GrantSession, stage: str = "model", **kwargs: Any) -> None:
+        if not model.startswith("openrouter/"):
+            raise ValueError("Experiment grant permits OpenRouter routes only")
+        if "api_key" in kwargs:
+            raise ValueError("Grant client key is selected by the funding session")
+        self._grant_session = session
+        self._grant_stage = stage
+        kwargs.pop("allowed_tries", None)
+        super().__init__(model=model, api_key=session.key, allowed_tries=1, **kwargs)
+
+    def __repr__(self) -> str:
+        return f"FundedGeneralLlm(model={self.model!r}, funding='experiment-grant')"
+
+    async def _mockable_direct_call_to_model(self, prompt: Any) -> TextTokenCostResponse:
+        session = self._grant_session
+        attempt_id = uuid4().hex
+        session.ledger.reserve(
+            attempt_id,
+            session.run_id,
+            self.model,
+            self._grant_stage,
+            session.per_call_reserve_usd,
+            question_id=active_grant_question(),
+        )
+        try:
+            with capture_grant_usage() as capture:
+                response = await super()._mockable_direct_call_to_model(prompt)
+        except BaseException as exc:
+            session.ledger.mark_uncertain(attempt_id)
+            if isinstance(exc, Exception):
+                raise GrantCallError(f"OpenRouter grant call failed ({type(exc).__name__}); charge uncertain") from None
+            raise
+        cost, provider_request_id = await resolve_grant_cost(capture, response.cost, session.key)
+        if cost is None:
+            session.ledger.mark_uncertain(attempt_id)
+            raise GrantCostUnknown("OpenRouter grant call returned no verifiable cost; reservation retained")
+        session.ledger.settle(
+            attempt_id,
+            cost,
+            response.prompt_tokens_used,
+            response.completion_tokens_used,
+            provider_request_id,
+        )
+        if cost > session.per_call_reserve_usd:
+            raise BudgetExceeded("Provider charge exceeded the per-call reservation; execution stopped")
+        return response
+
+
+def build_grant_llm(model: str, *, stage: str = "model", **kwargs: Any) -> FundedGeneralLlm:
+    session = active_grant()
+    if session is None:
+        raise RuntimeError("No active experiment grant session")
+    supplied_key = kwargs.pop("api_key", None)
+    if supplied_key is not None and supplied_key != session.key:
+        raise ValueError("Grant client cannot use a different OpenRouter credential")
+    return FundedGeneralLlm(model, session=session, stage=stage, **kwargs)
+
+
+def grant_route_for(model: str) -> str:
+    """The explicit transport mapping shared by preview and client construction."""
+    if model == "anthropic/claude-opus-5":
+        return "openrouter/anthropic/claude-opus-5"
+    if model == "anthropic/claude-opus-4-8":
+        return "openrouter/anthropic/claude-opus-4.8"
+    if model.startswith("openrouter/"):
+        return model
+    raise ValueError(f"No explicit grant route configured for {model}")
+
+
+def clone_for_grant(llm: GeneralLlm, *, stage: str) -> FundedGeneralLlm:
+    """Clone a roster slot without mutating the cached production singleton.
+
+    The Anthropic direct transport has an explicit OpenRouter equivalent. Its
+    effort parameter needs the OpenRouter `reasoning` form; no other direct route
+    is implicitly translated.
+    """
+    model = grant_route_for(llm.model)
+    kwargs = dict(llm.litellm_kwargs)
+    kwargs.pop("model", None)
+    kwargs.pop("api_key", None)
+    effort = kwargs.pop("reasoning_effort", None)
+    if effort is not None:
+        kwargs["reasoning"] = {"effort": effort}
+    return build_grant_llm(
+        model,
+        stage=stage,
+        # The pipeline's outer retries still apply; internal retries would hide
+        # multiple charges inside one experiment decision and prolong uncertain cost.
+        allowed_tries=1,
+        responses_api=llm.responses_api,
+        populate_citations=llm.populate_citations,
+        **kwargs,
+    )

@@ -1,0 +1,233 @@
+"""Isolated OpenRouter-grant MiniBench runner and offline spending inspection.
+
+No production CLI or model singleton is mutated. The run command publishes to
+the scored MiniBench and must only be invoked after operator approval for that
+specific run. Preview and report make no model or research requests.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+from dataclasses import replace
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import TYPE_CHECKING
+from uuid import uuid4
+
+from sibyl.platform.experiment_funding import (
+    GRANT_KEY_ENV,
+    GRANT_RESERVE_USD,
+    GrantSession,
+    SpendLedger,
+    grant_context,
+    grant_question,
+)
+
+if TYPE_CHECKING:
+    from sibyl.config.models import Roster
+
+_UNSUPPORTED_RESEARCH_FLAGS = (
+    "NATIVE_SEARCH_ENABLED",
+    "GEMINI_SEARCH_ENABLED",
+    "ANTHROPIC_SEARCH_ENABLED",
+    "GAP_FILL_ENABLED",
+    "GAP_FILL_V2_ENABLED",
+)
+
+
+def _enabled(env_name: str) -> bool:
+    return os.getenv(env_name, "").strip().lower() in {"1", "true", "yes"}
+
+
+def preflight_research() -> dict[str, str]:
+    enabled = [name for name in _UNSUPPORTED_RESEARCH_FLAGS if _enabled(name)]
+    if enabled:
+        raise ValueError(
+            "Grant run requires these research paths to be disabled: " + ", ".join(enabled)
+        )
+    native_model = os.getenv("NATIVE_SEARCH_MODEL", "openai/gpt-5.6-terra")
+    if native_model.startswith("openrouter/"):
+        raise ValueError("NATIVE_SEARCH_MODEL must omit the openrouter/ prefix")
+    return {
+        "primary_research": "openrouter/" + native_model + " (native web search)",
+        "direct_paid_research": "disabled",
+    }
+
+
+def _positive(raw: str, label: str) -> Decimal:
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValueError(f"{label} must be a positive decimal") from exc
+    if not value.is_finite() or value <= 0:
+        raise ValueError(f"{label} must be a positive decimal")
+    return value
+
+
+def checked_session(args: argparse.Namespace) -> GrantSession:
+    key = os.getenv(GRANT_KEY_ENV, "").strip()
+    if not key:
+        raise ValueError(f"{GRANT_KEY_ENV} is required for grant execution")
+    if key in {os.getenv("OPENROUTER_API_KEY"), os.getenv("OAI_ANTH_OPENROUTER_KEY")}:
+        raise ValueError("Experiment grant key must be distinct from existing OpenRouter keys")
+    run_limit = _positive(args.max_cost_usd, "--max-cost-usd")
+    per_call = _positive(args.reserve_per_call_usd, "--reserve-per-call-usd")
+    if per_call > run_limit:
+        raise ValueError("The per-call reservation cannot exceed the run budget")
+    if run_limit > Decimal("100") - GRANT_RESERVE_USD:
+        raise ValueError("Run budget exceeds the local grant allocation after reserve")
+    preflight_research()
+    ledger = SpendLedger(args.ledger)
+    ledger.start_run(args.run_id, run_limit)
+    return GrantSession(args.run_id, ledger, per_call, key)
+
+
+def _funded_roster(source: Roster) -> Roster:
+    from sibyl.platform.experiment_llm import clone_for_grant
+
+    return replace(
+        source,
+        forecasters=tuple(clone_for_grant(llm, stage="forecaster") for llm in source.forecasters),
+        summarizer=clone_for_grant(source.summarizer, stage="summarizer"),
+        parser=clone_for_grant(source.parser, stage="parser"),
+        researcher=clone_for_grant(source.researcher, stage="researcher"),
+        stacker=clone_for_grant(source.stacker, stage="stacker"),
+        stacker_fallback=clone_for_grant(source.stacker_fallback, stage="stacker_fallback"),
+        analyzer=clone_for_grant(source.analyzer, stage="analyzer"),
+    )
+
+
+def _preview() -> dict[str, object]:
+    """Resolve the current roster without a key or a paid provider request."""
+    from sibyl.config.models import ModelTier, get_roster
+    from sibyl.platform.experiment_llm import grant_route_for
+
+    research = preflight_research()
+    roster = get_roster(ModelTier.PROD)
+    return {
+        "funding": "experiment-grant",
+        "tier": "prod",
+        "mode": "minibench",
+        "forecasters": [grant_route_for(llm.model) for llm in roster.forecasters],
+        "stacker": grant_route_for(roster.stacker.model),
+        "stacker_fallback": grant_route_for(roster.stacker_fallback.model),
+        "summarizer": grant_route_for(roster.summarizer.model),
+        "parser": grant_route_for(roster.parser.model),
+        "researcher": grant_route_for(roster.researcher.model),
+        "analyzer": grant_route_for(roster.analyzer.model),
+        "market_ranker": grant_route_for(str(roster.market_ranker_config["model"])),
+        "market_query_author": grant_route_for(str(roster.market_query_author_config["model"])),
+        "financial_classifier": grant_route_for(roster.financial_classifier_model),
+        "research": research,
+        "allocation_usd": "100",
+        "local_reserve_usd": str(GRANT_RESERVE_USD),
+    }
+
+
+async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> None:
+    from forecasting_tools import ForecastReport, MetaculusApi, MetaculusQuestion
+
+    from sibyl.aggregation.strategies import AggregationStrategy
+    from sibyl.config.models import ModelTier, get_roster
+    from sibyl.forecasting.bot import SibylBot
+    from sibyl.platform.metaculus_preflight import verify_metaculus_api_identity
+
+    if args.max_questions < 1:
+        raise ValueError("--max-questions must be positive")
+    source_roster = get_roster(ModelTier.PROD)
+
+    class GrantSibylBot(SibylBot):
+        async def _run_individual_question(self, question: MetaculusQuestion) -> ForecastReport:
+            with grant_question(question.id_of_question):
+                return await super()._run_individual_question(question)
+
+    verify_metaculus_api_identity()
+    with grant_context(session):
+        roster = _funded_roster(source_roster)
+        llms = {
+            "forecasters": list(roster.forecasters),
+            "stacker": roster.stacker,
+            "analyzer": roster.analyzer,
+            "summarizer": roster.summarizer,
+            "parser": roster.parser,
+            "researcher": roster.researcher,
+        }
+        bot = GrantSibylBot(
+            research_reports_per_question=1,
+            predictions_per_research_report=1,
+            publish_reports_to_metaculus=True,
+            folder_to_save_reports_to=None,
+            skip_previously_forecasted_questions=True,
+            max_questions_per_run=args.max_questions,
+            aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
+            allow_research_fallback=False,
+            llms=llms,
+        )
+        reports = await bot.forecast_on_tournament(MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True)
+        SibylBot.log_report_summary(reports)
+        summary = session.ledger.summary(session.run_id)
+        if (
+            any(isinstance(report, BaseException) for report in reports)
+            or bot.alertable_count > 0
+            or Decimal(str(summary["uncertain_usd"])) > 0
+        ):
+            raise RuntimeError("Grant run finished with failed forecasts, degradation, or uncertain charges")
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m sibyl.ops.experiment_grant")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("preview", help="Show grant routes and research preflight without a key or API call")
+    report = sub.add_parser("report", help="Show local grant accounting; makes no API call")
+    report.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    report.add_argument("--run-id")
+    adjust = sub.add_parser("record-prior-spend", help="Record previous grant spending in the local allocation")
+    adjust.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    adjust.add_argument("--amount-usd", required=True)
+    adjust.add_argument("--note", required=True)
+    adjust.add_argument("--id", required=True, help="Stable unique adjustment ID for audit and duplicate protection")
+    run = sub.add_parser("run-minibench", help="Paid, scored run; requires per-run operator authorization")
+    run.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    run.add_argument("--run-id", default=None)
+    run.add_argument("--max-cost-usd", required=True)
+    run.add_argument("--reserve-per-call-usd", required=True)
+    run.add_argument("--max-questions", type=int, default=3)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    from sibyl.config.env import load_environment
+
+    load_environment()
+    try:
+        if args.command == "preview":
+            print(json.dumps(_preview(), indent=2))
+            return 0
+        if args.command == "report":
+            ledger = SpendLedger(args.ledger)
+            print(json.dumps({"totals": ledger.summary(args.run_id), "by_model_stage": ledger.breakdown(args.run_id)}, indent=2))
+            return 0
+        if args.command == "record-prior-spend":
+            ledger = SpendLedger(args.ledger)
+            ledger.adjust(args.id, _positive(args.amount_usd, "--amount-usd"), args.note)
+            print(json.dumps(ledger.summary(), indent=2))
+            return 0
+        args.run_id = args.run_id or uuid4().hex
+        session = checked_session(args)
+        print(f"Grant run ID: {session.run_id}")
+        try:
+            asyncio.run(_run_minibench(args, session))
+        finally:
+            print(json.dumps(session.ledger.summary(session.run_id), indent=2))
+        return 0
+    except (ValueError, RuntimeError) as exc:
+        print(f"ERROR: {exc}")
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
