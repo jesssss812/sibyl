@@ -53,7 +53,7 @@ class FundedGeneralLlm(GeneralLlm):
             if isinstance(exc, Exception):
                 raise GrantCallError(f"OpenRouter grant call failed ({type(exc).__name__}); charge uncertain") from None
             raise
-        cost, provider_request_id = await resolve_grant_cost(capture, response.cost, session.key)
+        cost, provider_request_id, evidence_source = await resolve_grant_cost(capture, response.cost, session.key)
         if cost is None:
             session.ledger.mark_uncertain(attempt_id)
             raise GrantCostUnknown("OpenRouter grant call returned no verifiable cost; reservation retained")
@@ -63,6 +63,8 @@ class FundedGeneralLlm(GeneralLlm):
             response.prompt_tokens_used,
             response.completion_tokens_used,
             provider_request_id,
+            certainty="confirmed" if evidence_source == "provider_generation" else "estimated",
+            evidence_source=evidence_source,
         )
         if cost > session.per_call_reserve_usd:
             raise BudgetExceeded("Provider charge exceeded the per-call reservation; execution stopped")

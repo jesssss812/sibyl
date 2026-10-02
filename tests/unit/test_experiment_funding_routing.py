@@ -69,6 +69,8 @@ async def test_each_mocked_model_attempt_settles_once(tmp_path: Path, monkeypatc
     response = await llm._mockable_direct_call_to_model("prompt")
     assert response.data == "answer"
     assert session.ledger.summary(session.run_id)["charged_usd"] == "0.2"
+    assert session.ledger.summary(session.run_id)["estimated_usd"] == "0.2"
+    assert session.ledger.summary(session.run_id)["confirmed_usd"] == "0"
 
 
 @pytest.mark.asyncio

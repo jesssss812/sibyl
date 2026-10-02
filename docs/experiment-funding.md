@@ -13,7 +13,7 @@ python -m sibyl.ops.experiment_grant report --ledger backtests/experiment_grant_
 
 `preview` requires no grant key and makes no paid provider call. The package's existing import path may try to refresh LiteLLM's public model price metadata; it falls back to the installed map when offline. The preview prints the funding route and selected research path. Compare it with the desired experiment manifest before authorizing execution.
 
-The grant MiniBench runner selects OpenRouter native web search as primary research. It refuses `NATIVE_SEARCH_ENABLED`, `GEMINI_SEARCH_ENABLED`, `ANTHROPIC_SEARCH_ENABLED`, `GAP_FILL_ENABLED`, and `GAP_FILL_V2_ENABLED` when set to a true value. The latter paths can use other paid accounts or create a second search call outside this initial grant accounting path. Other enabled free/public enrichment providers remain available. This changes the research fan-out from a normal production run; treat it as a distinct configuration era and do not combine its accuracy results with earlier runs without accounting for that change.
+The grant MiniBench runner selects OpenRouter native web search as its sole research provider. It refuses enabled native-search add-ons, Gemini/Anthropic search, gap-fill, financial data, time-series anchors, prediction markets, resolution sources, and reference-class enrichers until each path has been audited for grant-only billing. This changes the research fan-out from a normal production run; treat it as a distinct configuration era and do not combine its accuracy results with earlier runs without accounting for that change. The three-slot grant roster retains the OpenRouter OpenAI and Google slots and explicitly maps the direct Anthropic slot to OpenRouter. Inspect the public model catalogue and supported reasoning parameters before approving a live run; offline tests prove routing, not current provider availability.
 
 ## Run only after approval for that specific run
 
@@ -39,6 +39,6 @@ python -m sibyl.ops.experiment_grant record-prior-spend \
   --id outside-001 --amount-usd 4.25 --note 'previous grant use'
 ```
 
-`report` separates confirmed charges, reserved calls, uncertain calls, and prior-spend adjustments. Its model/stage breakdown never contains prompts or credentials. Use one shared ledger path for every local process using the grant. Keep the ledger as a private artifact; it is excluded from Git under `backtests/`.
+`report` separates confirmed charges, local estimates, reserved calls, uncertain calls, and prior-spend adjustments. Only a provider generation billing record or later provider reconciliation confirms a charge. LiteLLM/framework costs and callback costs are estimates even when token usage is known; their full pre-call reservation remains budget liability until reconciled. The model/stage breakdown never contains prompts or credentials. Use one shared ledger path for every local process using the grant. Keep the ledger as a private artifact; it is excluded from Git under `backtests/`.
 
 This first implementation does not route the legacy backtest and ablation CLIs through the grant. Their frozen input and provenance work is changing independently. They continue to use their existing credentials until an explicit integration is implemented and tested. The ordinary MiniBench and tournament commands likewise keep their existing behavior.

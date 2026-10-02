@@ -17,9 +17,10 @@ async def test_generation_total_cost_overrides_unpriced_framework_call(monkeypat
 
     monkeypatch.setattr(experiment_usage, "generation_cost", fake_generation_cost)
     capture = experiment_usage.CostCapture(generation_id="gen-dummy")
-    cost, request_id = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
+    cost, request_id, evidence = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
     assert cost == Decimal("0.42")
     assert request_id == "gen-dummy"
+    assert evidence == "provider_generation"
 
 
 @pytest.mark.asyncio
@@ -35,6 +36,18 @@ async def test_callback_captures_only_cost_and_generation_id() -> None:
 @pytest.mark.asyncio
 async def test_zero_cost_without_generation_record_remains_uncertain() -> None:
     capture = experiment_usage.CostCapture(reported_cost=Decimal("0"))
-    cost, request_id = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
+    cost, request_id, evidence = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
     assert cost is None
     assert request_id is None
+    assert evidence == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_framework_and_callback_costs_are_estimates() -> None:
+    callback = experiment_usage.CostCapture(reported_cost=Decimal("0.12"))
+    assert await experiment_usage.resolve_grant_cost(callback, 0.5, "dummy-key") == (
+        Decimal("0.12"), None, "callback_estimate"
+    )
+    assert await experiment_usage.resolve_grant_cost(experiment_usage.CostCapture(), 0.5, "dummy-key") == (
+        Decimal("0.5"), None, "framework_estimate"
+    )

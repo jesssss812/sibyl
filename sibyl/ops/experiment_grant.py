@@ -35,6 +35,14 @@ _UNSUPPORTED_RESEARCH_FLAGS = (
     "ANTHROPIC_SEARCH_ENABLED",
     "GAP_FILL_ENABLED",
     "GAP_FILL_V2_ENABLED",
+    # The initial grant profile is deliberately just one accounted OpenRouter
+    # native-search call. These enrichers have independent fetch/LLM paths that
+    # have not yet been audited for grant-only billing.
+    "FINANCIAL_DATA_ENABLED",
+    "TS_ANCHOR_ENABLED",
+    "PREDICTION_MARKETS_ENABLED",
+    "RESOLUTION_SOURCE_ENABLED",
+    "REFERENCE_CLASS_ENABLED",
 )
 
 
@@ -144,9 +152,11 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
             with grant_question(question.id_of_question):
                 return await super()._run_individual_question(question)
 
-    verify_metaculus_api_identity()
     with grant_context(session):
         roster = _funded_roster(source_roster)
+        # Validate every paid model route before the first network request,
+        # including the read-only Metaculus identity probe.
+        verify_metaculus_api_identity()
         llms = {
             "forecasters": list(roster.forecasters),
             "stacker": roster.stacker,

@@ -70,8 +70,10 @@ class SpendLedger:
                     prompt_tokens INTEGER,
                     completion_tokens INTEGER,
                     provider_request_id TEXT,
+                    evidence_source TEXT,
                     started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TEXT
+                    completed_at TEXT,
+                    reconciled_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS adjustments (
                     adjustment_id TEXT PRIMARY KEY,
@@ -82,6 +84,11 @@ class SpendLedger:
                 );
                 """
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(attempts)")}
+            if "evidence_source" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN evidence_source TEXT")
+            if "reconciled_at" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN reconciled_at TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -111,14 +118,17 @@ class SpendLedger:
 
     @staticmethod
     def _liability(db: sqlite3.Connection, *, run_id: str | None = None) -> Decimal:
-        query = "SELECT reserved_usd, charged_usd FROM attempts WHERE source = ?"
+        query = "SELECT reserved_usd, charged_usd, certainty FROM attempts WHERE source = ?"
         args: tuple[str, ...] = (FundingSource.EXPERIMENT_GRANT,)
         if run_id is not None:
             query += " AND run_id = ?"
             args += (run_id,)
         total = Decimal(0)
-        for reserve, charge in db.execute(query, args):
-            total += Decimal(charge) if charge is not None else Decimal(reserve)
+        for reserve, charge, certainty in db.execute(query, args):
+            # Estimates do not discharge the conservative pre-call liability.
+            total += Decimal(charge) if certainty == "confirmed" and charge is not None else max(
+                Decimal(reserve), Decimal(charge) if charge is not None else Decimal(0)
+            )
         if run_id is None:
             for (amount,) in db.execute(
                 "SELECT amount_usd FROM adjustments WHERE source = ?", (FundingSource.EXPERIMENT_GRANT,)
@@ -182,29 +192,45 @@ class SpendLedger:
         prompt_tokens: int | None,
         completion_tokens: int | None,
         provider_request_id: str | None = None,
+        *,
+        certainty: str,
+        evidence_source: str,
     ) -> None:
         charge = Decimal(charged_usd)
         if not charge.is_finite() or charge < 0:
             raise ValueError("Settled cost must be a finite nonnegative decimal")
+        if certainty not in {"confirmed", "estimated"} or not evidence_source:
+            raise ValueError("Settlement requires a valid certainty and evidence source")
+        if certainty == "confirmed" and evidence_source not in {"provider_generation", "provider_reconciliation"}:
+            raise ValueError("Confirmed cost requires provider billing evidence")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT charged_usd, reserved_usd FROM attempts WHERE attempt_id = ?", (attempt_id,)
+                "SELECT charged_usd, certainty FROM attempts WHERE attempt_id = ?", (attempt_id,)
             ).fetchone()
             if row is None:
                 db.rollback()
                 raise ValueError("Unknown attempt ID")
             if row[0] is not None:
+                if row[1] == "estimated" and certainty == "confirmed" and evidence_source == "provider_reconciliation":
+                    db.execute(
+                        """UPDATE attempts SET charged_usd = ?, certainty = 'confirmed', evidence_source = ?,
+                        provider_request_id = COALESCE(?, provider_request_id), reconciled_at = CURRENT_TIMESTAMP
+                        WHERE attempt_id = ?""",
+                        (str(charge), evidence_source, provider_request_id, attempt_id),
+                    )
+                    db.commit()
+                    return
                 db.rollback()
-                if Decimal(row[0]) != charge:
+                if Decimal(row[0]) != charge or row[1] != certainty:
                     raise ValueError("Attempt has already settled at a different cost")
                 return
             db.execute(
-                """UPDATE attempts SET charged_usd = ?, certainty = 'confirmed',
+                """UPDATE attempts SET charged_usd = ?, certainty = ?, evidence_source = ?,
                 status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
                 provider_request_id = ?, completed_at = CURRENT_TIMESTAMP
                 WHERE attempt_id = ?""",
-                (str(charge), prompt_tokens, completion_tokens, provider_request_id, attempt_id),
+                (str(charge), certainty, evidence_source, prompt_tokens, completion_tokens, provider_request_id, attempt_id),
             )
             db.commit()
 
@@ -228,15 +254,17 @@ class SpendLedger:
 
     def summary(self, run_id: str | None = None) -> dict[str, str | int]:
         with self._connect() as db:
-            query = "SELECT status, reserved_usd, charged_usd FROM attempts WHERE source = ?"
+            query = "SELECT status, reserved_usd, charged_usd, certainty FROM attempts WHERE source = ?"
             args: tuple[str, ...] = (FundingSource.EXPERIMENT_GRANT,)
             if run_id is not None:
                 query += " AND run_id = ?"
                 args += (run_id,)
             rows = db.execute(query, args).fetchall()
-            charged = sum((Decimal(c) for _, _, c in rows if c is not None), Decimal(0))
-            pending = sum((Decimal(r) for status, r, c in rows if status == "reserved" and c is None), Decimal(0))
-            uncertain = sum((Decimal(r) for status, r, c in rows if status == "uncertain" and c is None), Decimal(0))
+            charged = sum((Decimal(c) for _, _, c, _ in rows if c is not None), Decimal(0))
+            confirmed = sum((Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "confirmed"), Decimal(0))
+            estimated = sum((Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "estimated"), Decimal(0))
+            pending = sum((Decimal(r) for status, r, c, _ in rows if status == "reserved" and c is None), Decimal(0))
+            uncertain = sum((Decimal(r) for status, r, c, _ in rows if status == "uncertain" and c is None), Decimal(0))
             adjustments = Decimal(0)
             if run_id is None:
                 adjustments = sum(
@@ -248,6 +276,8 @@ class SpendLedger:
             return {
                 "attempts": len(rows),
                 "charged_usd": str(charged),
+                "confirmed_usd": str(confirmed),
+                "estimated_usd": str(estimated),
                 "reserved_usd": str(pending),
                 "uncertain_usd": str(uncertain),
                 "adjustments_usd": str(adjustments),
@@ -258,7 +288,7 @@ class SpendLedger:
         """Accounted calls grouped by run, model and stage, without request data."""
         with self._connect() as db:
             query = (
-                "SELECT run_id, model, stage, status, reserved_usd, charged_usd "
+                "SELECT run_id, model, stage, status, reserved_usd, charged_usd, certainty "
                 "FROM attempts WHERE source = ?"
             )
             args: tuple[str, ...] = (FundingSource.EXPERIMENT_GRANT,)
@@ -266,7 +296,7 @@ class SpendLedger:
                 query += " AND run_id = ?"
                 args += (run_id,)
             groups: dict[tuple[str, str, str], dict[str, str | int]] = {}
-            for item_run, model, stage, status, reserved, charged in db.execute(query, args):
+            for item_run, model, stage, status, reserved, charged, certainty in db.execute(query, args):
                 key = (item_run, model, stage)
                 group = groups.setdefault(
                     key,
@@ -277,6 +307,8 @@ class SpendLedger:
                         "stage": stage,
                         "attempts": 0,
                         "charged_usd": "0",
+                        "confirmed_usd": "0",
+                        "estimated_usd": "0",
                         "reserved_usd": "0",
                         "uncertain_usd": "0",
                     },
@@ -286,6 +318,8 @@ class SpendLedger:
                     "uncertain_usd" if status == "uncertain" else "reserved_usd"
                 )
                 group[field] = str(Decimal(str(group[field])) + Decimal(charged if charged is not None else reserved))
+                if charged is not None and certainty in {"confirmed", "estimated"}:
+                    group[certainty + "_usd"] = str(Decimal(str(group[certainty + "_usd"])) + Decimal(charged))
             return [groups[key] for key in sorted(groups)]
 
 

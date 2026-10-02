@@ -90,6 +90,7 @@
     "typecheck_ty"
   ],
   "python_m_modules": [
+    "pytest",
     "sibyl",
     "sibyl.aggregation.calibration.fit_platt_cli",
     "sibyl.eval",
@@ -98,6 +99,7 @@
     "sibyl.eval.ensemble",
     "sibyl.eval.performance",
     "sibyl.eval.performance.width_monitor",
+    "sibyl.ops.experiment_grant",
     "sibyl.telemetry.check_credits"
   ],
   "telemetry_markers": [

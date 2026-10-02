@@ -90,7 +90,14 @@ async def generation_cost(generation_id: str, api_key: str) -> Decimal | None:
         return None
 
 
-async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_key: str) -> tuple[Decimal | None, str | None]:
+async def resolve_grant_cost(
+    capture: CostCapture, framework_cost: float, api_key: str
+) -> tuple[Decimal | None, str | None, str]:
+    """Return cost, request ID, and evidence class.
+
+    Only the provider's generation billing record establishes a confirmed charge.
+    Callback and framework costs are local estimates, even when token usage is known.
+    """
     # LiteLLM callbacks can complete one event-loop tick after GeneralLlm's
     # response processing. Wait briefly for the non-text usage metadata only.
     for _ in range(10):
@@ -100,10 +107,10 @@ async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_ke
     if capture.generation_id:
         provider_cost = await generation_cost(capture.generation_id, api_key)
         if provider_cost is not None:
-            return provider_cost, capture.generation_id
+            return provider_cost, capture.generation_id, "provider_generation"
     if capture.reported_cost is not None and capture.reported_cost > 0:
-        return capture.reported_cost, capture.generation_id
+        return capture.reported_cost, capture.generation_id, "callback_estimate"
     fallback_cost = _reported_cost(framework_cost)
     if fallback_cost is not None and fallback_cost > 0:
-        return fallback_cost, capture.generation_id
-    return None, capture.generation_id
+        return fallback_cost, capture.generation_id, "framework_estimate"
+    return None, capture.generation_id, "unknown"
