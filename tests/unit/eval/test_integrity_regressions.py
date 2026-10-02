@@ -136,6 +136,46 @@ def test_matching_plan_id_cannot_hide_different_registration_payloads(tmp_path):
         render_report(*paths)
 
 
+def _registered_binary_log_pair(tmp_path, *, fixture_a=False, fixture_b=False):
+    from sibyl.eval.artifacts import fingerprint
+
+    plan = {"endpoint": "binary_log_score", "hypothesis": "synthetic", "variance_source": "independent",
+            "manifest_id": "m1", "n": 5, "scheduled_n": 5, "attrition_allowance": 0.0,
+            "sd": 0.1, "effect": 0.2}
+    saved = {"plan": plan, "plan_id": fingerprint(plan), "decision": "proceed",
+             "assessed_at": "2025-01-01T00:00:00+00:00"}
+    paths = []
+    for arm, fixture, score in (("a", fixture_a, -0.3), ("b", fixture_b, -0.2)):
+        path = tmp_path / f"{arm}.json"
+        path.write_text(json.dumps({
+            "ground_truths": {str(q): {} for q in range(5)},
+            "experiment": {"manifest_id": "m1", "scoring_version": "per-type-v1", "power_plan": saved,
+                           "arm_id": arm, "fixture": fixture, "started_at": "2026-01-01T00:00:00+00:00"},
+            "results": [{"bot_name": arm, "question_status": {str(q): {"status": "ok"} for q in range(5)},
+                         "scores": [{"question_id": q, "question_type": "binary", "metric_name": "log_score",
+                                     "bot_score": score} for q in range(5)]}],
+        }))
+        paths.append(path)
+    return paths
+
+
+def test_registered_binary_log_endpoint_matches_persisted_metric(tmp_path):
+    report = render_report(*_registered_binary_log_pair(tmp_path))
+    assert "log_score:" in report
+    assert "B is better than A" in report
+
+
+def test_fixture_and_real_arms_cannot_be_compared(tmp_path):
+    with pytest.raises(CompareError, match="fixture and real"):
+        render_report(*_registered_binary_log_pair(tmp_path, fixture_a=True))
+
+
+def test_fixture_power_plan_does_not_certify_inference(tmp_path):
+    report = render_report(*_registered_binary_log_pair(tmp_path, fixture_a=True, fixture_b=True))
+    assert "FIXTURE PIPELINE CHECK" in report
+    assert "exploratory only; no confirmatory verdict" in report
+
+
 def test_archive_research_after_forecast_time_is_labeled(tmp_path):
     from sibyl.eval.backtest.cli import _load_research_from_archive
     q = SimpleNamespace(id_of_question=55, id_of_post=55, page_url="https://metaculus.com/questions/55",

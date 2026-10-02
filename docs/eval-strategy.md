@@ -260,6 +260,9 @@ python -m sibyl.eval backtest --fixture --manifest /tmp/sibyl-manifest.json --ou
 python -m sibyl.eval compare /tmp/sibyl-fixture-a/backtest_data_*.json /tmp/sibyl-fixture-b/backtest_data_*.json
 ```
 
+Fixture comparisons are diagnostic only. The comparison refuses a fixture/real
+pair and never treats a fixture power plan as a confirmatory registration.
+
 The manifest must already contain question snapshots, ground truths, and research
 bytes. `--prepare-only` can create one from a read-only Metaculus fetch in fixture
 mode; a real research preparation requires explicit `--tier prod` and can spend.
@@ -273,6 +276,8 @@ independent `variance_source`, expected `effect`, `hypothesis`, `alpha`, and
 `power`. Run `python -m sibyl.eval preflight plan.json --output preflight.json`
 before any model run. A `decline` decision exits nonzero. Never attach the old
 pooled half-width estimate to an individual endpoint.
+For compatibility with existing backtest files, the registered
+`binary_log_score` endpoint reads the persisted binary metric `log_score`.
 
 Old backtest files and ablation score-only cache replays lack sufficient input
 identity for certification. They remain descriptive and should be re-analysed

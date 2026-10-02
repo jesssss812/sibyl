@@ -43,6 +43,9 @@ MAX_DROP_RATE = 0.05
 # Lower is better for Brier and CRPS; higher is better for the log scores. Printed rather
 # than assumed, because a sign error here inverts the conclusion silently.
 LOWER_IS_BETTER = {"brier", "crps"}
+# The binary scorer predates per-type endpoint names. Keep its persisted metric
+# stable while letting a registered plan name the unambiguous binary endpoint.
+ENDPOINT_SCORE_METRIC = {"binary_log_score": "log_score"}
 
 CAVEATS = """
 CAVEATS (do not report these numbers without them):
@@ -184,11 +187,14 @@ def render_report(path_a: Path, path_b: Path, by_question_type: bool = False, se
                 raise CompareError(f"Experimental {key} differs or is missing")
     if identity_a.get("manifest_id") and scheduled_a != scheduled_b:
         raise CompareError("Frozen scheduled question sets differ")
-    fixture = bool(identity_a.get("fixture") and identity_b.get("fixture"))
+    fixture_a, fixture_b = bool(identity_a.get("fixture")), bool(identity_b.get("fixture"))
+    if fixture_a != fixture_b:
+        raise CompareError("Cannot compare fixture and real arms")
+    fixture = fixture_a
     plan_a, plan_b = identity_a.get("power_plan"), identity_b.get("power_plan")
     if plan_a and plan_b and plan_a.get("plan_id") == plan_b.get("plan_id") and plan_a != plan_b:
         raise CompareError("Registered power plan payload differs between arms")
-    registered = bool(plan_a and plan_b and plan_a == plan_b and identity_a.get("manifest_id"))
+    registered = bool(plan_a and plan_b and plan_a == plan_b and identity_a.get("manifest_id") and not fixture)
     if registered:
         from sibyl.eval.power import assess_plan
         checked = assess_plan(plan_a["plan"])
@@ -196,15 +202,14 @@ def render_report(path_a: Path, path_b: Path, by_question_type: bool = False, se
             raise CompareError("Invalid or underpowered registered plan")
         if plan_a["plan"].get("manifest_id") != identity_a.get("manifest_id"):
             raise CompareError("Power plan and frozen manifest differ")
-        if not fixture:
-            if not identity_a.get("arm_id") or not identity_b.get("arm_id") or identity_a["arm_id"] == identity_b["arm_id"]:
-                raise CompareError("Registered real comparison needs two distinct arm IDs")
-            try:
-                assessed = datetime.fromisoformat(plan_a["assessed_at"])
-                if any(datetime.fromisoformat(identity["started_at"]) <= assessed for identity in (identity_a, identity_b)):
-                    raise CompareError("Power preflight was not recorded before both runs")
-            except (KeyError, TypeError, ValueError) as exc:
-                raise CompareError("Registered real comparison lacks valid timing provenance") from exc
+        if not identity_a.get("arm_id") or not identity_b.get("arm_id") or identity_a["arm_id"] == identity_b["arm_id"]:
+            raise CompareError("Registered real comparison needs two distinct arm IDs")
+        try:
+            assessed = datetime.fromisoformat(plan_a["assessed_at"])
+            if any(datetime.fromisoformat(identity["started_at"]) <= assessed for identity in (identity_a, identity_b)):
+                raise CompareError("Power preflight was not recorded before both runs")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CompareError("Registered real comparison lacks valid timing provenance") from exc
         for data, scheduled in ((data_a, scheduled_a), (data_b, scheduled_b)):
             statuses = data["results"][0].get("question_status", {})
             if {int(q) for q in statuses} != scheduled:
@@ -224,9 +229,11 @@ def render_report(path_a: Path, path_b: Path, by_question_type: bool = False, se
         )
     if not deltas:
         raise CompareError(f"{header}\nNo metric is present in both files; nothing to compare.")
+    primary_metric = ""
     if registered:
-        primary = plan_a["plan"]["endpoint"]
-        if len(deltas.get(primary, [])) < plan_a["plan"]["n"]:
+        primary = str(plan_a["plan"]["endpoint"])
+        primary_metric = ENDPOINT_SCORE_METRIC.get(primary, primary)
+        if len(deltas.get(primary_metric, [])) < plan_a["plan"]["n"]:
             raise CompareError(f"Registered primary {primary} has fewer usable pairs than planned")
 
     out = [header]
@@ -236,7 +243,7 @@ def render_report(path_a: Path, path_b: Path, by_question_type: bool = False, se
         out.append("DESCRIPTIVE/EXPLORATORY DATA: no matched registration; no confirmatory verdict.\n")
     for metric in sorted(deltas):
         out.append(f"\n{metric}:\n")
-        out.append(_format_section("overall", metric, deltas[metric], seed, confirmatory=fixture or (registered and metric == plan_a["plan"]["endpoint"])))
+        out.append(_format_section("overall", metric, deltas[metric], seed, confirmatory=registered and metric == primary_metric))
         if by_question_type:
             per_type: dict[str, list[tuple[int, float]]] = defaultdict(list)
             for qid, delta in deltas[metric]:
