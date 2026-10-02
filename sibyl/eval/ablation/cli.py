@@ -1696,10 +1696,9 @@ def _stage_score(
             n_scored += 1
         paired_scores.extend(scores)
 
-    # The scheduled denominator is the frozen working set, including questions
-    # that disappeared before either arm produced a payload.
-    prepared = set(working.research_blobs) if working.research_blobs else set(working.questions)
-    scheduled = prepared & set(working.ground_truths)
+    # The scheduled denominator is the fetched question set, including questions
+    # removed from research_blobs by screening or QA before any arm ran.
+    scheduled = set(working.questions) & set(working.ground_truths)
     eligibility: dict[str, dict[str, int | float]] = {}
     comparisons = COMPARISONS_6ARM if has_pdf_arms and has_mean_arm else COMPARISONS_5ARM if has_pdf_arms else COMPARISONS_3ARM
     for comparison in comparisons:
