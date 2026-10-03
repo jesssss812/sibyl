@@ -91,7 +91,6 @@
     "typecheck_ty"
   ],
   "python_m_modules": [
-    "pytest",
     "sibyl",
     "sibyl.aggregation.calibration.fit_platt_cli",
     "sibyl.eval",
