@@ -68,9 +68,13 @@ class PersonalFallbackLedger:
                 ),
             )
 
-    def summary(self) -> dict[str, str | int]:
+    def summary(self, run_id: str | None = None) -> dict[str, str | int]:
         with sqlite3.connect(self.path, timeout=30) as db:
-            rows = db.execute("SELECT certainty, estimated_usd FROM personal_fallback_attempts").fetchall()
+            query = "SELECT certainty, estimated_usd FROM personal_fallback_attempts"
+            rows = db.execute(
+                query + (" WHERE run_id = ?" if run_id is not None else ""),
+                (run_id,) if run_id is not None else (),
+            ).fetchall()
         return {
             "source": "personal",
             "attempts": len(rows),

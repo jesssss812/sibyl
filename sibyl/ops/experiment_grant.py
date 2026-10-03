@@ -259,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
 
             print(json.dumps({"grant": {"totals": ledger.summary(args.run_id),
                                         "by_model_stage": ledger.breakdown(args.run_id)},
-                              "personal_fallback": PersonalFallbackLedger(args.ledger).summary()}, indent=2))
+                              "personal_fallback": PersonalFallbackLedger(args.ledger).summary(args.run_id)}, indent=2))
             return 0
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)
