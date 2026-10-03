@@ -36,6 +36,7 @@ bug — check the dates before treating any of it as current.
 | [vision.md](vision.md) | The ranked purpose and what wins when goals conflict. The tie-breaker when other docs don't settle a question. |
 | [design-principles.md](design-principles.md) | Evidence-graded architecture decisions (Strong / Moderate / Suggestive) drawn from the Metaculus analyses and the Fall-2025 bot-maker survey. |
 | [eval-strategy.md](eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
+| [plans/2026-09-25-evaluation-integrity.md](plans/2026-09-25-evaluation-integrity.md) | Implementation handoff for the September 25 review: fixture spend isolation, paired eligibility, uncertainty, cache identity, historical clocks, provenance, and prospective power checks. |
 | [calibration-primer.md](calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
 | [budget-strategy.md](budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
 | `bottega:docs/planning/nostreambot-reading-guide.md` | Reading order for this codebase, written when it was still an external reference. Not carried into this repo; *partly superseded* — see its header, in bottega. |

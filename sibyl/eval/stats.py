@@ -6,9 +6,8 @@ same operation whether the pairs come from two stacker arms, two backtest runs, 
 model rosters, and ``eval compare`` needs exactly the same machinery. Moved here so the
 second consumer is a call rather than a copy.
 
-The move is byte-for-byte -- ``ablation/scoring.py`` re-exports them, so ablation and its
-tests are untouched and the recorded ablation numbers cannot shift. Anything new (the
-MDE, ``paired_summary``) is added here rather than back-ported into ablation.
+Samples smaller than five retain point estimates but have unavailable intervals.
+Non-finite observations must be accounted for as explicit exclusions by the caller.
 
 Seeded throughout. A bootstrap CI that changes between runs is not a measurement, and an
 eval layer whose own numbers wobble cannot be used to judge anything else.
@@ -34,13 +33,20 @@ __all__ = [
     "wilcoxon_signed_rank",
 ]
 
-# Below this many pairs a bootstrap percentile interval is resampling noise rather than
-# a sampling distribution, so the CI collapses to the point estimate instead of
-# pretending to a width it has not earned.
+# Below this many pairs report descriptive centres only; uncertainty is unavailable.
 BOOTSTRAP_MIN_N = 5
 # scipy's Wilcoxon is not meaningful below this n (its normal approximation and exact
 # tables both need more), so it returns None rather than a number nobody should read.
 WILCOXON_MIN_N = 6
+
+
+def _validate_bootstrap(deltas: Sequence[float], n_bootstrap: int, alpha: float) -> None:
+    if not isinstance(n_bootstrap, int) or n_bootstrap <= 0:
+        raise ValueError("n_bootstrap must be a positive integer")
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must lie strictly between zero and one")
+    if any(not math.isfinite(d) for d in deltas):
+        raise ValueError("deltas must be finite; record invalid scores as explicit drops")
 
 
 def bootstrap_mean_ci(
@@ -48,8 +54,9 @@ def bootstrap_mean_ci(
 ) -> tuple[float, float, float]:
     """Paired bootstrap on the deltas: resample with replacement, recompute mean, take CI percentiles.
 
-    For n < 5, returns (mean, mean, mean) — too few samples for a meaningful CI.
+    For n < 5, returns (mean, NaN, NaN) — too few samples for a meaningful CI.
     """
+    _validate_bootstrap(deltas, n_bootstrap, alpha)
     n = len(deltas)
     if n == 0:
         return (float("nan"), float("nan"), float("nan"))
@@ -58,7 +65,7 @@ def bootstrap_mean_ci(
     mean = float(arr.mean())
 
     if n < BOOTSTRAP_MIN_N:
-        return (mean, mean, mean)
+        return (mean, float("nan"), float("nan"))
 
     rng = np.random.default_rng(seed)
     indices = rng.integers(0, n, size=(n_bootstrap, n))
@@ -107,8 +114,9 @@ def bootstrap_median_ci(
 ) -> tuple[float, float, float]:
     """Paired bootstrap on deltas — resample, recompute MEDIAN, take CI percentiles.
 
-    For n < BOOTSTRAP_MIN_N, returns (median, median, median).
+    For n < BOOTSTRAP_MIN_N, returns (median, NaN, NaN).
     """
+    _validate_bootstrap(deltas, n_bootstrap, alpha)
     n = len(deltas)
     if n == 0:
         return (float("nan"), float("nan"), float("nan"))
@@ -117,7 +125,7 @@ def bootstrap_median_ci(
     median = float(np.median(arr))
 
     if n < BOOTSTRAP_MIN_N:
-        return (median, median, median)
+        return (median, float("nan"), float("nan"))
 
     rng = np.random.default_rng(seed)
     indices = rng.integers(0, n, size=(n_bootstrap, n))
@@ -141,6 +149,10 @@ def minimum_detectable_effect(sd: float, n: int, power: float = 0.8, alpha: floa
     Returns NaN for a non-positive n rather than dividing by zero, so a caller that
     dropped every pair gets a missing number instead of a crash.
     """
+    if not 0 < alpha < 1 or not 0.5 < power < 1:
+        raise ValueError("alpha must be in (0, 1), power in (0.5, 1)")
+    if not math.isfinite(sd) or sd < 0:
+        raise ValueError("sd must be finite and nonnegative")
     if n <= 0:
         return float("nan")
     z_alpha = float(scipy_stats.norm.ppf(1 - alpha / 2))
@@ -156,15 +168,15 @@ def paired_summary(deltas: Sequence[float], n_bootstrap: int = 5000, seed: int =
     while the median does not is a handful of questions, not a systematic shift, and
     reporting only one hides which case you are in.
 
-    NaN deltas are DROPPED and ``n`` counts only survivors. A question that failed in one
-    arm has no delta, and treating it as zero would understate the effect and overstate
-    the power in the same breath.
+    Non-finite deltas are refused. Callers must account for invalid scores in their
+    scheduled-question denominator before computing this summary.
     """
-    clean = [d for d in deltas if not math.isnan(d)]
+    _validate_bootstrap(deltas, n_bootstrap, 0.05)
+    clean = list(deltas)
     n = len(clean)
     mean_delta, mean_lo, mean_hi = bootstrap_mean_ci(clean, n_bootstrap=n_bootstrap, seed=seed)
     median_delta, median_lo, median_hi = bootstrap_median_ci(clean, n_bootstrap=n_bootstrap, seed=seed)
-    sd = float(np.std(clean, ddof=1)) if n > 1 else 0.0
+    sd = float(np.std(clean, ddof=1)) if n > 1 else float("nan")
     return {
         "n": n,
         "mean_delta": mean_delta,
@@ -175,5 +187,6 @@ def paired_summary(deltas: Sequence[float], n_bootstrap: int = 5000, seed: int =
         "median_ci_high": median_hi,
         "sign_test_p": sign_test(clean),
         "wilcoxon_p": wilcoxon_signed_rank(clean),
-        "mde": minimum_detectable_effect(sd=sd, n=n),
+        "mde": minimum_detectable_effect(sd=sd, n=n) if n > 1 else float("nan"),
+        "inference_status": "available" if n >= BOOTSTRAP_MIN_N else "insufficient_pairs",
     }

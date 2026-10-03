@@ -58,6 +58,12 @@ def _run_fit_platt(argv: list[str]) -> int:
     return int(run(_build_parser().parse_args(argv)))
 
 
+def _run_preflight(argv: list[str]) -> int:
+    from sibyl.eval.power import main
+
+    return main(argv)
+
+
 def _run_compare(argv: list[str]) -> int:
     from sibyl.eval.compare import main
 
@@ -85,6 +91,7 @@ COMMANDS: dict[str, _Command] = {
     "ensemble": ("Forecaster correlation and ensemble simulation", _run_ensemble),
     "performance": ("Calibration against live resolutions", _run_performance),
     "fit-platt": ("Fit Platt calibration parameters", _run_fit_platt),
+    "preflight": ("Prospective per-type power check (offline)", _run_preflight),
     "compare": ("Paired comparison of two backtest data files", _run_compare),
 }
 

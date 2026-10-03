@@ -1,8 +1,7 @@
 """Aggregate scores, compare bot vs community, generate reports."""
 
-import json
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,7 @@ class BacktestResult:
     num_questions: int
     num_scored: int
     num_failed: int
+    question_status: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 def aggregate_scores(scores: list[QuestionScore]) -> dict[str, dict]:
@@ -82,7 +82,12 @@ def _bot_minus_community_ci(metric_scores: list[QuestionScore]) -> dict[str, Any
     if not deltas:
         return None
     mean, low, high = bootstrap_mean_ci(deltas, seed=0)
-    return {"mean": mean, "low": low, "high": high, "n": len(deltas)}
+    return {
+        "mean": mean,
+        "low": low if np.isfinite(low) else None,
+        "high": high if np.isfinite(high) else None,
+        "n": len(deltas),
+    }
 
 
 def generate_backtest_report(
@@ -99,6 +104,7 @@ def generate_backtest_report(
     lines: list[str] = []
 
     lines.append("# Backtest Report")
+    lines.append("Retrospective results are leaky and descriptive; absolute scores do not measure live skill.")
     lines.append(f"Generated: {timestamp}")
     lines.append("")
 
@@ -216,7 +222,7 @@ def save_backtest_data(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
     filepath = output_path / f"backtest_data_{timestamp}.json"
 
     ground_truths_serialized: dict[str, dict] = {}
@@ -233,6 +239,7 @@ def save_backtest_data(
                 "num_questions": result.num_questions,
                 "num_scored": result.num_scored,
                 "num_failed": result.num_failed,
+                "question_status": result.question_status,
                 "scores": scores_list,
                 "aggregated": aggregate_scores(result.scores),
             }
@@ -245,7 +252,10 @@ def save_backtest_data(
         "results": results_serialized,
     }
 
-    filepath.write_text(json.dumps(data, indent=2, default=str))
+    from sibyl.eval.artifacts import write_json
+
+    data["experiment"] = data["fetch_metadata"].get("experiment", {})
+    write_json(filepath, data)
     logger.info(f"Backtest data saved to {filepath}")
 
     return str(filepath)

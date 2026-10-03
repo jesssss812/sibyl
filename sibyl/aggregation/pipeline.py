@@ -33,6 +33,7 @@ from sibyl.aggregation.strategies import (
     combine_multiple_choice_predictions,
     combine_numeric_predictions,
 )
+from sibyl.common.forecast_context import forecast_time
 from sibyl.config.models import STACKER_FALLBACK_LLM
 from sibyl.config.settings import STACKER_FALLBACK_SOFT_DEADLINE, STACKER_SOFT_DEADLINE
 from sibyl.exceptions import UnitMismatchError
@@ -489,7 +490,7 @@ class AggregationPipeline:
         tests/test_main_platt_integration.py, which records that Platt is intentionally
         not applied on the base-combine path.
         """
-        return apply_resolution_state_guard(prediction, question, datetime.now(timezone.utc))
+        return apply_resolution_state_guard(prediction, question, forecast_time(question) or datetime.now(timezone.utc))
 
     def _maybe_snap_to_integers(self, prediction: PredictionTypes, question: MetaculusQuestion) -> PredictionTypes:
         if not isinstance(prediction, NumericDistribution) or not isinstance(question, NumericQuestion):

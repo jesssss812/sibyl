@@ -99,8 +99,7 @@ backtest_fixture:
 # Two identical arms must score identically — the A/A null test. A non-zero paired
 # difference here means the harness is broken, not that an arm is better.
 backtest_fixture_aa:
-	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --fixture --fixture-seed 0 --num-questions 8)
-	$(call RUN_UNBUFFERED,-m sibyl.eval backtest --fixture --fixture-seed 0 --num-questions 8)
+	$(call RUN_UNBUFFERED,-m sibyl.eval.benchmark.fixture_aa)
 
 analyze_correlations:
 	$(call RUN_UNBUFFERED,-m sibyl.eval ensemble $(if $(FILE),$(FILE),benchmarks/))
@@ -127,11 +126,12 @@ backtest_large:
 # CLI: sibyl/eval/ablation/cli.py (entry point: python -m sibyl.eval ablation;
 # python -m sibyl.eval.ablation.cli still works).
 # Tournaments default in the CLI (spring-aib-2026 + other 2026 slugs); not pinned here.
+# API stages refuse the free tier; each paid run requires explicit operator go and prod tier.
 ablation_qa_research:
 	# Runs only fetch + research + leakage screen + QA dump, then halts.
 	# Uses 3/3/3 question mix. No forecasting, no stacking.
 	# Config-in-code: --no-gap-fill (gap-fill amplifies leakage on resolved Qs);
-	# --gemini-model gemini-2.5-flash (free tier, no Tier 1 billing required).
+	# --gemini-model gemini-2.5-flash (billing depends on the configured API account).
 	$(call RUN_UNBUFFERED,-m sibyl.eval ablation --num-binary 3 --num-multiple-choice 3 --num-numeric 3 --resolved-after 2026-01-01 --no-gap-fill --gemini-model gemini-2.5-flash --qa-research)
 
 ablation_smoke:

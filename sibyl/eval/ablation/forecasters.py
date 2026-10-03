@@ -58,6 +58,7 @@ from sibyl.eval.ablation.forecaster_lineup import (
     build_free_parser_llm,
 )
 from sibyl.eval.ablation.window_patch import patched_window_for_question
+from sibyl.eval.artifacts import model_identity, question_identity
 from sibyl.exceptions import ValueExtractionError
 from sibyl.forecasting.bot import SibylBot
 from sibyl.forecasting.multiple_choice import clamp_and_renormalize_probs
@@ -692,9 +693,25 @@ async def run_forecasters_for_question(
     to_run: list[GeneralLlm] = []
     for llm in forecaster_llms:
         slug = model_slug_to_filename(llm.model)
+        cache.bind_inputs(
+            "forecaster",
+            qid,
+            slug,
+            {
+                "question": question_identity(question),
+                "research": research_blob,
+                "model": model_identity(llm),
+                "parser": model_identity(parser_llm),
+            },
+        )
         if not force:
             cached = cache.read_forecaster_output(qid=qid, model_slug=slug)
-            if cached is not None:
+            if (
+                cached is not None
+                and cached.get("prediction_value") is not None
+                and not cached.get("errors")
+                and not cached.get("error")
+            ):
                 results[slug] = cached
                 continue
         to_run.append(llm)

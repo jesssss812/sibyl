@@ -406,8 +406,8 @@ class TestBootstrapMeanCi:
     def test_bootstrap_mean_ci_handles_n_lt_5(self):
         deltas = [0.1, -0.2, 0.3]
         mean, ci_low, ci_high = bootstrap_mean_ci(deltas, n_bootstrap=2000, seed=0)
-        assert ci_low == mean
-        assert ci_high == mean
+        assert math.isnan(ci_low)
+        assert math.isnan(ci_high)
 
     def test_bootstrap_mean_ci_with_seed_is_reproducible(self):
         deltas = [0.1, -0.05, 0.2, 0.0, 0.15, -0.1, 0.05, 0.3, -0.2, 0.1]
@@ -428,25 +428,25 @@ class TestBootstrapMeanCi:
         assert math.isnan(hi)
 
     def test_bootstrap_mean_ci_n_one_returns_value_triple(self):
-        # M5: n=1 boundary — short-circuit returns (mean, mean, mean) where mean = the value.
+        # M5: n=1 boundary — retain the mean; interval bounds are unavailable.
         mean, lo, hi = bootstrap_mean_ci([0.42], n_bootstrap=2000, seed=0)
         assert mean == pytest.approx(0.42)
-        assert lo == mean
-        assert hi == mean
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_mean_ci_n_two_returns_mean_triple(self):
-        # M5: n=2 boundary — n < BOOTSTRAP_MIN_N=5, so triple = (mean, mean, mean).
+        # M5: n=2 boundary — n < BOOTSTRAP_MIN_N=5, so interval bounds are unavailable.
         mean, lo, hi = bootstrap_mean_ci([0.1, 0.3], n_bootstrap=2000, seed=0)
         assert mean == pytest.approx(0.2)
-        assert lo == mean
-        assert hi == mean
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_mean_ci_n_four_short_circuits(self):
         # M5: n=4 (just below BOOTSTRAP_MIN_N=5) verifies the short-circuit boundary.
         mean, lo, hi = bootstrap_mean_ci([0.0, 0.1, 0.2, 0.3], n_bootstrap=2000, seed=0)
         assert mean == pytest.approx(0.15)
-        assert lo == mean
-        assert hi == mean
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_mean_ci_n_five_runs_full_bootstrap(self):
         # M5: n=5 is the threshold — full bootstrap runs and produces a non-degenerate CI.
@@ -462,21 +462,21 @@ class TestBootstrapMedianCi:
     def test_bootstrap_median_ci_n_one_returns_value_triple(self):
         median, lo, hi = bootstrap_median_ci([0.42], n_bootstrap=2000, seed=0)
         assert median == pytest.approx(0.42)
-        assert lo == median
-        assert hi == median
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_median_ci_n_two_returns_median_triple(self):
         # n=2 < BOOTSTRAP_MIN_N=5; median([0.1, 0.3]) = 0.2.
         median, lo, hi = bootstrap_median_ci([0.1, 0.3], n_bootstrap=2000, seed=0)
         assert median == pytest.approx(0.2)
-        assert lo == median
-        assert hi == median
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_median_ci_n_four_short_circuits(self):
         median, lo, hi = bootstrap_median_ci([0.0, 0.1, 0.2, 0.3], n_bootstrap=2000, seed=0)
         assert median == pytest.approx(0.15)
-        assert lo == median
-        assert hi == median
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_median_ci_n_five_runs_full_bootstrap(self):
         median, lo, hi = bootstrap_median_ci([0.0, 0.1, 0.2, 0.3, 0.4], n_bootstrap=2000, seed=0)
@@ -1595,8 +1595,8 @@ class TestMedianDelta:
         deltas = [0.1, 0.2, 0.3]  # n=3 < BOOTSTRAP_MIN_N=5
         median, lo, hi = bootstrap_median_ci(deltas, n_bootstrap=2000, seed=0)
         assert median == pytest.approx(0.2, abs=1e-9)
-        assert lo == median
-        assert hi == median
+        assert math.isnan(lo)
+        assert math.isnan(hi)
 
     def test_bootstrap_median_ci_handles_empty(self):
         median, lo, hi = bootstrap_median_ci([], n_bootstrap=200, seed=0)

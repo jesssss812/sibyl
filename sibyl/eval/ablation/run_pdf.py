@@ -50,6 +50,7 @@ from sibyl.eval.ablation.cache import AblationCache
 from sibyl.eval.ablation.forecasters import question_type_for_serialization, serialize_prediction_value
 from sibyl.eval.ablation.run_stacker import ABLATION_MIN_FORECASTERS, _surviving_forecasters
 from sibyl.eval.ablation.stage_payload import make_error_payload, make_success_payload
+from sibyl.eval.artifacts import question_identity
 from sibyl.forecasting.probabilistic_tools.base_rate import beta_binomial_update
 from sibyl.forecasting.probabilistic_tools.survival import prob_event_before
 from sibyl.forecasting.structured_output_schema import (
@@ -316,6 +317,17 @@ async def run_pdf_for_qid(
     output payload. Use ``ARM_PDF_MIN1`` / ``ARM_PDF_MIN2`` / ``ARM_PDF_MIN1_MEAN``
     to write separate cache files for the dual-panel pdf analysis.
     """
+    cache.bind_inputs(
+        "stacker",
+        qid,
+        arm_label,
+        {
+            "question": question_identity(question),
+            "forecasters": forecaster_payloads,
+            "aggregation": aggregation,
+            "min_forecasters": min_forecasters,
+        },
+    )
     if not force:
         cached = cache.read_stacker_output(qid=qid, arm=arm_label)
         if cached is not None:

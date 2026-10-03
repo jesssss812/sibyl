@@ -95,6 +95,8 @@ class SibylBot(CompactLoggingForecastBot):
     ) -> None:
         if not isinstance(aggregation_strategy, AggregationStrategy):
             raise ValueError(f"aggregation_strategy must be an AggregationStrategy enum, got {aggregation_strategy}")
+        self.stacking_spread_thresholds = stacking_spread_thresholds
+        self.research_sink = research_sink
         self.aggregation_strategy: AggregationStrategy = aggregation_strategy
 
         setup = prepare_llm_config(
