@@ -103,7 +103,7 @@ A paired comparison is only valid if both arms answered **the same questions**. 
 |---|---|---|
 | **MiniBench** | Primary fast iteration loop | ~60 short-fuse auto-generated questions, low leakage, resolves fast. Metaculus built this for exactly this purpose; 54% of tournament participants use it for iteration. This is our poor-man's BTF — **do not rebuild it.** |
 | **Resolved Metaculus questions (API)** | Secondary offline backtest | Free, large, but **leaky**. Governed by Rule 3. |
-| **Live tournament (FutureEval / Summer season)** | Uncontaminated holdout | Never tune against. Source of truth. |
+| **Live seasonal FutureEval tournament** | Uncontaminated holdout | Never tune against. Source of truth. |
 
 ---
 

@@ -1,8 +1,8 @@
 # Evaluation integrity: implementation handoff
 
-Date: 2026-09-25  
-Status: engineering fixes implemented on `codex/evaluation-integrity-plan`; scientific registration pending
-Audience: the coding agent implementing the repository review findings
+Date: 2026-09-25
+Status: engineering fixes implemented; scientific registration pending
+Audience: maintainers and coding agents reviewing evaluation invariants
 
 ## Objective
 

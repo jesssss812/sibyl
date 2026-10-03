@@ -24,6 +24,8 @@ bug — check the dates before treating any of it as current.
 | [performance_analysis.md](performance_analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
 | [probabilistic_tools.md](probabilistic_tools.md) | The `probabilistic_tools/` package and the tool-runner that exposes it to forecaster models. |
 | [operations.md](operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
+| [experiment-funding.md](experiment-funding.md) | The isolated grant-funded MiniBench runner, local spending ledger, and private forecast archive. |
+| [minibench-readiness.md](minibench-readiness.md) | October 2026 launch checks and the statistical limits of the first MiniBench round. |
 
 ## Planning and evaluation strategy
 

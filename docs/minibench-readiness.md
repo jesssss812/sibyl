@@ -1,0 +1,19 @@
+# MiniBench launch and measurement, October 2026
+
+As of October 3, Metaculus says MiniBench rounds start every other Monday, the first Fall round began September 21, and the active project ID is always `minibench`. The next round is therefore expected October 5. Confirm the new round is visible before any scored run. [Metaculus FutureEval resources](https://www.metaculus.com/notebooks/38928/docs.adj.news)
+
+## Launch gate
+
+The grant-funded runner in [experiment-funding.md](experiment-funding.md) is the reviewed MiniBench path. It has a different research configuration from the ordinary production workflow: one accounted OpenRouter native-search provider instead of the usual research fan-out. Record it as a separate configuration era. The default run is capped at three questions; that is a paid smoke run, not a statistical experiment. Expanding to a full round requires its own reviewed question cap and cost reservation.
+
+Before each paid run, verify that the deployed commit is the intended clean commit; inspect `python -m sibyl.ops.experiment_grant preview`; confirm the routed models and reasoning parameters are currently available; confirm the grant key is distinct from ordinary keys; inspect the ledger report and the remaining local allocation; choose a unique run ID, question cap, run budget, and per-call reservation. The runner remains manual. A scored, paid run needs the operator's approval for that specific run. Do not dispatch a workflow or enable a schedule as a substitute.
+
+The runner writes a private manifest before requests and successful reports after the batch returns under `backtests/minibench_runs/<run-id>/`. Keep that directory with the grant ledger. Check the report for actual confirmed charges, unconfirmed reservations, failed questions, and forecaster drops. If the process stops mid-batch, a manifest and ledger can exist without saved reports; reconcile against Metaculus before interpreting missing rows.
+
+## What the first round can establish
+
+One bot configuration on one round is a descriptive baseline. Record the scheduled question IDs, forecast timestamps, configuration and code identity, question type, any fallback or degradation, published forecast, and final resolution. Do not use a leaderboard rank or a three-question smoke run as evidence that a prompt change worked. Do not tune the seasonal FutureEval holdout against MiniBench feedback.
+
+For a later treatment claim, register the exact two arms and identical question set *before* forecasting. Name one primary endpoint for each question type being tested, an expected effect, an independent variance estimate, allowed attrition, and the minimum detectable effect. Decline a run when the expected effect is smaller than its prospective MDE. Preserve Brier and log scores for binary questions, and report numeric and multiple-choice endpoints separately; pooled scoring remains pending. Pair forecasts by question ID and valid forecast time, report every excluded question and why, and apply the existing greater-than-5% attrition refusal. Report paired deltas with bootstrap intervals and treat repeated looks and multiple tested variants as exploratory unless the registration accounts for them. See [eval-strategy.md](eval-strategy.md) and the offline [power preflight](../sibyl/eval/power.py).
+
+The current `compare` command reads backtest artifacts, not live MiniBench reports. The performance collector's `/api/comments/` request has previously returned 403 for the bot token, so a completed live scoring and paired-analysis intake has **not** been verified. Until that is resolved and tested against saved reports and official resolutions, MiniBench results are descriptive only. Do not label a live variant comparison confirmatory on the strength of the offline backtest gate.
