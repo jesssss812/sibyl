@@ -242,6 +242,27 @@ class SpendLedger:
                 (attempt_id,),
             )
 
+    def has_blocking_attempts(self, run_id: str, question_id: str) -> bool:
+        """Block publication for unconfirmed charges or a per-call overage."""
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT 1 FROM attempts
+                WHERE run_id = ? AND (question_id = ? OR question_id IS NULL) AND source = ?
+                AND (status != 'succeeded' OR certainty != 'confirmed') LIMIT 1""",
+                (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
+            ).fetchone()
+            if rows is not None:
+                return True
+            return any(
+                Decimal(charged) > Decimal(reserved)
+                for reserved, charged in db.execute(
+                    """SELECT reserved_usd, charged_usd FROM attempts
+                    WHERE run_id = ? AND (question_id = ? OR question_id IS NULL)
+                    AND source = ? AND charged_usd IS NOT NULL""",
+                    (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
+                )
+            )
+
     def adjust(self, adjustment_id: str, amount_usd: Decimal, note: str) -> None:
         if not adjustment_id or not note:
             raise ValueError("Adjustment ID and note are required")

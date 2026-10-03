@@ -48,6 +48,34 @@ def test_estimate_keeps_reservation_until_provider_reconciliation(tmp_path: Path
     assert ledger.summary("run-a")["confirmed_usd"] == "0.4"
 
 
+def test_unconfirmed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("run-a", Decimal("3"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"), question_id="101")
+    ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.8"), question_id="102")
+    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
+    ledger.settle("b", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
+    assert ledger.has_blocking_attempts("run-a", "101")
+    assert not ledger.has_blocking_attempts("run-a", "102")
+    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_reconciliation")
+    assert not ledger.has_blocking_attempts("run-a", "101")
+
+
+def test_provider_charge_above_reservation_blocks_publication(tmp_path: Path) -> None:
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("run-a", Decimal("3"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"), question_id="101")
+    ledger.settle("a", Decimal("1.2"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
+    assert ledger.has_blocking_attempts("run-a", "101")
+
+
+def test_unattributed_call_blocks_every_question(tmp_path: Path) -> None:
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("run-a", Decimal("3"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+    assert ledger.has_blocking_attempts("run-a", "101")
+
+
 def test_local_estimate_cannot_be_called_confirmed(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "spend.sqlite3")
     ledger.start_run("run-a", Decimal("1"))

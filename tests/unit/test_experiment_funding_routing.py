@@ -66,8 +66,8 @@ async def test_each_mocked_model_attempt_settles_once(tmp_path: Path, monkeypatc
     monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", _fake_call)
     with grant_context(session):
         llm = build_grant_llm("openrouter/openai/test", allowed_tries=1)
-    response = await llm._mockable_direct_call_to_model("prompt")
-    assert response.data == "answer"
+    with pytest.raises(GrantCostUnknown, match="provider-confirmed"):
+        await llm._mockable_direct_call_to_model("prompt")
     assert session.ledger.summary(session.run_id)["charged_usd"] == "0.2"
     assert session.ledger.summary(session.run_id)["estimated_usd"] == "0.2"
     assert session.ledger.summary(session.run_id)["confirmed_usd"] == "0"

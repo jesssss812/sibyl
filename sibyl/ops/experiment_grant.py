@@ -153,6 +153,15 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
             with grant_question(question.id_of_question):
                 return await super()._run_individual_question(question)
 
+        def _create_unified_explanation(self, question, *args, **kwargs):
+            # forecasting-tools publishes immediately after creating this text.
+            # A failed call may have been dropped from the ensemble, so check the
+            # full question ledger instead of relying on prediction errors.
+            question_id = question.id_of_question
+            if question_id is None or session.ledger.has_blocking_attempts(session.run_id, str(question_id)):
+                raise RuntimeError("Grant question has unconfirmed charges or an overage; publication refused")
+            return super()._create_unified_explanation(question, *args, **kwargs)
+
     with grant_context(session):
         roster = _funded_roster(source_roster)
         # Validate every paid model route before the first network request,
@@ -184,6 +193,8 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
             any(isinstance(report, BaseException) for report in reports)
             or bot.alertable_count > 0
             or Decimal(str(summary["uncertain_usd"])) > 0
+            or Decimal(str(summary["estimated_usd"])) > 0
+            or Decimal(str(summary["reserved_usd"])) > 0
         ):
             raise RuntimeError("Grant run finished with failed forecasts, degradation, or uncertain charges")
 

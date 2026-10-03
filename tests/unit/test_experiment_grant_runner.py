@@ -3,6 +3,7 @@
 import argparse
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -113,3 +114,33 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     await _run_minibench(argparse.Namespace(max_questions=1), session)
     assert called == ["constructed", "mocked_forecast"]
     assert ledger.summary("mock-run")["attempts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_estimated_charge_blocks_scored_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sibyl.forecasting import bot as bot_module
+    from sibyl.platform import metaculus_preflight
+
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("mock-run", Decimal("5"))
+    session = GrantSession("mock-run", ledger, Decimal("1"), "dummy-grant")
+
+    class FakeBot:
+        def __init__(self, **kwargs):
+            assert kwargs["publish_reports_to_metaculus"] is True
+
+        async def forecast_on_tournament(self, tournament_id, *, return_exceptions):
+            ledger.reserve("a", "mock-run", "openrouter/test", "forecast", Decimal("1"), question_id="101")
+            ledger.settle("a", Decimal("0.2"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
+            self._create_unified_explanation(SimpleNamespace(id_of_question=101))
+            pytest.fail("An unconfirmed charge reached the publication path")
+
+        def _create_unified_explanation(self, question, *args, **kwargs):
+            pytest.fail("The base formatter was reached before the grant gate")
+
+    monkeypatch.setattr(bot_module, "SibylBot", FakeBot)
+    monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
+    with pytest.raises(RuntimeError, match="publication refused"):
+        await _run_minibench(argparse.Namespace(max_questions=1), session)

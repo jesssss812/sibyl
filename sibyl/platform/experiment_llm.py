@@ -66,6 +66,8 @@ class FundedGeneralLlm(GeneralLlm):
             certainty="confirmed" if evidence_source == "provider_generation" else "estimated",
             evidence_source=evidence_source,
         )
+        if evidence_source != "provider_generation":
+            raise GrantCostUnknown("OpenRouter grant call has no provider-confirmed cost; estimate retained")
         if cost > session.per_call_reserve_usd:
             raise BudgetExceeded("Provider charge exceeded the per-call reservation; execution stopped")
         return response
