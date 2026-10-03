@@ -1,4 +1,4 @@
-.PHONY: install lock test test_verbose all lint format typecheck typecheck_ty cov audit run benchmark precommit precommit_all precommit_install analyze_correlations analyze_correlations_latest backtest_smoke_test backtest_small backtest_medium backtest_large ablation_qa_research ablation_smoke ablation_small ablation_medium ablation_score test_e2e test_live test_fast check_credits sync_research sync_telemetry sync_raw_research sync_all resync_from_store backfill_research download_research download_run_logs download_raw_research backfill_comments score_ghosts close_margin_watch backtest_with_cache
+.PHONY: install lock test test_verbose all lint format typecheck typecheck_ty cov audit run benchmark precommit precommit_all precommit_install analyze_correlations analyze_correlations_latest backtest_smoke_test backtest_small backtest_medium backtest_large ablation_qa_research ablation_smoke ablation_small ablation_medium ablation_score test_e2e test_live test_fast e2e_free_no_publish check_credits sync_research sync_telemetry sync_raw_research sync_all resync_from_store backfill_research download_research download_run_logs download_raw_research backfill_comments score_ghosts close_margin_watch backtest_with_cache
 
 # Stream logs live from recipes; avoid per-target buffering
 MAKEFLAGS += --output-sync=none
@@ -164,6 +164,13 @@ ablation_score:
 # several.
 e2e_free:
 	SIBYL_MODEL_TIER=free $(call RUN_UNBUFFERED,-m sibyl test --tier free --max-questions 3)
+
+# Live, zero-cost free-roster forecast against a synthetic question. It calls
+# OpenRouter :free models, but fetches no Metaculus question and cannot publish:
+# the test sets publish_reports_to_metaculus=False and traps publish methods.
+# Requires OPENROUTER_API_KEY; unlike e2e_free, it needs no METACULUS_TOKEN.
+e2e_free_no_publish:
+	SIBYL_MODEL_TIER=free $(call RUN_UNBUFFERED,-m pytest -m live tests/live/test_free_tier.py::test_free_roster_runs_the_real_pipeline_without_publishing -v --tb=short)
 
 test_e2e:
 	$(call RUN_UNBUFFERED,-m pytest -m e2e -v --tb=short)

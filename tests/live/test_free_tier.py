@@ -214,7 +214,7 @@ async def test_full_pipeline_single_question_free_model():
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_free_roster_runs_the_real_pipeline_without_publishing():
+async def test_free_roster_runs_the_real_pipeline_without_publishing(monkeypatch: pytest.MonkeyPatch):
     """The roster the free lane actually ships, driving the real pipeline once.
 
     The other tests here pin individual model behaviours; this one pins that
@@ -227,9 +227,17 @@ async def test_free_roster_runs_the_real_pipeline_without_publishing():
     free models are not expected to forecast well, and an assertion about the VALUE
     would be a flaky test dressed up as a quality bar.
     """
+    from forecasting_tools.helpers.metaculus_client import MetaculusClient
+
     from sibyl.aggregation.strategies import AggregationStrategy
     from sibyl.config.models import ModelTier, get_roster
     from sibyl.forecasting.bot import SibylBot
+
+    def _refuse_publish(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("Nonpublishing free-tier E2E reached a Metaculus publish method")
+
+    monkeypatch.setattr(MetaculusClient, "_post_question_prediction", _refuse_publish)
+    monkeypatch.setattr(MetaculusClient, "post_question_comment", _refuse_publish)
 
     roster = get_roster(ModelTier.FREE)
 
