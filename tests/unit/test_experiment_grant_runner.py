@@ -1,6 +1,7 @@
 """Offline preflight for the isolated grant-funded MiniBench entry point."""
 
 import argparse
+import json
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -90,6 +91,7 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
             assert all(llm.litellm_kwargs["api_key"] == "dummy-grant" for llm in llms["forecasters"])
             assert llms["forecasters"][1].model == "openrouter/anthropic/claude-opus-5"
             assert llms["stacker"].model == "openrouter/anthropic/claude-opus-4.8"
+            assert kwargs["folder_to_save_reports_to"] == str(tmp_path / "reports" / "mock-run" / "forecasts")
             research = ResearchOrchestrator(default_llm=llms["researcher"], summarizer_llm=llms["summarizer"])
             assert [name for _, name in research._select_research_providers()] == ["native_search_grant"]
             called.append("constructed")
@@ -111,9 +113,18 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     ledger = SpendLedger(tmp_path / "spend.sqlite3")
     ledger.start_run("mock-run", Decimal("5"))
     session = GrantSession("mock-run", ledger, Decimal("1"), "dummy-grant")
-    await _run_minibench(argparse.Namespace(max_questions=1), session)
+    await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
     assert called == ["constructed", "mocked_forecast"]
     assert ledger.summary("mock-run")["attempts"] == 0
+    manifest_path = tmp_path / "reports" / "mock-run" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["run_id"] == "mock-run"
+    assert manifest["code"]["git_sha"]
+    assert manifest["configuration"]["forecasters"][1] == "openrouter/anthropic/claude-opus-5"
+    assert "dummy-grant" not in manifest_path.read_text()
+    with pytest.raises(ValueError, match="already has a forecast manifest"):
+        await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
+    assert called == ["constructed", "mocked_forecast"]
 
 
 @pytest.mark.asyncio
@@ -143,4 +154,4 @@ async def test_estimated_charge_blocks_scored_publication(
     monkeypatch.setattr(bot_module, "SibylBot", FakeBot)
     monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
     with pytest.raises(RuntimeError, match="publication refused"):
-        await _run_minibench(argparse.Namespace(max_questions=1), session)
+        await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)

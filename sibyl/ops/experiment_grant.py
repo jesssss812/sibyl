@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -141,12 +142,15 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
 
     from sibyl.aggregation.strategies import AggregationStrategy
     from sibyl.config.models import ModelTier, get_roster
+    from sibyl.eval.artifacts import code_identity
     from sibyl.forecasting.bot import SibylBot
     from sibyl.platform.metaculus_preflight import verify_metaculus_api_identity
 
     if args.max_questions < 1:
         raise ValueError("--max-questions must be positive")
     source_roster = get_roster(ModelTier.PROD)
+    run_dir = args.reports_dir / session.run_id
+    manifest_path = run_dir / "manifest.json"
 
     class GrantSibylBot(SibylBot):
         async def _run_individual_question(self, question: MetaculusQuestion) -> ForecastReport:
@@ -164,6 +168,25 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
 
     with grant_context(session):
         roster = _funded_roster(source_roster)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with manifest_path.open("x") as manifest_file:
+                json.dump(
+                    {
+                        "schema_version": 1,
+                        "run_id": session.run_id,
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                        "code": code_identity(),
+                        "configuration": _preview(),
+                        "max_questions": args.max_questions,
+                        "max_cost_usd": args.max_cost_usd,
+                        "reserve_per_call_usd": str(session.per_call_reserve_usd),
+                    },
+                    manifest_file,
+                    indent=2,
+                )
+        except FileExistsError as exc:
+            raise ValueError(f"Run ID {session.run_id} already has a forecast manifest") from exc
         # Validate every paid model route before the first network request,
         # including the read-only Metaculus identity probe.
         verify_metaculus_api_identity()
@@ -179,7 +202,7 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
             research_reports_per_question=1,
             predictions_per_research_report=1,
             publish_reports_to_metaculus=True,
-            folder_to_save_reports_to=None,
+            folder_to_save_reports_to=str(run_dir / "forecasts"),
             skip_previously_forecasted_questions=True,
             max_questions_per_run=args.max_questions,
             aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
@@ -217,6 +240,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--max-cost-usd", required=True)
     run.add_argument("--reserve-per-call-usd", required=True)
     run.add_argument("--max-questions", type=int, default=3)
+    run.add_argument("--reports-dir", type=Path, default=Path("backtests/minibench_runs"))
     return parser
 
 
