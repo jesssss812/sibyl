@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -84,6 +85,8 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
         alertable_count = 0
 
         def __init__(self, **kwargs):
+            self.skip_previously_forecasted_questions = kwargs["skip_previously_forecasted_questions"]
+            self.max_questions_per_run = kwargs["max_questions_per_run"]
             assert active_grant() is not None
             llms = kwargs["llms"]
             assert len(llms["forecasters"]) == 3
@@ -97,8 +100,22 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
             called.append("constructed")
 
         async def forecast_on_tournament(self, tournament_id, *, return_exceptions):
+            from forecasting_tools import BinaryQuestion
+
             assert return_exceptions is True
             called.append("mocked_forecast")
+            question = BinaryQuestion(
+                question_text="Will the synthetic event occur?", id_of_question=101, id_of_post=201,
+                page_url="https://www.metaculus.com/questions/201/", background_info="",
+                resolution_criteria="Resolves yes if it occurs.", fine_print="",
+                open_time=datetime(2026, 10, 5), scheduled_resolution_time=datetime(2026, 10, 19),
+            )
+            second = question.model_copy(update={"id_of_question": 102, "id_of_post": 202})
+            return await self.forecast_questions([question, second], return_exceptions=return_exceptions)
+
+        async def forecast_questions(self, questions, return_exceptions=False):
+            assert len(questions) == 2
+            called.append("scheduled")
             return []
 
         @staticmethod
@@ -114,7 +131,10 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     ledger.start_run("mock-run", Decimal("5"))
     session = GrantSession("mock-run", ledger, Decimal("1"), "dummy-grant")
     await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
-    assert called == ["constructed", "mocked_forecast"]
+    assert called == ["constructed", "mocked_forecast", "scheduled"]
+    scheduled = json.loads((tmp_path / "reports" / "mock-run" / "scheduled_questions.json").read_text())
+    assert scheduled["question_ids"] == [101]
+    assert scheduled["questions"][0]["question_type"] == "binary"
     assert ledger.summary("mock-run")["attempts"] == 0
     manifest_path = tmp_path / "reports" / "mock-run" / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
@@ -124,7 +144,7 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     assert "dummy-grant" not in manifest_path.read_text()
     with pytest.raises(ValueError, match="already has a forecast manifest"):
         await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
-    assert called == ["constructed", "mocked_forecast"]
+    assert called == ["constructed", "mocked_forecast", "scheduled"]
 
 
 @pytest.mark.asyncio

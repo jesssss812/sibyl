@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 from uuid import uuid4
 
 from sibyl.platform.experiment_funding import (
@@ -138,11 +138,18 @@ def _preview() -> dict[str, object]:
 
 
 async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> None:
-    from forecasting_tools import ForecastReport, MetaculusApi, MetaculusQuestion
+    from forecasting_tools import (
+        BinaryQuestion,
+        ForecastReport,
+        MetaculusApi,
+        MetaculusQuestion,
+        MultipleChoiceQuestion,
+        NumericQuestion,
+    )
 
     from sibyl.aggregation.strategies import AggregationStrategy
     from sibyl.config.models import ModelTier, get_roster
-    from sibyl.eval.artifacts import code_identity
+    from sibyl.eval.artifacts import code_identity, question_identity
     from sibyl.forecasting.bot import SibylBot
     from sibyl.platform.metaculus_preflight import verify_metaculus_api_identity
 
@@ -153,6 +160,28 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
     manifest_path = run_dir / "manifest.json"
 
     class GrantSibylBot(SibylBot):
+        async def forecast_questions(self, questions: Sequence[MetaculusQuestion], return_exceptions: bool = False):
+            supported = (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion)
+            selected = [
+                question for question in questions
+                if isinstance(question, supported) and not (self.skip_previously_forecasted_questions and question.already_forecasted)
+            ]
+            if self.max_questions_per_run is not None:
+                selected = selected[: self.max_questions_per_run]
+            question_ids = [question.id_of_question for question in selected]
+            if any(qid is None for qid in question_ids) or len(set(question_ids)) != len(question_ids):
+                raise ValueError("Grant MiniBench selection needs unique non-null question IDs")
+            snapshot_path = run_dir / "scheduled_questions.json"
+            with snapshot_path.open("x") as snapshot_file:
+                json.dump(
+                    {"schema_version": 1, "run_id": session.run_id,
+                     "question_ids": question_ids,
+                     "questions": [question_identity(question) for question in selected]},
+                    snapshot_file,
+                    indent=2,
+                )
+            return await super().forecast_questions(questions, return_exceptions)
+
         async def _run_individual_question(self, question: MetaculusQuestion) -> ForecastReport:
             with grant_question(question.id_of_question):
                 return await super()._run_individual_question(question)
