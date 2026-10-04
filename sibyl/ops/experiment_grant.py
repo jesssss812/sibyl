@@ -1,8 +1,8 @@
-"""Isolated OpenRouter-grant MiniBench runner and offline spending inspection.
+"""Isolated OpenRouter-grant runners and offline spending inspection.
 
-No production CLI or model singleton is mutated. The run command publishes to
-the scored MiniBench and must only be invoked after operator approval for that
-specific run. Preview and report make no model or research requests.
+No production CLI or model singleton is mutated. Run commands publish to their
+explicit target and require operator approval for that specific run. Preview
+and report make no model or research requests.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Literal, Sequence
 from uuid import uuid4
 
 from sibyl.platform.experiment_funding import (
@@ -138,6 +138,16 @@ def _preview() -> dict[str, object]:
 
 
 async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> None:
+    await _run_grant_forecasts(args, session, mode="minibench")
+
+
+async def _run_test_question(args: argparse.Namespace, session: GrantSession) -> None:
+    await _run_grant_forecasts(args, session, mode="test")
+
+
+async def _run_grant_forecasts(
+    args: argparse.Namespace, session: GrantSession, *, mode: Literal["minibench", "test"]
+) -> None:
     from forecasting_tools import (
         BinaryQuestion,
         ForecastReport,
@@ -145,16 +155,22 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
         MetaculusQuestion,
         MultipleChoiceQuestion,
         NumericQuestion,
+        QuestionState,
     )
 
     from sibyl.aggregation.strategies import AggregationStrategy
     from sibyl.config.models import ModelTier, get_roster
+    from sibyl.config.settings import BOT_TESTING_AREA_ID
     from sibyl.eval.artifacts import code_identity, question_identity
     from sibyl.forecasting.bot import SibylBot
     from sibyl.platform.metaculus_preflight import verify_metaculus_api_identity
 
     if args.max_questions < 1:
         raise ValueError("--max-questions must be positive")
+    if mode == "test" and (
+        args.max_questions != 1 or args.post_id < 1 or args.question_id < 1
+    ):
+        raise ValueError("Grant test runs need one question and positive post/question IDs")
     source_roster = get_roster(ModelTier.PROD)
     run_dir = args.reports_dir / session.run_id
     manifest_path = run_dir / "manifest.json"
@@ -170,7 +186,7 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
                 selected = selected[: self.max_questions_per_run]
             question_ids = [question.id_of_question for question in selected]
             if any(qid is None for qid in question_ids) or len(set(question_ids)) != len(question_ids):
-                raise ValueError("Grant MiniBench selection needs unique non-null question IDs")
+                raise ValueError("Grant selection needs unique non-null question IDs")
             snapshot_path = run_dir / "scheduled_questions.json"
             with snapshot_path.open("x") as snapshot_file:
                 json.dump(
@@ -206,7 +222,7 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
                         "run_id": session.run_id,
                         "started_at": datetime.now(timezone.utc).isoformat(),
                         "code": code_identity(),
-                        "configuration": _preview(),
+                        "configuration": {**_preview(), "mode": mode},
                         "max_questions": args.max_questions,
                         "max_cost_usd": args.max_cost_usd,
                         "reserve_per_call_usd": str(session.per_call_reserve_usd),
@@ -232,13 +248,27 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
             predictions_per_research_report=1,
             publish_reports_to_metaculus=True,
             folder_to_save_reports_to=str(run_dir / "forecasts"),
-            skip_previously_forecasted_questions=True,
+            skip_previously_forecasted_questions=mode == "minibench",
             max_questions_per_run=args.max_questions,
             aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
             allow_research_fallback=False,
             llms=llms,
         )
-        reports = await bot.forecast_on_tournament(MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True)
+        if mode == "test":
+            open_questions = bot.metaculus_client.get_all_open_questions_from_tournament(BOT_TESTING_AREA_ID)
+            matches = [
+                question for question in open_questions
+                if question.id_of_post == args.post_id
+                and question.id_of_question == args.question_id
+                and isinstance(question, (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion))
+                and question.state == QuestionState.OPEN
+                and BOT_TESTING_AREA_ID in question.tournament_slugs
+            ]
+            if len(matches) != 1:
+                raise ValueError("Requested question is not an open question in bot-testing-area")
+            reports = await bot.forecast_questions(matches, return_exceptions=True)
+        else:
+            reports = await bot.forecast_on_tournament(MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True)
         SibylBot.log_report_summary(reports)
         summary = session.ledger.summary(session.run_id)
         if (
@@ -270,6 +300,14 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--reserve-per-call-usd", required=True)
     run.add_argument("--max-questions", type=int, default=3)
     run.add_argument("--reports-dir", type=Path, default=Path("backtests/minibench_runs"))
+    test = sub.add_parser("run-test", help="Paid, unscored bot-testing-area run; requires per-run operator authorization")
+    test.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    test.add_argument("--run-id", default=None)
+    test.add_argument("--max-cost-usd", required=True)
+    test.add_argument("--reserve-per-call-usd", required=True)
+    test.add_argument("--post-id", type=int, required=True)
+    test.add_argument("--question-id", type=int, required=True)
+    test.add_argument("--reports-dir", type=Path, default=Path("backtests/grant_test_runs"))
     return parser
 
 
@@ -296,10 +334,15 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(ledger.summary(), indent=2))
             return 0
         args.run_id = args.run_id or uuid4().hex
+        if args.command == "run-test":
+            args.max_questions = 1
         session = checked_session(args)
         print(f"Grant run ID: {session.run_id}")
         try:
-            asyncio.run(_run_minibench(args, session))
+            if args.command == "run-test":
+                asyncio.run(_run_test_question(args, session))
+            else:
+                asyncio.run(_run_minibench(args, session))
         finally:
             print(json.dumps(session.ledger.summary(session.run_id), indent=2))
         return 0

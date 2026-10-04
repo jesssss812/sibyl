@@ -1,6 +1,6 @@
 # OpenRouter experiment grant
 
-This isolated entry point spends from a separately provisioned OpenRouter key and writes local request accounting. It is intended for reviewed MiniBench runs. The ordinary bot CLI is unchanged. The grant path runs the production model identities through explicit OpenRouter routes, including the two Anthropic slots that normally call Anthropic directly.
+This isolated entry point spends from a separately provisioned OpenRouter key and writes local request accounting. It supports reviewed MiniBench runs and single-question runs in the unscored bot-testing area. The ordinary bot CLI is unchanged. The grant path runs the production model identities through explicit OpenRouter routes, including the two Anthropic slots that normally call Anthropic directly.
 
 Rotate the key previously shared in conversation. Put the replacement in the local secret store as `SIBYL_EXPERIMENT_OPENROUTER_API_KEY`; never commit it or paste it into a task. Keep it distinct from `OPENROUTER_API_KEY` and `OAI_ANTH_OPENROUTER_KEY`. A configured key alone starts no run.
 
@@ -16,6 +16,18 @@ python -m sibyl.ops.experiment_grant report --ledger backtests/experiment_grant_
 The grant MiniBench runner selects OpenRouter native web search as its sole research provider. It refuses enabled native-search add-ons, Gemini/Anthropic search, gap-fill, financial data, time-series anchors, prediction markets, resolution sources, and reference-class enrichers until each path has been audited for grant-only billing. This changes the research fan-out from a normal production run; treat it as a distinct configuration era and do not combine its accuracy results with earlier runs without accounting for that change. The three-slot grant roster retains the OpenRouter OpenAI and Google slots and explicitly maps the direct Anthropic slot to OpenRouter. Inspect the public model catalogue and supported reasoning parameters before approving a live run; offline tests prove routing, not current provider availability.
 
 ## Run only after approval for that specific run
+
+For a single unscored test, select the exact post and question IDs from the open `bot-testing-area` tournament. The command refuses an ID outside that tournament or a question that is not open, then publishes the forecast and comment to the selected test question:
+
+```bash
+python -m sibyl.ops.experiment_grant run-test \
+  --run-id reviewed-test-001 \
+  --post-id 43323 --question-id 43325 \
+  --max-cost-usd 15 --reserve-per-call-usd 3 \
+  --ledger backtests/experiment_grant_spend.sqlite3
+```
+
+This is a command template, not standing authorization. Each live test needs operator approval for that specific run. Its manifest, question snapshot, and reports are written under `backtests/grant_test_runs/<run-id>/` by default. It uses the same grant-only routes, research preflight, per-call reservations, and publication gate as MiniBench.
 
 The following is a command template, **not authorization to execute it**. It publishes to scored MiniBench and spends credits. Set a unique run ID and a per-call reservation large enough for the chosen model's maximum output and research charges.
 

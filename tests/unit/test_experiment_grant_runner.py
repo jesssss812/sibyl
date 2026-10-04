@@ -63,6 +63,74 @@ def test_per_call_reservation_must_fit_run_limit(tmp_path: Path, monkeypatch: py
 
 
 @pytest.mark.asyncio
+async def test_grant_test_run_selects_one_exact_sandbox_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from forecasting_tools import BinaryQuestion, QuestionState
+
+    from sibyl.forecasting import bot as bot_module
+    from sibyl.ops import experiment_grant
+    from sibyl.platform import metaculus_preflight
+
+    def question(post_id: int, question_id: int) -> BinaryQuestion:
+        return BinaryQuestion(
+            question_text="Synthetic sandbox question", id_of_question=question_id, id_of_post=post_id,
+            page_url=f"https://www.metaculus.com/questions/{post_id}", background_info="",
+            resolution_criteria="Resolves yes if it occurs.", fine_print="",
+            open_time=datetime(2026, 10, 4), scheduled_resolution_time=datetime(2026, 10, 20),
+            tournament_slugs=["bot-testing-area"], state=QuestionState.OPEN,
+        )
+
+    selected = question(43323, 43325)
+    other = question(43327, 43332)
+    forecasted: list[int] = []
+
+    class FakeClient:
+        def get_all_open_questions_from_tournament(self, tournament_id):
+            assert tournament_id == "bot-testing-area"
+            return [other, selected]
+
+    class FakeBot:
+        alertable_count = 0
+
+        def __init__(self, **kwargs):
+            assert kwargs["publish_reports_to_metaculus"] is True
+            assert kwargs["skip_previously_forecasted_questions"] is False
+            assert kwargs["max_questions_per_run"] == 1
+            assert all(isinstance(llm, FundedGeneralLlm) for llm in kwargs["llms"]["forecasters"])
+            self.skip_previously_forecasted_questions = kwargs["skip_previously_forecasted_questions"]
+            self.max_questions_per_run = kwargs["max_questions_per_run"]
+            self.metaculus_client = FakeClient()
+
+        async def forecast_questions(self, questions, return_exceptions=False):
+            assert return_exceptions is True
+            forecasted.extend(q.id_of_question for q in questions)
+            return []
+
+        @staticmethod
+        def log_report_summary(reports):
+            assert reports == []
+
+    monkeypatch.setattr(bot_module, "SibylBot", FakeBot)
+    monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("test-sandbox", Decimal("15"))
+    session = GrantSession("test-sandbox", ledger, Decimal("3"), "dummy-grant")
+    args = argparse.Namespace(max_questions=1, max_cost_usd="15", reports_dir=tmp_path / "runs",
+                              post_id=43323, question_id=43325)
+    await experiment_grant._run_test_question(args, session)
+    assert forecasted == [43325]
+    manifest = json.loads((tmp_path / "runs" / "test-sandbox" / "manifest.json").read_text())
+    assert manifest["configuration"]["mode"] == "test"
+
+    args.question_id = 99999
+    args.reports_dir = tmp_path / "wrong-run"
+    with pytest.raises(ValueError, match="not an open question in bot-testing-area"):
+        await experiment_grant._run_test_question(args, session)
+    assert forecasted == [43325]
+
+
+@pytest.mark.asyncio
 async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
