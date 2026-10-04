@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from threading import Lock
 from typing import Any, Iterator
@@ -26,6 +26,7 @@ _GENERATION_URL = "https://openrouter.ai/api/v1/generation"
 class CostCapture:
     generation_id: str | None = None
     reported_cost: Decimal | None = None
+    ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False, compare=False)
 
 
 _ACTIVE_CAPTURE: ContextVar[CostCapture | None] = ContextVar("sibyl_grant_capture", default=None)
@@ -53,6 +54,7 @@ class _GrantUsageObserver(CustomLogger):
         usage = getattr(response_obj, "usage", None)
         cost = usage.get("cost") if isinstance(usage, dict) else getattr(usage, "cost", None)
         capture.reported_cost = _reported_cost(cost)
+        capture.ready.set()
 
 
 def _install_observer() -> None:
@@ -98,12 +100,13 @@ async def resolve_grant_cost(
     Only the provider's generation billing record establishes a confirmed charge.
     Callback and framework costs are local estimates, even when token usage is known.
     """
-    # LiteLLM callbacks can complete one event-loop tick after GeneralLlm's
-    # response processing. Wait briefly for the non-text usage metadata only.
-    for _ in range(10):
-        if capture.generation_id is not None or capture.reported_cost is not None:
-            break
-        await asyncio.sleep(0.01)
+    # LiteLLM may finish its asynchronous callback after GeneralLlm returns.
+    # Wait for that callback before treating a successful call as unpriced.
+    if not capture.ready.is_set():
+        try:
+            await asyncio.wait_for(capture.ready.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            pass
     if capture.generation_id:
         provider_cost = await generation_cost(capture.generation_id, api_key)
         if provider_cost is not None:
