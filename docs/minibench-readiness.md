@@ -8,7 +8,7 @@ The grant-funded runner in [experiment-funding.md](experiment-funding.md) is the
 
 Before each paid run, verify that the deployed commit is the intended clean commit; inspect `python -m sibyl.ops.experiment_grant preview`; confirm the routed models and reasoning parameters are currently available; confirm the grant key is distinct from ordinary keys; inspect the ledger report and the remaining local allocation; choose a unique run ID, question cap, run budget, and per-call reservation. The runner remains manual. A scored, paid run needs the operator's approval for that specific run. Do not dispatch a workflow or enable a schedule as a substitute.
 
-The runner writes a private manifest before requests and successful reports after the batch returns under `backtests/minibench_runs/<run-id>/`. Keep that directory with the grant ledger. Check the report for actual confirmed charges, unconfirmed reservations, failed questions, and forecaster drops. If the process stops mid-batch, a manifest and ledger can exist without saved reports; reconcile against Metaculus before interpreting missing rows.
+The runner writes a private manifest and selected-question snapshot before forecasting, and successful reports after the batch returns, under `backtests/minibench_runs/<run-id>/`. Keep that directory with the grant ledger. Check the report for actual confirmed charges, unconfirmed reservations, failed questions, and forecaster drops. If the process stops mid-batch, a manifest and ledger can exist without saved reports; reconcile against Metaculus before interpreting missing rows.
 
 ## What the first round can establish
 
@@ -16,4 +16,18 @@ One bot configuration on one round is a descriptive baseline. Record the schedul
 
 For a later treatment claim, register the exact two arms and identical question set *before* forecasting. Name one primary endpoint for each question type being tested, an expected effect, an independent variance estimate, allowed attrition, and the minimum detectable effect. Decline a run when the expected effect is smaller than its prospective MDE. Preserve Brier and log scores for binary questions, and report numeric and multiple-choice endpoints separately; pooled scoring remains pending. Pair forecasts by question ID and valid forecast time, report every excluded question and why, and apply the existing greater-than-5% attrition refusal. Report paired deltas with bootstrap intervals and treat repeated looks and multiple tested variants as exploratory unless the registration accounts for them. See [eval-strategy.md](eval-strategy.md) and the offline [power preflight](../sibyl/eval/power.py).
 
-The current `compare` command reads backtest artifacts, not live MiniBench reports. The performance collector's `/api/comments/` request has previously returned 403 for the bot token, so a completed live scoring and paired-analysis intake has **not** been verified. Until that is resolved and tested against saved reports and official resolutions, MiniBench results are descriptive only. Do not label a live variant comparison confirmatory on the strength of the offline backtest gate.
+After resolution, the read-only collector can freeze the selected questions' official API records, including outcomes when the API exposes them, without using the comments endpoint. Give each collection a new output path so an earlier snapshot is preserved:
+
+```bash
+python -m sibyl.eval minibench-live collect \
+  --run-dir backtests/minibench_runs/<run-id> \
+  --output backtests/minibench_runs/<run-id>/resolutions-2026-10-20.json
+python -m sibyl.eval minibench-live score \
+  --run-dir backtests/minibench_runs/<run-id> \
+  --snapshot backtests/minibench_runs/<run-id>/resolutions-2026-10-20.json \
+  --output backtests/minibench_runs/<run-id>/scores-2026-10-20.json
+```
+
+`score` is offline. It counts selected questions with missing forecasts, missing or unresolved outcomes, invalid scores, and reported degradation; it emits separate per-question endpoints and descriptive means over all valid published forecasts, including degraded ones, with no inferential verdict. A read-only check on 2026-10-03 confirmed that the pinned Metaculus client can fetch a matching past MiniBench question by post ID. Five sampled questions marked resolved had no outcome value in the API response; the checked example had not been forecast by this bot. [Metaculus's API policy](https://www.metaculus.com/api/) grants resolution access for closed questions the authenticated account predicted on. The scorer records any resolved question with an absent outcome as `resolved_without_outcome` rather than imputing a result. Verify outcome visibility after the next round and reconcile any published forecast missing from the local archive before using scores. The older performance collector's `/api/comments/` request has returned 403 for the bot token; this path does not use it.
+
+The current `compare` command reads backtest artifacts, not live MiniBench reports. A registered, same-question live paired comparison is still unimplemented. MiniBench results remain descriptive until that comparison path and its prospective power gate are validated; do not label a live variant comparison confirmatory on the strength of the offline backtest gate.

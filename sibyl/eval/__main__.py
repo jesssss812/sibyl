@@ -70,6 +70,12 @@ def _run_compare(argv: list[str]) -> int:
     return main(argv)
 
 
+def _run_minibench_live(argv: list[str]) -> int:
+    from sibyl.eval.minibench_live import main
+
+    return main(argv)
+
+
 def _with_argv(name: str, argv: list[str], fn: Callable[[], None]) -> int:
     """Call a sub-tool that reads ``sys.argv`` itself.
 
@@ -93,6 +99,7 @@ COMMANDS: dict[str, _Command] = {
     "fit-platt": ("Fit Platt calibration parameters", _run_fit_platt),
     "preflight": ("Prospective per-type power check (offline)", _run_preflight),
     "compare": ("Paired comparison of two backtest data files", _run_compare),
+    "minibench-live": ("Collect and score an archived MiniBench run", _run_minibench_live),
 }
 
 
