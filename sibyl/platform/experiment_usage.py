@@ -8,6 +8,7 @@ when available; missing metadata leaves the reservation uncertain.
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ import litellm
 from litellm.integrations.custom_logger import CustomLogger
 
 _GENERATION_URL = "https://openrouter.ai/api/v1/generation"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,7 +46,9 @@ def _reported_cost(raw: Any) -> Decimal | None:
 
 
 class _GrantUsageObserver(CustomLogger):
-    async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_success_event(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         capture = _ACTIVE_CAPTURE.get()
         if capture is None:
             return
@@ -77,6 +81,7 @@ def capture_grant_usage() -> Iterator[CostCapture]:
 async def generation_cost(generation_id: str, api_key: str) -> Decimal | None:
     """Read billed USD from OpenRouter; this GET does not create a generation."""
     if not generation_id.startswith("gen-"):
+        logger.warning("GRANT_BILLING_LOOKUP skipped: response ID is not an OpenRouter generation ID")
         return None
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -87,8 +92,15 @@ async def generation_cost(generation_id: str, api_key: str) -> Decimal | None:
             )
             response.raise_for_status()
             data = response.json().get("data", {})
-            return _reported_cost(data.get("total_cost"))
-    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+            cost = _reported_cost(data.get("total_cost"))
+            if cost is None:
+                logger.warning("GRANT_BILLING_LOOKUP generation_id=%s missing or invalid total_cost", generation_id)
+            return cost
+    except httpx.HTTPStatusError as exc:
+        logger.warning("GRANT_BILLING_LOOKUP generation_id=%s status=%s", generation_id, exc.response.status_code)
+        return None
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+        logger.warning("GRANT_BILLING_LOOKUP generation_id=%s error=%s", generation_id, type(exc).__name__)
         return None
 
 

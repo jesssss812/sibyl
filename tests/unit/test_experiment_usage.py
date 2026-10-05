@@ -47,10 +47,14 @@ async def test_zero_cost_without_generation_record_remains_uncertain() -> None:
 async def test_framework_and_callback_costs_are_estimates() -> None:
     callback = experiment_usage.CostCapture(reported_cost=Decimal("0.12"))
     assert await experiment_usage.resolve_grant_cost(callback, 0.5, "dummy-key") == (
-        Decimal("0.12"), None, "callback_estimate"
+        Decimal("0.12"),
+        None,
+        "callback_estimate",
     )
     assert await experiment_usage.resolve_grant_cost(experiment_usage.CostCapture(), 0.5, "dummy-key") == (
-        Decimal("0.5"), None, "framework_estimate"
+        Decimal("0.5"),
+        None,
+        "framework_estimate",
     )
 
 
@@ -62,6 +66,7 @@ async def test_delayed_callback_can_still_confirm_provider_cost(monkeypatch: pyt
 
     monkeypatch.setattr(experiment_usage, "generation_cost", fake_generation_cost)
     with experiment_usage.capture_grant_usage() as capture:
+
         async def delayed_callback() -> None:
             await asyncio.sleep(0.15)
             await experiment_usage._GrantUsageObserver().async_log_success_event(
@@ -72,3 +77,17 @@ async def test_delayed_callback_can_still_confirm_provider_cost(monkeypatch: pyt
         result = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
         await callback
     assert result == (Decimal("0.18"), "gen-delayed", "provider_generation")
+
+
+@pytest.mark.asyncio
+async def test_billing_lookup_failure_logs_status_without_credentials(monkeypatch, caplog):
+    import httpx
+
+    async def send(client, request, **kwargs):
+        return httpx.Response(403, request=request, text="sensitive provider body")
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", send)
+    assert await experiment_usage.generation_cost("gen-offline", "dummy-private-key") is None
+    assert "generation_id=gen-offline status=403" in caplog.text
+    assert "dummy-private-key" not in caplog.text
+    assert "sensitive provider body" not in caplog.text

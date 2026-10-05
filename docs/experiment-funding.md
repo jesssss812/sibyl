@@ -29,6 +29,8 @@ python -m sibyl.ops.experiment_grant run-test \
 
 This is a command template, not standing authorization. Each live test needs operator approval for that specific run. Its manifest, question snapshot, and reports are written under `backtests/grant_test_runs/<run-id>/` by default. It uses the same grant-only routes, research preflight, per-call reservations, and publication gate as MiniBench.
 
+For publishing runs, open a visible terminal and use `python -u` with `2>&1 | tee <private-log-path>` so the operator can watch progress. Enable `set -o pipefail` in the shell so `tee` cannot hide a failed run. The runner emits question starts and completions, model call starts and settlements, and sanitized failure status codes at INFO level. It never logs credentials or upstream error bodies. A research charge that cannot be confirmed stops that question before its forecasters start; grant accounting errors are not retried by the outer LLM retry loop.
+
 The following is a command template, **not authorization to execute it**. It publishes to scored MiniBench and spends credits. Set a unique run ID and a per-call reservation large enough for the chosen model's maximum output and research charges.
 
 ```bash

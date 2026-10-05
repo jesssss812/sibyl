@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
+import sys
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -21,6 +23,7 @@ from uuid import uuid4
 from sibyl.platform.experiment_funding import (
     GRANT_KEY_ENV,
     GRANT_RESERVE_USD,
+    GrantExecutionError,
     GrantSession,
     SpendLedger,
     grant_context,
@@ -54,9 +57,7 @@ def _enabled(env_name: str) -> bool:
 def preflight_research() -> dict[str, str]:
     enabled = [name for name in _UNSUPPORTED_RESEARCH_FLAGS if _enabled(name)]
     if enabled:
-        raise ValueError(
-            "Grant run requires these research paths to be disabled: " + ", ".join(enabled)
-        )
+        raise ValueError("Grant run requires these research paths to be disabled: " + ", ".join(enabled))
     native_model = os.getenv("NATIVE_SEARCH_MODEL", "openai/gpt-5.6-terra")
     if native_model.startswith("openrouter/"):
         raise ValueError("NATIVE_SEARCH_MODEL must omit the openrouter/ prefix")
@@ -167,20 +168,28 @@ async def _run_grant_forecasts(
 
     if args.max_questions < 1:
         raise ValueError("--max-questions must be positive")
-    if mode == "test" and (
-        args.max_questions != 1 or args.post_id < 1 or args.question_id < 1
-    ):
+    if mode == "test" and (args.max_questions != 1 or args.post_id < 1 or args.question_id < 1):
         raise ValueError("Grant test runs need one question and positive post/question IDs")
     source_roster = get_roster(ModelTier.PROD)
     run_dir = args.reports_dir / session.run_id
     manifest_path = run_dir / "manifest.json"
 
     class GrantSibylBot(SibylBot):
+        async def run_research(self, question: MetaculusQuestion) -> str:
+            research = await super().run_research(question)
+            if not research.strip() or session.ledger.has_blocking_attempts(
+                session.run_id, str(question.id_of_question)
+            ):
+                raise GrantExecutionError("Research is empty or has unconfirmed charges; forecasters refused")
+            return research
+
         async def forecast_questions(self, questions: Sequence[MetaculusQuestion], return_exceptions: bool = False):
             supported = (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion)
             selected = [
-                question for question in questions
-                if isinstance(question, supported) and not (self.skip_previously_forecasted_questions and question.already_forecasted)
+                question
+                for question in questions
+                if isinstance(question, supported)
+                and not (self.skip_previously_forecasted_questions and question.already_forecasted)
             ]
             if self.max_questions_per_run is not None:
                 selected = selected[: self.max_questions_per_run]
@@ -190,17 +199,25 @@ async def _run_grant_forecasts(
             snapshot_path = run_dir / "scheduled_questions.json"
             with snapshot_path.open("x") as snapshot_file:
                 json.dump(
-                    {"schema_version": 1, "run_id": session.run_id,
-                     "question_ids": question_ids,
-                     "questions": [question_identity(question) for question in selected]},
+                    {
+                        "schema_version": 1,
+                        "run_id": session.run_id,
+                        "question_ids": question_ids,
+                        "questions": [question_identity(question) for question in selected],
+                    },
                     snapshot_file,
                     indent=2,
                 )
             return await super().forecast_questions(questions, return_exceptions)
 
         async def _run_individual_question(self, question: MetaculusQuestion) -> ForecastReport:
+            logging.getLogger(__name__).info(
+                "GRANT_QUESTION_START question=%s url=%s", question.id_of_question, question.page_url
+            )
             with grant_question(question.id_of_question):
-                return await super()._run_individual_question(question)
+                report = await super()._run_individual_question(question)
+            logging.getLogger(__name__).info("GRANT_QUESTION_COMPLETE question=%s", question.id_of_question)
+            return report
 
         def _create_unified_explanation(self, question, *args, **kwargs):
             # forecasting-tools publishes immediately after creating this text.
@@ -257,7 +274,8 @@ async def _run_grant_forecasts(
         if mode == "test":
             open_questions = bot.metaculus_client.get_all_open_questions_from_tournament(BOT_TESTING_AREA_ID)
             matches = [
-                question for question in open_questions
+                question
+                for question in open_questions
                 if question.id_of_post == args.post_id
                 and question.id_of_question == args.question_id
                 and isinstance(question, (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion))
@@ -300,7 +318,9 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--reserve-per-call-usd", required=True)
     run.add_argument("--max-questions", type=int, default=3)
     run.add_argument("--reports-dir", type=Path, default=Path("backtests/minibench_runs"))
-    test = sub.add_parser("run-test", help="Paid, unscored bot-testing-area run; requires per-run operator authorization")
+    test = sub.add_parser(
+        "run-test", help="Paid, unscored bot-testing-area run; requires per-run operator authorization"
+    )
     test.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     test.add_argument("--run-id", default=None)
     test.add_argument("--max-cost-usd", required=True)
@@ -324,9 +344,18 @@ def main(argv: list[str] | None = None) -> int:
             ledger = SpendLedger(args.ledger)
             from sibyl.platform.personal_fallback_spend import PersonalFallbackLedger
 
-            print(json.dumps({"grant": {"totals": ledger.summary(args.run_id),
-                                        "by_model_stage": ledger.breakdown(args.run_id)},
-                              "personal_fallback": PersonalFallbackLedger(args.ledger).summary(args.run_id)}, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "grant": {
+                            "totals": ledger.summary(args.run_id),
+                            "by_model_stage": ledger.breakdown(args.run_id),
+                        },
+                        "personal_fallback": PersonalFallbackLedger(args.ledger).summary(args.run_id),
+                    },
+                    indent=2,
+                )
+            )
             return 0
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)
@@ -334,10 +363,18 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(ledger.summary(), indent=2))
             return 0
         args.run_id = args.run_id or uuid4().hex
+        logging.basicConfig(
+            level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        )
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("LiteLLM").setLevel(logging.WARNING)
         if args.command == "run-test":
             args.max_questions = 1
         session = checked_session(args)
-        print(f"Grant run ID: {session.run_id}")
+        print(
+            f"Grant run ID: {session.run_id}; mode={args.command}; max_questions={args.max_questions}; budget_usd={args.max_cost_usd}",
+            flush=True,
+        )
         try:
             if args.command == "run-test":
                 asyncio.run(_run_test_question(args, session))

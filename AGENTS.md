@@ -41,6 +41,9 @@ These are the only rules that can cost real money if broken.
    changes cannot be checked against a parity record.
 10. **Never commit on `main`.** Work on a feature branch; `clean-fork` is the integration
     branch.
+11. **Show publishing runs live.** For an authorized test or forecast that publishes,
+    open a visible terminal or live log view before starting, use unbuffered output,
+    and stream progress while retaining a local log. Do not hide the run until it ends.
 
 ## Before every commit
 
