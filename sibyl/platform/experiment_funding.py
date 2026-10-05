@@ -16,6 +16,16 @@ from pathlib import Path
 from typing import Iterator
 
 GRANT_KEY_ENV = "SIBYL_EXPERIMENT_OPENROUTER_API_KEY"
+# Evidence that establishes a real charge, as opposed to a local guess.
+#
+# `provider_response` is OpenRouter's own `usage.cost` from the completion response. It is
+# the account charge, not a token-price estimate, and treating it as an estimate is what
+# made a second /generation GET mandatory before publication -- a synchronous dependency
+# on an eventually-consistent endpoint, on the hot path, after the money was already
+# spent. `framework_estimate` (LiteLLM token maths) is NOT here: it is a guess, and a
+# guess must not discharge a reservation.
+CONFIRMING_EVIDENCE: frozenset[str] = frozenset({"provider_response", "provider_generation", "provider_reconciliation"})
+
 GRANT_ALLOCATION_USD = Decimal("100")
 GRANT_RESERVE_USD = Decimal("5")
 
@@ -93,6 +103,17 @@ class SpendLedger:
                 db.execute("ALTER TABLE attempts ADD COLUMN evidence_source TEXT")
             if "reconciled_at" not in columns:
                 db.execute("ALTER TABLE attempts ADD COLUMN reconciled_at TEXT")
+            # charged_usd holds the BILLABLE figure -- the money the budget must hold.
+            # Under BYOK that is the upstream provider's charge, not OpenRouter's, so the
+            # two components are stored separately: a run can show a $0 OpenRouter charge
+            # and a real upstream expense, and collapsing them to one number is what let
+            # a BYOK run report $0 spent while money moved.
+            if "openrouter_charge_usd" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN openrouter_charge_usd TEXT")
+            if "upstream_cost_usd" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN upstream_cost_usd TEXT")
+            if "is_byok" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN is_byok INTEGER")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -201,13 +222,16 @@ class SpendLedger:
         *,
         certainty: str,
         evidence_source: str,
+        openrouter_charge_usd: Decimal | None = None,
+        upstream_cost_usd: Decimal | None = None,
+        is_byok: bool | None = None,
     ) -> None:
         charge = Decimal(charged_usd)
         if not charge.is_finite() or charge < 0:
             raise ValueError("Settled cost must be a finite nonnegative decimal")
         if certainty not in {"confirmed", "estimated"} or not evidence_source:
             raise ValueError("Settlement requires a valid certainty and evidence source")
-        if certainty == "confirmed" and evidence_source not in {"provider_generation", "provider_reconciliation"}:
+        if certainty == "confirmed" and evidence_source not in CONFIRMING_EVIDENCE:
             raise ValueError("Confirmed cost requires provider billing evidence")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -234,7 +258,8 @@ class SpendLedger:
             db.execute(
                 """UPDATE attempts SET charged_usd = ?, certainty = ?, evidence_source = ?,
                 status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
-                provider_request_id = ?, completed_at = CURRENT_TIMESTAMP
+                provider_request_id = ?, openrouter_charge_usd = ?, upstream_cost_usd = ?,
+                is_byok = ?, completed_at = CURRENT_TIMESTAMP
                 WHERE attempt_id = ?""",
                 (
                     str(charge),
@@ -243,6 +268,9 @@ class SpendLedger:
                     prompt_tokens,
                     completion_tokens,
                     provider_request_id,
+                    None if openrouter_charge_usd is None else str(Decimal(openrouter_charge_usd)),
+                    None if upstream_cost_usd is None else str(Decimal(upstream_cost_usd)),
+                    None if is_byok is None else int(is_byok),
                     attempt_id,
                 ),
             )
@@ -258,6 +286,64 @@ class SpendLedger:
                 WHERE attempt_id = ? AND charged_usd IS NULL""",
                 (provider_request_id, evidence_source, attempt_id),
             )
+
+    def reconcile(
+        self,
+        attempt_id: str,
+        billable_usd: Decimal,
+        *,
+        openrouter_charge_usd: Decimal | None = None,
+        upstream_cost_usd: Decimal | None = None,
+        is_byok: bool | None = None,
+        provider_request_id: str | None = None,
+    ) -> None:
+        """Replace an estimated settlement with the provider's billing record.
+
+        Separate from ``settle`` because reconciliation happens AFTER the run, off the
+        hot path. That ordering is the point of the fix: a call publishes on the evidence
+        it has, and the authoritative figure arrives later without a second paid request.
+        """
+        charge = _amount(billable_usd)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT certainty FROM attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
+            if row is None:
+                db.rollback()
+                raise ValueError("Unknown attempt ID")
+            db.execute(
+                """UPDATE attempts SET charged_usd = ?, certainty = 'confirmed',
+                evidence_source = 'provider_reconciliation', status = 'succeeded',
+                provider_request_id = COALESCE(?, provider_request_id),
+                openrouter_charge_usd = COALESCE(?, openrouter_charge_usd),
+                upstream_cost_usd = COALESCE(?, upstream_cost_usd),
+                is_byok = COALESCE(?, is_byok),
+                reconciled_at = CURRENT_TIMESTAMP WHERE attempt_id = ?""",
+                (
+                    str(charge),
+                    provider_request_id,
+                    None if openrouter_charge_usd is None else str(Decimal(openrouter_charge_usd)),
+                    None if upstream_cost_usd is None else str(Decimal(upstream_cost_usd)),
+                    None if is_byok is None else int(is_byok),
+                    attempt_id,
+                ),
+            )
+            db.commit()
+
+    def unreconciled(self, run_id: str) -> list[tuple[str, str | None]]:
+        """Attempts whose real cost is still unknown, as (attempt_id, provider_request_id).
+
+        These hold their full reservation against the budget until reconciled, which is
+        what keeps a BYOK run from reading as free.
+        """
+        with self._connect() as db:
+            return [
+                (row[0], row[1])
+                for row in db.execute(
+                    """SELECT attempt_id, provider_request_id FROM attempts
+                    WHERE run_id = ? AND source = ? AND certainty != 'confirmed'""",
+                    (run_id, FundingSource.EXPERIMENT_GRANT),
+                )
+            ]
 
     def has_blocking_attempts(self, run_id: str, question_id: str) -> bool:
         """Block publication for unconfirmed charges or a per-call overage."""

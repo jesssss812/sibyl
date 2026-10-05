@@ -1,5 +1,6 @@
 """Grant accounting uses dummy data and never invokes a provider."""
 
+import sqlite3
 from decimal import Decimal
 from pathlib import Path
 
@@ -89,3 +90,130 @@ def test_secret_is_not_part_of_ledger_schema(tmp_path: Path) -> None:
     ledger.start_run("run-a", Decimal("1"))
     ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.2"))
     assert b"secret" not in (tmp_path / "spend.sqlite3").read_bytes()
+
+
+def _liability(ledger: SpendLedger, run_id: str) -> Decimal:
+    """The figure the budget actually enforces, read the way the ledger computes it."""
+    with sqlite3.connect(ledger.path) as db:
+        return SpendLedger._liability(db, run_id=run_id)
+
+
+class TestByokCostComponents:
+    """OpenRouter's charge and the upstream provider's charge are different numbers.
+
+    Collapsing them is what let a BYOK run settle a confirmed $0 while $0.187 of real
+    money moved upstream. `charged_usd` is now the BILLABLE figure the budget holds; the
+    components are kept beside it so a run can be audited rather than believed.
+    """
+
+    def _ledger(self, tmp_path: Path) -> SpendLedger:
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run", Decimal("50"))
+        ledger.reserve("a1", "run", "openrouter/openai/t", "forecaster", Decimal("1"))
+        return ledger
+
+    def test_a_provider_response_cost_can_confirm(self, tmp_path: Path) -> None:
+        """The behavioural fix: OpenRouter's own usage.cost is account evidence.
+
+        Before, only a /generation GET could confirm, so publication depended on an
+        eventually-consistent endpoint being readable within two seconds.
+        """
+        ledger = self._ledger(tmp_path)
+        ledger.settle(
+            "a1",
+            Decimal("0.42"),
+            10,
+            5,
+            "gen-1",
+            certainty="confirmed",
+            evidence_source="provider_response",
+            openrouter_charge_usd=Decimal("0.42"),
+            upstream_cost_usd=None,
+            is_byok=False,
+        )
+        assert _liability(ledger, "run") == Decimal("0.42")
+
+    def test_a_framework_estimate_still_cannot_confirm(self, tmp_path: Path) -> None:
+        # LiteLLM token maths is a guess, and a guess must not discharge a reservation.
+        ledger = self._ledger(tmp_path)
+        with pytest.raises(ValueError, match="provider billing evidence"):
+            ledger.settle(
+                "a1",
+                Decimal("0.42"),
+                10,
+                5,
+                None,
+                certainty="confirmed",
+                evidence_source="framework_estimate",
+            )
+
+    def test_byok_components_are_stored_separately(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        ledger.settle(
+            "a1",
+            Decimal("0.1873175"),
+            718,
+            2014,
+            "gen-byok",
+            certainty="confirmed",
+            evidence_source="provider_generation",
+            openrouter_charge_usd=Decimal("0"),
+            upstream_cost_usd=Decimal("0.1873175"),
+            is_byok=True,
+        )
+        with sqlite3.connect(ledger.path) as db:
+            row = db.execute(
+                "SELECT charged_usd, openrouter_charge_usd, upstream_cost_usd, is_byok FROM attempts"
+            ).fetchone()
+        # Billable tracks the money that actually moved, not OpenRouter's $0.
+        assert row == ("0.1873175", "0", "0.1873175", 1)
+        assert _liability(ledger, "run") == Decimal("0.1873175")
+
+    def test_an_unconfirmed_attempt_holds_its_whole_reservation(self, tmp_path: Path) -> None:
+        """The anti-under-accounting invariant.
+
+        A $0 OpenRouter charge with unknown upstream cost must NOT read as free: until
+        reconciliation the reservation stands, so the budget stays conservative.
+        """
+        ledger = self._ledger(tmp_path)
+        ledger.settle(
+            "a1",
+            Decimal("0"),
+            718,
+            2014,
+            "gen-pending",
+            certainty="estimated",
+            evidence_source="provider_response",
+            openrouter_charge_usd=Decimal("0"),
+            upstream_cost_usd=None,
+            is_byok=None,
+        )
+        assert _liability(ledger, "run") == Decimal("1"), "a $0 estimate must not discharge the reserve"
+        assert ledger.unreconciled("run") == [("a1", "gen-pending")]
+
+    def test_reconciliation_replaces_the_estimate_and_confirms(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        ledger.settle(
+            "a1",
+            Decimal("0"),
+            718,
+            2014,
+            "gen-pending",
+            certainty="estimated",
+            evidence_source="provider_response",
+            openrouter_charge_usd=Decimal("0"),
+        )
+        ledger.reconcile(
+            "a1",
+            Decimal("0.1873175"),
+            openrouter_charge_usd=Decimal("0"),
+            upstream_cost_usd=Decimal("0.1873175"),
+            is_byok=True,
+        )
+        assert _liability(ledger, "run") == Decimal("0.1873175")
+        assert ledger.unreconciled("run") == []
+
+    def test_reconciling_an_unknown_attempt_is_an_error(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        with pytest.raises(ValueError, match="Unknown attempt"):
+            ledger.reconcile("nope", Decimal("1"))
