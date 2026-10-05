@@ -1,3 +1,4 @@
+import sqlite3
 from decimal import Decimal
 from pathlib import Path
 
@@ -104,3 +105,57 @@ async def test_missing_cost_retains_full_liability(tmp_path: Path, monkeypatch: 
     with pytest.raises(GrantCostUnknown):
         await llm._mockable_direct_call_to_model("prompt")
     assert session.ledger.summary(session.run_id)["uncertain_usd"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_unknown_cost_keeps_generation_id_for_reconciliation(tmp_path, monkeypatch):
+    from sibyl.platform import experiment_llm
+
+    session = _session(tmp_path)
+
+    async def fake_call(self, prompt):
+        return TextTokenCostResponse(
+            data="answer",
+            prompt_tokens_used=10,
+            completion_tokens_used=5,
+            total_tokens_used=15,
+            model=self.model,
+            cost=0,
+        )
+
+    async def unknown_cost(*args):
+        return None, "gen-reconcile-me", "unknown"
+
+    monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", fake_call)
+    monkeypatch.setattr(experiment_llm, "resolve_grant_cost", unknown_cost)
+    llm = FundedGeneralLlm("openrouter/openai/test", session=session)
+    with pytest.raises(GrantCostUnknown):
+        await llm.invoke("prompt")
+    with sqlite3.connect(session.ledger.path) as db:
+        assert db.execute("SELECT provider_request_id FROM attempts").fetchone() == ("gen-reconcile-me",)
+
+
+@pytest.mark.asyncio
+async def test_uncertain_grant_failure_is_not_retried(tmp_path, monkeypatch):
+    from litellm.exceptions import RateLimitError
+
+    from sibyl.platform.experiment_llm import GrantCallError
+    from sibyl.platform.llm_retry import invoke_with_broad_retry
+
+    session = _session(tmp_path)
+    calls = 0
+
+    async def rate_limited(self, prompt):
+        nonlocal calls
+        calls += 1
+        raise RateLimitError("sensitive upstream message", llm_provider="openrouter", model=self.model)
+
+    monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", rate_limited)
+    llm = FundedGeneralLlm("openrouter/google/test", session=session)
+    with pytest.raises(GrantCallError) as error:
+        await invoke_with_broad_retry(
+            lambda: llm.invoke("prompt"), wall_timeout=5, label="grant-test", backoffs=(0, 0, 0)
+        )
+    assert calls == 1
+    assert "status=429" in str(error.value)
+    assert "sensitive" not in str(error.value)

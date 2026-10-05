@@ -25,7 +25,11 @@ class FundingSource(StrEnum):
     EXPERIMENT_GRANT = "experiment-grant"
 
 
-class BudgetExceeded(RuntimeError):
+class GrantExecutionError(RuntimeError):
+    """Grant accounting requires a stop; another paid attempt cannot repair it."""
+
+
+class BudgetExceeded(GrantExecutionError):
     """A local spend limit has insufficient unreserved capacity."""
 
 
@@ -244,12 +248,15 @@ class SpendLedger:
             )
             db.commit()
 
-    def mark_uncertain(self, attempt_id: str) -> None:
+    def mark_uncertain(
+        self, attempt_id: str, *, provider_request_id: str | None = None, evidence_source: str | None = None
+    ) -> None:
         with self._connect() as db:
             db.execute(
-                """UPDATE attempts SET status = 'uncertain', completed_at = CURRENT_TIMESTAMP
+                """UPDATE attempts SET status = 'uncertain', completed_at = CURRENT_TIMESTAMP,
+                provider_request_id = COALESCE(?, provider_request_id), evidence_source = COALESCE(?, evidence_source)
                 WHERE attempt_id = ? AND charged_usd IS NULL""",
-                (attempt_id,),
+                (provider_request_id, evidence_source, attempt_id),
             )
 
     def has_blocking_attempts(self, run_id: str, question_id: str) -> bool:

@@ -1,5 +1,6 @@
 """Generation cost reconciliation is mocked; no credential is sent to OpenRouter."""
 
+import asyncio
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -55,3 +56,38 @@ async def test_framework_and_callback_costs_are_estimates() -> None:
         None,
         "framework_estimate",
     )
+
+
+@pytest.mark.asyncio
+async def test_delayed_callback_can_still_confirm_provider_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_generation_cost(generation_id: str, api_key: str) -> Decimal:
+        assert (generation_id, api_key) == ("gen-delayed", "dummy-key")
+        return Decimal("0.18")
+
+    monkeypatch.setattr(experiment_usage, "generation_cost", fake_generation_cost)
+    with experiment_usage.capture_grant_usage() as capture:
+
+        async def delayed_callback() -> None:
+            await asyncio.sleep(0.15)
+            await experiment_usage._GrantUsageObserver().async_log_success_event(
+                {}, SimpleNamespace(id="gen-delayed", usage=SimpleNamespace(cost=0.18)), None, None
+            )
+
+        callback = asyncio.create_task(delayed_callback())
+        result = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
+        await callback
+    assert result == (Decimal("0.18"), "gen-delayed", "provider_generation")
+
+
+@pytest.mark.asyncio
+async def test_billing_lookup_failure_logs_status_without_credentials(monkeypatch, caplog):
+    import httpx
+
+    async def send(client, request, **kwargs):
+        return httpx.Response(403, request=request, text="sensitive provider body")
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", send)
+    assert await experiment_usage.generation_cost("gen-offline", "dummy-private-key") is None
+    assert "generation_id=gen-offline status=403" in caplog.text
+    assert "dummy-private-key" not in caplog.text
+    assert "sensitive provider body" not in caplog.text

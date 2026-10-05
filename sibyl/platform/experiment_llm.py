@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import uuid4
 
 from forecasting_tools import GeneralLlm
 from forecasting_tools.ai_models.ai_utils.response_types import TextTokenCostResponse
 
-from sibyl.platform.experiment_funding import BudgetExceeded, GrantSession, active_grant, active_grant_question
+from sibyl.platform.experiment_funding import (
+    BudgetExceeded,
+    GrantExecutionError,
+    GrantSession,
+    active_grant,
+    active_grant_question,
+)
 from sibyl.platform.experiment_usage import capture_grant_usage, resolve_grant_cost
 
+logger = logging.getLogger(__name__)
 
-class GrantCostUnknown(RuntimeError):
+
+class GrantCostUnknown(GrantExecutionError):
     """Provider returned a response whose bill could not be established."""
 
 
-class GrantCallError(RuntimeError):
+class GrantCallError(GrantExecutionError):
     """A failed request may have incurred spend; its reservation is retained."""
 
 
@@ -45,17 +54,41 @@ class FundedGeneralLlm(GeneralLlm):
             session.per_call_reserve_usd,
             question_id=active_grant_question(),
         )
+        logger.info(
+            "GRANT_CALL_START run=%s attempt=%s question=%s stage=%s model=%s reserve_usd=%s",
+            session.run_id,
+            attempt_id,
+            active_grant_question(),
+            self._grant_stage,
+            self.model,
+            session.per_call_reserve_usd,
+        )
         try:
             with capture_grant_usage() as capture:
                 response = await super()._mockable_direct_call_to_model(prompt)
         except BaseException as exc:
-            session.ledger.mark_uncertain(attempt_id)
+            status = getattr(exc, "status_code", None)
+            status = status if isinstance(status, int) else None
+            diagnostic = f"{type(exc).__name__} status={status}"
+            session.ledger.mark_uncertain(attempt_id, evidence_source=diagnostic)
+            logger.warning(
+                "GRANT_CALL_FAILED attempt=%s model=%s %s; reservation retained", attempt_id, self.model, diagnostic
+            )
             if isinstance(exc, Exception):
-                raise GrantCallError(f"OpenRouter grant call failed ({type(exc).__name__}); charge uncertain") from None
+                raise GrantCallError(f"OpenRouter grant call failed ({diagnostic}); charge uncertain") from None
             raise
         cost, provider_request_id, evidence_source = await resolve_grant_cost(capture, response.cost, session.key)
         if cost is None:
-            session.ledger.mark_uncertain(attempt_id)
+            session.ledger.mark_uncertain(
+                attempt_id, provider_request_id=provider_request_id, evidence_source=evidence_source
+            )
+            logger.warning(
+                "GRANT_COST_UNKNOWN attempt=%s model=%s generation_id=%s callback_received=%s",
+                attempt_id,
+                self.model,
+                provider_request_id,
+                capture.ready.is_set(),
+            )
             raise GrantCostUnknown("OpenRouter grant call returned no verifiable cost; reservation retained")
         session.ledger.settle(
             attempt_id,
@@ -65,6 +98,14 @@ class FundedGeneralLlm(GeneralLlm):
             provider_request_id,
             certainty="confirmed" if evidence_source == "provider_generation" else "estimated",
             evidence_source=evidence_source,
+        )
+        logger.info(
+            "GRANT_CALL_SETTLED attempt=%s model=%s cost_usd=%s evidence=%s generation_id=%s",
+            attempt_id,
+            self.model,
+            cost,
+            evidence_source,
+            provider_request_id,
         )
         if evidence_source != "provider_generation":
             raise GrantCostUnknown("OpenRouter grant call has no provider-confirmed cost; estimate retained")
@@ -111,8 +152,8 @@ def clone_for_grant(llm: GeneralLlm, *, stage: str) -> FundedGeneralLlm:
     return build_grant_llm(
         model,
         stage=stage,
-        # The pipeline's outer retries still apply; internal retries would hide
-        # multiple charges inside one experiment decision and prolong uncertain cost.
+        # One invocation reserves one attempt. Internal retries would hide extra
+        # charges; grant failures also stop the pipeline's outer retry loop.
         allowed_tries=1,
         responses_api=llm.responses_api,
         populate_citations=llm.populate_citations,
