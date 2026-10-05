@@ -24,7 +24,9 @@ def _fallback_llm(monkeypatch: pytest.MonkeyPatch) -> FallbackOpenRouterLlm:
 
 
 @pytest.mark.asyncio
-async def test_actual_personal_fallback_is_estimated_separately(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_actual_personal_fallback_is_estimated_separately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "spend.sqlite3"
     monkeypatch.setenv(LEDGER_ENV, str(path))
     llm = _fallback_llm(monkeypatch)
@@ -37,14 +39,19 @@ async def test_actual_personal_fallback_is_estimated_separately(tmp_path: Path, 
     monkeypatch.setattr(llm, "_invoke_once_using_secondary", secondary)
     assert await llm.invoke("dummy prompt") == "personal result"
     assert PersonalFallbackLedger(path).summary() == {
-        "source": "personal", "attempts": 1, "estimated_usd": "0.12", "unknown_attempts": 0
+        "source": "personal",
+        "attempts": 1,
+        "estimated_usd": "0.12",
+        "unknown_attempts": 0,
     }
     raw = path.read_bytes()
     assert b"dummy-primary" not in raw and b"dummy-personal" not in raw and b"dummy prompt" not in raw
 
 
 @pytest.mark.asyncio
-async def test_failed_secondary_call_keeps_unknown_personal_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_failed_secondary_call_keeps_unknown_personal_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "spend.sqlite3"
     monkeypatch.setenv(LEDGER_ENV, str(path))
     llm = _fallback_llm(monkeypatch)
@@ -89,10 +96,16 @@ def test_summary_filters_personal_fallbacks_by_run(tmp_path: Path, capsys: pytes
     ledger.finish("b", status="failed", estimated_usd=None, provider_request_id=None)
 
     assert ledger.summary("run-a") == {
-        "source": "personal", "attempts": 1, "estimated_usd": "0.12", "unknown_attempts": 0,
+        "source": "personal",
+        "attempts": 1,
+        "estimated_usd": "0.12",
+        "unknown_attempts": 0,
     }
     assert ledger.summary("run-b") == {
-        "source": "personal", "attempts": 1, "estimated_usd": "0", "unknown_attempts": 1,
+        "source": "personal",
+        "attempts": 1,
+        "estimated_usd": "0",
+        "unknown_attempts": 1,
     }
     assert ledger.summary()["attempts"] == 2
     assert main(["report", "--ledger", str(ledger.path), "--run-id", "run-a"]) == 0

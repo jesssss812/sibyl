@@ -152,8 +152,8 @@ def clone_for_grant(llm: GeneralLlm, *, stage: str) -> FundedGeneralLlm:
     return build_grant_llm(
         model,
         stage=stage,
-        # The pipeline's outer retries still apply; internal retries would hide
-        # multiple charges inside one experiment decision and prolong uncertain cost.
+        # One invocation reserves one attempt. Internal retries would hide extra
+        # charges; grant failures also stop the pipeline's outer retry loop.
         allowed_tries=1,
         responses_api=llm.responses_api,
         populate_citations=llm.populate_citations,
