@@ -46,8 +46,12 @@ async def test_zero_cost_without_generation_record_remains_uncertain() -> None:
 async def test_framework_and_callback_costs_are_estimates() -> None:
     callback = experiment_usage.CostCapture(reported_cost=Decimal("0.12"))
     assert await experiment_usage.resolve_grant_cost(callback, 0.5, "dummy-key") == (
-        Decimal("0.12"), None, "callback_estimate"
+        Decimal("0.12"),
+        None,
+        "callback_estimate",
     )
     assert await experiment_usage.resolve_grant_cost(experiment_usage.CostCapture(), 0.5, "dummy-key") == (
-        Decimal("0.5"), None, "framework_estimate"
+        Decimal("0.5"),
+        None,
+        "framework_estimate",
     )

@@ -180,9 +180,17 @@ def score_archive(run_dir: Path, snapshot_path: Path) -> dict[str, Any]:
         degraded = bool(report.errors) or (forecasters_used is not None and forecasters_used[0] < forecasters_used[1])
         status = "degraded" if degraded else "scored"
         degradation_status = "degraded" if degraded else "unknown" if forecasters_used is None else "none_reported"
-        rows.append({"question_id": qid, "status": status, "question_type": ground_truth.question_type,
-                     "degradation_status": degradation_status, "forecasters_used": forecasters_used,
-                     "errors": report.errors, "scores": metrics})
+        rows.append(
+            {
+                "question_id": qid,
+                "status": status,
+                "question_type": ground_truth.question_type,
+                "degradation_status": degradation_status,
+                "forecasters_used": forecasters_used,
+                "errors": report.errors,
+                "scores": metrics,
+            }
+        )
         # A degraded forecast was still published and belongs in the live baseline.
         # Keep its status visible instead of selecting it out of the mean.
         for metric, value in metrics.items():
@@ -194,7 +202,9 @@ def score_archive(run_dir: Path, snapshot_path: Path) -> dict[str, Any]:
         "schedule_id": fingerprint(schedule),
         "snapshot_id": snapshot["snapshot_id"],
         "scheduled_count": len(schedule["question_ids"]),
-        "status_counts": {status: sum(row["status"] == status for row in rows) for status in sorted({row["status"] for row in rows})},
+        "status_counts": {
+            status: sum(row["status"] == status for row in rows) for status in sorted({row["status"] for row in rows})
+        },
         "endpoint_means_descriptive_only": {
             metric: {"n": len(values), "mean": sum(values) / len(values)}
             for metric, values in sorted(endpoint_values.items())

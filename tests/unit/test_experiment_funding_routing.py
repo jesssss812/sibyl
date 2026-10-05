@@ -45,8 +45,15 @@ def test_every_roster_slot_uses_grant_key(tmp_path: Path) -> None:
     source = get_roster(ModelTier.PROD)
     with grant_context(_session(tmp_path)):
         roster = _funded_roster(source)
-    slots = [*roster.forecasters, roster.summarizer, roster.parser, roster.researcher,
-             roster.stacker, roster.stacker_fallback, roster.analyzer]
+    slots = [
+        *roster.forecasters,
+        roster.summarizer,
+        roster.parser,
+        roster.researcher,
+        roster.stacker,
+        roster.stacker_fallback,
+        roster.analyzer,
+    ]
     assert all(isinstance(llm, FundedGeneralLlm) for llm in slots)
     assert all(llm.litellm_kwargs["api_key"] == "dummy-grant-key" for llm in slots)
     assert roster.forecasters[1].model == "openrouter/anthropic/claude-opus-5"
@@ -59,8 +66,12 @@ async def test_each_mocked_model_attempt_settles_once(tmp_path: Path, monkeypatc
 
     async def _fake_call(self: GeneralLlm, prompt: object) -> TextTokenCostResponse:
         return TextTokenCostResponse(
-            data="answer", prompt_tokens_used=10, completion_tokens_used=5,
-            total_tokens_used=15, model=self.model, cost=0.2,
+            data="answer",
+            prompt_tokens_used=10,
+            completion_tokens_used=5,
+            total_tokens_used=15,
+            model=self.model,
+            cost=0.2,
         )
 
     monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", _fake_call)
@@ -79,8 +90,12 @@ async def test_missing_cost_retains_full_liability(tmp_path: Path, monkeypatch: 
 
     async def _fake_call(self: GeneralLlm, prompt: object) -> TextTokenCostResponse:
         return TextTokenCostResponse(
-            data="answer", prompt_tokens_used=10, completion_tokens_used=5,
-            total_tokens_used=15, model=self.model, cost=0,
+            data="answer",
+            prompt_tokens_used=10,
+            completion_tokens_used=5,
+            total_tokens_used=15,
+            model=self.model,
+            cost=0,
         )
 
     monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", _fake_call)

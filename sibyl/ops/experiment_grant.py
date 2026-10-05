@@ -54,9 +54,7 @@ def _enabled(env_name: str) -> bool:
 def preflight_research() -> dict[str, str]:
     enabled = [name for name in _UNSUPPORTED_RESEARCH_FLAGS if _enabled(name)]
     if enabled:
-        raise ValueError(
-            "Grant run requires these research paths to be disabled: " + ", ".join(enabled)
-        )
+        raise ValueError("Grant run requires these research paths to be disabled: " + ", ".join(enabled))
     native_model = os.getenv("NATIVE_SEARCH_MODEL", "openai/gpt-5.6-terra")
     if native_model.startswith("openrouter/"):
         raise ValueError("NATIVE_SEARCH_MODEL must omit the openrouter/ prefix")
@@ -163,8 +161,10 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
         async def forecast_questions(self, questions: Sequence[MetaculusQuestion], return_exceptions: bool = False):
             supported = (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion)
             selected = [
-                question for question in questions
-                if isinstance(question, supported) and not (self.skip_previously_forecasted_questions and question.already_forecasted)
+                question
+                for question in questions
+                if isinstance(question, supported)
+                and not (self.skip_previously_forecasted_questions and question.already_forecasted)
             ]
             if self.max_questions_per_run is not None:
                 selected = selected[: self.max_questions_per_run]
@@ -174,9 +174,12 @@ async def _run_minibench(args: argparse.Namespace, session: GrantSession) -> Non
             snapshot_path = run_dir / "scheduled_questions.json"
             with snapshot_path.open("x") as snapshot_file:
                 json.dump(
-                    {"schema_version": 1, "run_id": session.run_id,
-                     "question_ids": question_ids,
-                     "questions": [question_identity(question) for question in selected]},
+                    {
+                        "schema_version": 1,
+                        "run_id": session.run_id,
+                        "question_ids": question_ids,
+                        "questions": [question_identity(question) for question in selected],
+                    },
                     snapshot_file,
                     indent=2,
                 )
@@ -286,9 +289,18 @@ def main(argv: list[str] | None = None) -> int:
             ledger = SpendLedger(args.ledger)
             from sibyl.platform.personal_fallback_spend import PersonalFallbackLedger
 
-            print(json.dumps({"grant": {"totals": ledger.summary(args.run_id),
-                                        "by_model_stage": ledger.breakdown(args.run_id)},
-                              "personal_fallback": PersonalFallbackLedger(args.ledger).summary(args.run_id)}, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "grant": {
+                            "totals": ledger.summary(args.run_id),
+                            "by_model_stage": ledger.breakdown(args.run_id),
+                        },
+                        "personal_fallback": PersonalFallbackLedger(args.ledger).summary(args.run_id),
+                    },
+                    indent=2,
+                )
+            )
             return 0
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)

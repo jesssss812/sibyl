@@ -43,7 +43,9 @@ def _reported_cost(raw: Any) -> Decimal | None:
 
 
 class _GrantUsageObserver(CustomLogger):
-    async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
+    async def async_log_success_event(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
         capture = _ACTIVE_CAPTURE.get()
         if capture is None:
             return
