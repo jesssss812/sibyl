@@ -78,7 +78,9 @@ class PersonalFallbackLedger:
         return {
             "source": "personal",
             "attempts": len(rows),
-            "estimated_usd": str(sum((Decimal(cost) for certainty, cost in rows if certainty == "estimated"), Decimal(0))),
+            "estimated_usd": str(
+                sum((Decimal(cost) for certainty, cost in rows if certainty == "estimated"), Decimal(0))
+            ),
             "unknown_attempts": sum(certainty == "unknown" for certainty, _ in rows),
         }
 
@@ -104,8 +106,13 @@ async def invoke_personal_fallback(call: Callable[[], Awaitable[_T]], *, model: 
             result = await call()
         except BaseException:
             try:
-                await asyncio.to_thread(ledger.finish, attempt_id, status="failed", estimated_usd=None,
-                                        provider_request_id=capture.generation_id)
+                await asyncio.to_thread(
+                    ledger.finish,
+                    attempt_id,
+                    status="failed",
+                    estimated_usd=None,
+                    provider_request_id=capture.generation_id,
+                )
             except (OSError, sqlite3.Error):
                 logger.warning("Could not finish personal fallback ledger event")
             raise
@@ -116,8 +123,13 @@ async def invoke_personal_fallback(call: Callable[[], Awaitable[_T]], *, model: 
             await asyncio.sleep(0.01)
     estimate = capture.reported_cost if capture.reported_cost is not None and capture.reported_cost > 0 else None
     try:
-        await asyncio.to_thread(ledger.finish, attempt_id, status="succeeded", estimated_usd=estimate,
-                                provider_request_id=capture.generation_id)
+        await asyncio.to_thread(
+            ledger.finish,
+            attempt_id,
+            status="succeeded",
+            estimated_usd=estimate,
+            provider_request_id=capture.generation_id,
+        )
     except (OSError, sqlite3.Error):
         logger.warning("Could not finish personal fallback ledger event")
     return result

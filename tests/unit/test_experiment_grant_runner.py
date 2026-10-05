@@ -42,10 +42,16 @@ def test_direct_paid_research_is_rejected(tmp_path: Path, monkeypatch: pytest.Mo
         preflight_research()
 
 
-@pytest.mark.parametrize("flag", [
-    "FINANCIAL_DATA_ENABLED", "TS_ANCHOR_ENABLED", "PREDICTION_MARKETS_ENABLED",
-    "RESOLUTION_SOURCE_ENABLED", "REFERENCE_CLASS_ENABLED",
-])
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "FINANCIAL_DATA_ENABLED",
+        "TS_ANCHOR_ENABLED",
+        "PREDICTION_MARKETS_ENABLED",
+        "RESOLUTION_SOURCE_ENABLED",
+        "REFERENCE_CLASS_ENABLED",
+    ],
+)
 def test_initial_grant_profile_rejects_unaudited_enrichers(flag: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(flag, "true")
     with pytest.raises(ValueError, match=flag):
@@ -71,9 +77,15 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     from sibyl.research.orchestrator import ResearchOrchestrator
 
     for flag in (
-        "NATIVE_SEARCH_ENABLED", "GEMINI_SEARCH_ENABLED", "ANTHROPIC_SEARCH_ENABLED",
-        "GAP_FILL_ENABLED", "GAP_FILL_V2_ENABLED", "FINANCIAL_DATA_ENABLED",
-        "TS_ANCHOR_ENABLED", "PREDICTION_MARKETS_ENABLED", "RESOLUTION_SOURCE_ENABLED",
+        "NATIVE_SEARCH_ENABLED",
+        "GEMINI_SEARCH_ENABLED",
+        "ANTHROPIC_SEARCH_ENABLED",
+        "GAP_FILL_ENABLED",
+        "GAP_FILL_V2_ENABLED",
+        "FINANCIAL_DATA_ENABLED",
+        "TS_ANCHOR_ENABLED",
+        "PREDICTION_MARKETS_ENABLED",
+        "RESOLUTION_SOURCE_ENABLED",
         "REFERENCE_CLASS_ENABLED",
     ):
         monkeypatch.delenv(flag, raising=False)
@@ -105,10 +117,15 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
             assert return_exceptions is True
             called.append("mocked_forecast")
             question = BinaryQuestion(
-                question_text="Will the synthetic event occur?", id_of_question=101, id_of_post=201,
-                page_url="https://www.metaculus.com/questions/201/", background_info="",
-                resolution_criteria="Resolves yes if it occurs.", fine_print="",
-                open_time=datetime(2026, 10, 5), scheduled_resolution_time=datetime(2026, 10, 19),
+                question_text="Will the synthetic event occur?",
+                id_of_question=101,
+                id_of_post=201,
+                page_url="https://www.metaculus.com/questions/201/",
+                background_info="",
+                resolution_criteria="Resolves yes if it occurs.",
+                fine_print="",
+                open_time=datetime(2026, 10, 5),
+                scheduled_resolution_time=datetime(2026, 10, 19),
             )
             second = question.model_copy(update={"id_of_question": 102, "id_of_post": 202})
             return await self.forecast_questions([question, second], return_exceptions=return_exceptions)
@@ -130,7 +147,9 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     ledger = SpendLedger(tmp_path / "spend.sqlite3")
     ledger.start_run("mock-run", Decimal("5"))
     session = GrantSession("mock-run", ledger, Decimal("1"), "dummy-grant")
-    await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
+    await _run_minibench(
+        argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
+    )
     assert called == ["constructed", "mocked_forecast", "scheduled"]
     scheduled = json.loads((tmp_path / "reports" / "mock-run" / "scheduled_questions.json").read_text())
     assert scheduled["question_ids"] == [101]
@@ -143,14 +162,14 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     assert manifest["configuration"]["forecasters"][1] == "openrouter/anthropic/claude-opus-5"
     assert "dummy-grant" not in manifest_path.read_text()
     with pytest.raises(ValueError, match="already has a forecast manifest"):
-        await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
+        await _run_minibench(
+            argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
+        )
     assert called == ["constructed", "mocked_forecast", "scheduled"]
 
 
 @pytest.mark.asyncio
-async def test_estimated_charge_blocks_scored_publication(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_estimated_charge_blocks_scored_publication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from sibyl.forecasting import bot as bot_module
     from sibyl.platform import metaculus_preflight
 
@@ -174,4 +193,6 @@ async def test_estimated_charge_blocks_scored_publication(
     monkeypatch.setattr(bot_module, "SibylBot", FakeBot)
     monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
     with pytest.raises(RuntimeError, match="publication refused"):
-        await _run_minibench(argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session)
+        await _run_minibench(
+            argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
+        )

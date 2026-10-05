@@ -126,8 +126,10 @@ class SpendLedger:
         total = Decimal(0)
         for reserve, charge, certainty in db.execute(query, args):
             # Estimates do not discharge the conservative pre-call liability.
-            total += Decimal(charge) if certainty == "confirmed" and charge is not None else max(
-                Decimal(reserve), Decimal(charge) if charge is not None else Decimal(0)
+            total += (
+                Decimal(charge)
+                if certainty == "confirmed" and charge is not None
+                else max(Decimal(reserve), Decimal(charge) if charge is not None else Decimal(0))
             )
         if run_id is None:
             for (amount,) in db.execute(
@@ -230,7 +232,15 @@ class SpendLedger:
                 status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
                 provider_request_id = ?, completed_at = CURRENT_TIMESTAMP
                 WHERE attempt_id = ?""",
-                (str(charge), certainty, evidence_source, prompt_tokens, completion_tokens, provider_request_id, attempt_id),
+                (
+                    str(charge),
+                    certainty,
+                    evidence_source,
+                    prompt_tokens,
+                    completion_tokens,
+                    provider_request_id,
+                    attempt_id,
+                ),
             )
             db.commit()
 
@@ -282,16 +292,23 @@ class SpendLedger:
                 args += (run_id,)
             rows = db.execute(query, args).fetchall()
             charged = sum((Decimal(c) for _, _, c, _ in rows if c is not None), Decimal(0))
-            confirmed = sum((Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "confirmed"), Decimal(0))
-            estimated = sum((Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "estimated"), Decimal(0))
+            confirmed = sum(
+                (Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "confirmed"), Decimal(0)
+            )
+            estimated = sum(
+                (Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "estimated"), Decimal(0)
+            )
             pending = sum((Decimal(r) for status, r, c, _ in rows if status == "reserved" and c is None), Decimal(0))
             uncertain = sum((Decimal(r) for status, r, c, _ in rows if status == "uncertain" and c is None), Decimal(0))
             adjustments = Decimal(0)
             if run_id is None:
                 adjustments = sum(
-                    (Decimal(row[0]) for row in db.execute(
-                        "SELECT amount_usd FROM adjustments WHERE source = ?", (FundingSource.EXPERIMENT_GRANT,)
-                    )),
+                    (
+                        Decimal(row[0])
+                        for row in db.execute(
+                            "SELECT amount_usd FROM adjustments WHERE source = ?", (FundingSource.EXPERIMENT_GRANT,)
+                        )
+                    ),
                     Decimal(0),
                 )
             return {
@@ -335,8 +352,10 @@ class SpendLedger:
                     },
                 )
                 group["attempts"] = int(group["attempts"]) + 1
-                field = "charged_usd" if charged is not None else (
-                    "uncertain_usd" if status == "uncertain" else "reserved_usd"
+                field = (
+                    "charged_usd"
+                    if charged is not None
+                    else ("uncertain_usd" if status == "uncertain" else "reserved_usd")
                 )
                 group[field] = str(Decimal(str(group[field])) + Decimal(charged if charged is not None else reserved))
                 if charged is not None and certainty in {"confirmed", "estimated"}:
