@@ -213,3 +213,66 @@ async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_ke
             evidence="framework_estimate",
         )
     return CostResolution(None, None, None, None, capture.generation_id, "unknown")
+
+
+async def reconcile_pending(
+    ledger: Any,
+    run_id: str,
+    api_key: str,
+    *,
+    attempts: int = 4,
+    base_delay: float = 2.0,
+    sleep: Any = None,
+) -> dict[str, int]:
+    """Turn settled estimates into confirmed charges from the provider's own records.
+
+    Runs AFTER a run, never on the hot path, and issues only the read-only generation GET
+    -- it never repeats a paid request to learn what one cost. Bounded exponential backoff
+    exists because that record is eventually consistent: the 2026-10-05 investigation saw
+    the same ID return 404 twice and then resolve about eleven minutes later.
+
+    Returns counts of what happened, so an operator can see what is still outstanding
+    rather than assuming the ledger is complete.
+    """
+    pause = sleep or asyncio.sleep
+    outstanding = ledger.unreconciled(run_id)
+    result = {"pending": len(outstanding), "reconciled": 0, "still_unknown": 0, "no_generation_id": 0}
+    for attempt_id, generation_id in outstanding:
+        if not generation_id:
+            # Nothing to look it up by; it keeps its reservation and stays visible.
+            result["no_generation_id"] += 1
+            continue
+        record = None
+        for round_index in range(attempts):
+            record = await generation_record(generation_id, api_key)
+            if record is not None and record.billable is not None:
+                break
+            record = None
+            if round_index < attempts - 1:
+                await pause(base_delay * (2**round_index))
+        if record is None or record.billable is None:
+            result["still_unknown"] += 1
+            logger.warning(
+                "GRANT_RECONCILE_UNRESOLVED attempt=%s generation_id=%s; reservation still held",
+                attempt_id,
+                generation_id,
+            )
+            continue
+        ledger.reconcile(
+            attempt_id,
+            record.billable,
+            openrouter_charge_usd=record.openrouter_charge,
+            upstream_cost_usd=record.upstream_cost,
+            is_byok=record.is_byok,
+            provider_request_id=generation_id,
+        )
+        result["reconciled"] += 1
+        logger.info(
+            "GRANT_RECONCILED attempt=%s billable_usd=%s openrouter_usd=%s upstream_usd=%s byok=%s",
+            attempt_id,
+            record.billable,
+            record.openrouter_charge,
+            record.upstream_cost,
+            record.is_byok,
+        )
+    return result

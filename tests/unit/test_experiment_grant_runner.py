@@ -302,3 +302,61 @@ async def test_unconfirmed_research_stops_before_forecasting(tmp_path, monkeypat
         await _run_minibench(
             argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
         )
+
+
+class TestReconcileSubcommand:
+    """`reconcile` is read-only: it needs the grant key but spends nothing."""
+
+    def test_it_refuses_without_the_grant_key(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sibyl.config import env as env_module
+        from sibyl.ops import experiment_grant
+
+        # main() imports load_environment from sibyl.config.env inside the function and
+        # would put a real key back from .env, so patch it at the source. main() also
+        # converts errors to an exit code and prints them, which is the right CLI contract.
+        monkeypatch.setattr(env_module, "load_environment", lambda: None)
+        monkeypatch.setenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", "")
+        rc = experiment_grant.main(["reconcile", "--ledger", str(tmp_path / "l.sqlite3"), "--run-id", "r"])
+        assert rc != 0
+        assert "required to read the grant" in capsys.readouterr().out
+
+    def test_it_reports_outstanding_attempts_and_exits_non_zero(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An unreconciled attempt must not look like success.
+
+        A $0 OpenRouter charge whose upstream cost is still unknown is the shape that
+        previously read as a free run; the exit status now says otherwise.
+        """
+        import json
+
+        from sibyl.ops.experiment_grant import main
+        from sibyl.platform import experiment_usage
+        from sibyl.platform.experiment_funding import SpendLedger
+
+        ledger_path = tmp_path / "l.sqlite3"
+        ledger = SpendLedger(ledger_path)
+        ledger.start_run("r", Decimal("50"))
+        ledger.reserve("a1", "r", "openrouter/openai/t", "forecaster", Decimal("1"))
+        ledger.settle(
+            "a1",
+            Decimal("0"),
+            1,
+            1,
+            None,
+            certainty="estimated",
+            evidence_source="provider_response",
+            openrouter_charge_usd=Decimal("0"),
+        )
+        monkeypatch.setenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", "grant-key")
+
+        async def never_found(generation_id: str, api_key: str):
+            raise AssertionError("no generation id, so no lookup should happen")
+
+        monkeypatch.setattr(experiment_usage, "generation_record", never_found)
+        rc = main(["reconcile", "--ledger", str(ledger_path), "--run-id", "r"])
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["no_generation_id"] == 1
+        assert rc == 1, "outstanding spend must not exit zero"

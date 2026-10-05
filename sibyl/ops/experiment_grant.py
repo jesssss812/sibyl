@@ -306,6 +306,12 @@ def _parser() -> argparse.ArgumentParser:
     report = sub.add_parser("report", help="Show local grant accounting; makes no API call")
     report.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     report.add_argument("--run-id")
+    rec = sub.add_parser(
+        "reconcile",
+        help="Confirm settled estimates from OpenRouter's billing records; read-only, makes no paid call",
+    )
+    rec.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    rec.add_argument("--run-id", required=True)
     adjust = sub.add_parser("record-prior-spend", help="Record previous grant spending in the local allocation")
     adjust.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     adjust.add_argument("--amount-usd", required=True)
@@ -357,6 +363,18 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "reconcile":
+            # Read-only: the generation GET reads a billing record, it never creates one.
+            # So this needs the grant key but spends nothing, and is safe to re-run.
+            key = os.getenv(GRANT_KEY_ENV, "").strip()
+            if not key:
+                raise ValueError(f"{GRANT_KEY_ENV} is required to read the grant's billing records")
+            from sibyl.platform.experiment_usage import reconcile_pending
+
+            outcome = asyncio.run(reconcile_pending(SpendLedger(args.ledger), args.run_id, key))
+            print(json.dumps(outcome, indent=2))
+            # Non-zero when anything is still unaccounted, so a wrapper notices.
+            return 0 if outcome["still_unknown"] == 0 and outcome["no_generation_id"] == 0 else 1
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)
             ledger.adjust(args.id, _positive(args.amount_usd, "--amount-usd"), args.note)

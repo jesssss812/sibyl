@@ -177,3 +177,103 @@ class TestResolution:
             resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
             await task
         assert (resolution.billable, resolution.evidence) == (Decimal("0.18"), "provider_generation")
+
+
+class TestReconciliation:
+    """Confirming estimates afterwards, without re-spending.
+
+    The point of reconciliation is that a run publishes on the evidence it has and the
+    authoritative figure arrives later. These are offline: the generation GET is stubbed,
+    and sleeps are injected so backoff is exercised without waiting.
+    """
+
+    def _ledger(self, tmp_path, *, generation_id: str | None = "gen-1"):
+        from decimal import Decimal as D
+
+        from sibyl.platform.experiment_funding import SpendLedger
+
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run", D("50"))
+        ledger.reserve("a1", "run", "openrouter/openai/t", "forecaster", D("1"))
+        ledger.settle(
+            "a1",
+            D("0"),
+            718,
+            2014,
+            generation_id,
+            certainty="estimated",
+            evidence_source="provider_response",
+            openrouter_charge_usd=D("0"),
+        )
+        return ledger
+
+    @pytest.mark.asyncio
+    async def test_a_byok_estimate_becomes_a_confirmed_upstream_charge(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_http(
+            monkeypatch,
+            _Response({"data": {"total_cost": 0, "upstream_inference_cost": 0.1873175, "is_byok": True}}),
+        )
+        ledger = self._ledger(tmp_path)
+        outcome = await experiment_usage.reconcile_pending(ledger, "run", "k")
+        assert outcome == {"pending": 1, "reconciled": 1, "still_unknown": 0, "no_generation_id": 0}
+        assert ledger.unreconciled("run") == []
+
+    @pytest.mark.asyncio
+    async def test_it_retries_a_not_yet_visible_record(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The observed production condition: 404, 404, then available."""
+        calls = {"n": 0}
+
+        async def flaky(generation_id: str, api_key: str):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return None
+            return experiment_usage.GenerationRecord(Decimal("0"), Decimal("0.19"), True)
+
+        monkeypatch.setattr(experiment_usage, "generation_record", flaky)
+        slept: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+
+        ledger = self._ledger(tmp_path)
+        outcome = await experiment_usage.reconcile_pending(ledger, "run", "k", sleep=fake_sleep)
+        assert outcome["reconciled"] == 1
+        assert calls["n"] == 3
+        assert slept == [2.0, 4.0], "bounded exponential backoff"
+
+    @pytest.mark.asyncio
+    async def test_a_permanently_missing_record_keeps_its_reservation(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_http(monkeypatch, _Response({}, status=404))
+
+        async def fake_sleep(seconds: float) -> None: ...
+
+        ledger = self._ledger(tmp_path)
+        outcome = await experiment_usage.reconcile_pending(ledger, "run", "k", sleep=fake_sleep)
+        assert outcome["still_unknown"] == 1
+        # Visible and still held, rather than quietly written off as free.
+        assert ledger.unreconciled("run") == [("a1", "gen-1")]
+
+    @pytest.mark.asyncio
+    async def test_an_attempt_with_no_generation_id_is_reported_not_guessed(self, tmp_path) -> None:
+        ledger = self._ledger(tmp_path, generation_id=None)
+        outcome = await experiment_usage.reconcile_pending(ledger, "run", "k")
+        assert outcome["no_generation_id"] == 1
+        assert outcome["reconciled"] == 0
+
+    @pytest.mark.asyncio
+    async def test_it_never_issues_a_completion_request(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reconciliation must never re-spend to learn what a call cost."""
+        import litellm
+
+        def explode(*a: object, **k: object):
+            raise AssertionError("reconciliation must not call a model")
+
+        monkeypatch.setattr(litellm, "acompletion", explode, raising=False)
+        monkeypatch.setattr(litellm, "completion", explode, raising=False)
+        _stub_http(monkeypatch, _Response({"data": {"total_cost": 0.42, "is_byok": False}}))
+        ledger = self._ledger(tmp_path)
+        assert (await experiment_usage.reconcile_pending(ledger, "run", "k"))["reconciled"] == 1
