@@ -97,7 +97,7 @@ class TestFixtureAaNull:
 
     def test_calls_it_no_detectable_difference(self, identical_arms: tuple[Path, Path]) -> None:
         report = render_report(*identical_arms)
-        assert "exploratory only; no confirmatory verdict" in report
+        assert "no detectable difference" in report
         assert "B is better" not in report and "B is worse" not in report
 
     def test_holds_per_question_type_too(self, identical_arms: tuple[Path, Path]) -> None:

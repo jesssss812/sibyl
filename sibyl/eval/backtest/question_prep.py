@@ -63,7 +63,6 @@ async def fetch_resolved_questions(
     tournament: str = BACKTEST_DEFAULT_TOURNAMENT,
     min_forecasters: int = BACKTEST_DEFAULT_MIN_FORECASTERS,
     resolved_before: str | None = None,
-    seed: int = 0,
 ) -> BacktestQuestionSet:
     """Fetch resolved questions from a tournament, extract ground truths, prepare for backtesting.
 
@@ -117,10 +116,9 @@ async def fetch_resolved_questions(
         f"{skip_counts['canceled']} canceled/ambiguous)"
     )
 
-    rng = random.Random(seed)
     # Sample down to target if we have more
     if len(filtered_questions) > total_questions:
-        sampled = rng.sample(filtered_questions, total_questions)
+        sampled = random.sample(filtered_questions, total_questions)
         sampled_ids = {q.id_of_question for q in sampled}
         ground_truths = {qid: gt for qid, gt in ground_truths.items() if qid in sampled_ids}
         filtered_questions = sampled
@@ -132,7 +130,7 @@ async def fetch_resolved_questions(
 
     # Prepare clean questions (strip resolution, set state=OPEN)
     clean_questions = [_prepare_question_for_backtest(q) for q in filtered_questions]
-    rng.shuffle(clean_questions)
+    random.shuffle(clean_questions)
 
     type_counts: dict[str, int] = {}
     for q in clean_questions:
@@ -147,7 +145,6 @@ async def fetch_resolved_questions(
             "tournament": tournament,
             "resolved_after": resolved_after,
             "resolved_before": resolved_before,
-            "selection_seed": seed,
             "total_fetched": len(raw_questions),
             "total_filtered": len(filtered_questions),
             "total_clean": len(clean_questions),

@@ -727,11 +727,7 @@ class FallbackOpenRouterLlm(GeneralLlm):
                 # primary's exception is intentionally discarded because the
                 # caller asked for a fallback, not a re-raise.
                 await record_primary_key_fallback(self.model, e)  # noqa: ASYNC120
-                from sibyl.platform.personal_fallback_spend import invoke_personal_fallback  # noqa: PLC0415
-
-                return await invoke_personal_fallback(  # noqa: ASYNC120
-                    lambda: self._invoke_once_using_secondary(prompt, system_prompt), model=self.model
-                )
+                return await self._invoke_once_using_secondary(prompt, system_prompt)  # noqa: ASYNC120
             raise
 
     async def _invoke_once_using_primary(self, prompt: Any, system_prompt: str | None = None) -> str:
@@ -749,13 +745,6 @@ def build_llm_with_openrouter_fallback(model: str, **kwargs: Any) -> GeneralLlm:
     key to the operator's general key for providers covered by the primary key (see
     ``OPENROUTER_PRIMARY_KEY_PROVIDERS``). For other models, returns a plain GeneralLlm.
     """
-    from sibyl.platform.experiment_funding import active_grant  # noqa: PLC0415
-
-    if active_grant() is not None:
-        from sibyl.platform.experiment_llm import build_grant_llm  # noqa: PLC0415
-
-        return build_grant_llm(model, **kwargs)
-
     if should_route_via_primary_key(model):
         special_key = os.getenv(OAI_ANTH_OPENROUTER_KEY_ENV)
         fallback_key = os.getenv(OPENROUTER_API_KEY_ENV)

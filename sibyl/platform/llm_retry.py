@@ -53,8 +53,6 @@ from collections.abc import Awaitable, Callable
 import litellm.exceptions
 import openai
 
-from sibyl.platform.experiment_funding import GrantExecutionError
-
 logger: logging.Logger = logging.getLogger(__name__)
 
 # Fast versions of these are transient connection/server blips worth a cheap
@@ -235,9 +233,7 @@ def is_broadly_retryable(exc: BaseException) -> bool:
     elapsed gate in the shared loop still blocks slow failures, except a slow
     zero-output failure, which the loop re-rolls once (see ``is_zero_output_failure``).
 
-    Grant accounting failures are never retried: another paid attempt cannot
-    reconcile an uncertain charge or repair an exhausted budget.
-    Other exclusions are a deterministic 4xx status
+    Three exclusions are NOT retried: a deterministic 4xx status
     (``NON_RETRYABLE_HTTP_STATUS_CODES``, checked FIRST because litellm's types
     under-cover it), ``PERMANENT_NO_RETRY_EXCEPTIONS`` (litellm permanent API errors)
     and ``PYTHON_BUG_NO_RETRY_EXCEPTIONS`` (code-defect types like
@@ -245,7 +241,7 @@ def is_broadly_retryable(exc: BaseException) -> bool:
     instead of being retried through the backoff ladder during debugging
     (AGENTS.md §2 fail-fast).
     """
-    if isinstance(exc, GrantExecutionError) or _is_deterministic_client_error(exc):
+    if _is_deterministic_client_error(exc):
         return False
     return not isinstance(exc, PERMANENT_NO_RETRY_EXCEPTIONS + PYTHON_BUG_NO_RETRY_EXCEPTIONS)
 

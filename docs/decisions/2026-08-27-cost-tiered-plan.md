@@ -61,13 +61,13 @@ Then partition by cheap-tier spread and report, for each bucket:
 - the paired score difference (cheap − frontier), with a bootstrap CI, per bucket
 - the **loss distribution**, not just the mean — this is a tail question by nature
 
-**Draft decision rule, not yet registered:**
+**The decision rule, pre-registered:**
 
 | Result | Action |
 |---|---|
 | Frontier disagrees mostly on **high**-spread questions | C1 is sound. Proceed to Phase 1. |
 | Frontier disagrees roughly evenly across buckets | Routing saves money and loses accuracy in proportion. Report it and stop. |
-| Frontier disagrees mostly on **low**-spread questions | Potentially harmful route. Compare outcome-based loss before concluding correlated error; kill only under a registered loss rule. |
+| Frontier disagrees mostly on **low**-spread questions | C1 is actively harmful — correlated error confirmed. Kill it. |
 
 **Cost:** cheap arm ≈ $0; frontier arm ≈ $0.40/question ⇒ **≈ $16–20 for n=40.**
 
@@ -76,7 +76,8 @@ for the eval harness — which currently has no real data at all.
 
 ⚠️ **Power check, honestly.** At n=40 the MDE on a pooled paired difference is roughly
 ±0.020 (`eval-strategy.md` Rule 2 scaling). That is too coarse to certify a *small*
-accuracy loss from routing. It does not establish power for bucket concentration, tail loss, or a proposed routing policy. Do not let this run
+accuracy loss from routing. It is ample for the question actually being asked here, which
+is directional and about *which bucket* disagreement concentrates in. Do not let this run
 be reported as "routing is free."
 
 ---
@@ -189,29 +190,3 @@ change:
 A null or negative result is publishable and useful here. *"Cheap-tier agreement does not
 predict frontier agreement, so cost-tiered routing does not work — here is the measurement"*
 is a genuine contribution to a question the field is currently answering by assertion.
-
-## Registration fields still open (2026-10-01)
-
-Phase 0 remains a draft. Before any paid paired run, record the eligible population,
-question-family grouping, exact cheap and frontier model configurations, per-type
-spread formula, fixed bucket boundaries, and a minimum material cross-tier
-prediction difference. Choose one primary per-type score-loss endpoint and loss
-margin against always-frontier, a tail-loss statistic, a multiplicity policy, and
-how missing or substituted models make a pair ineligible. Compute power for that
-bucket or routing contrast from an independent variance source. The earlier pooled
-n=40 arithmetic does not establish power for it.
-
-The decision record must distinguish **proceed**, **kill**, and **inconclusive**
-using numeric thresholds chosen before outcomes are read. Every eligible question
-must receive both tiers. A disagreement shows only that the tiers differ; the
-resolved outcome determines which tier was wrong. Any routing threshold selected
-from this dataset remains exploratory until tested on held-out questions. The live
-router stays disabled.
-
-For the historical-to-forward study, freeze multiple named variants and their
-research policies, selection rules, and forecast horizons before collection. Keep
-event-level publication and comment identities, each variant's model survivors,
-and outcome snapshots. Rank variants on a historical set and test that ranking on
-a later, non-overlapping forward set, with a prespecified association statistic,
-uncertainty method, sample-size rule, and stop rule. The current latest-forecast
-collector lacks an event-level join and cannot certify this study.

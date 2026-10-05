@@ -26,7 +26,7 @@ LOW_N_THRESHOLD: int = 30
 
 def _format_score(x: float) -> str:
     if math.isnan(x):
-        return "unavailable"
+        return "NaN"
     return f"{x:.4f}"
 
 
@@ -34,7 +34,7 @@ def _format_p(x: float | None) -> str:
     if x is None:
         return "N/A"
     if math.isnan(x):
-        return "unavailable"
+        return "NaN"
     return f"{x:.3f}"
 
 
@@ -72,10 +72,6 @@ def _stats_row(s: PairedStats) -> str:
     qtype = s.question_type if s.question_type is not None else "overall"
     mean_ci_str = f"[{_format_score(s.bootstrap_ci_low)}, {_format_score(s.bootstrap_ci_high)}]"
     median_ci_str = f"[{_format_score(s.median_ci_low)}, {_format_score(s.median_ci_high)}]"
-    if not math.isfinite(s.bootstrap_ci_low):
-        mean_ci_str = "unavailable"
-    if not math.isfinite(s.median_ci_low):
-        median_ci_str = "unavailable"
     n_str = _format_n(s.n)
     if s.question_type is not None and s.n < LOW_N_THRESHOLD:
         n_str = f"{n_str}*"

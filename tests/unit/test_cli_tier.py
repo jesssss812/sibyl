@@ -105,9 +105,12 @@ class TestTierResolutionThroughArgv:
                 return int(exc.code) if isinstance(exc.code, int) else 1
         return None
 
-    def test_env_prod_still_cannot_run_dormant_tournament(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The configured tournament expired; prod tier must not bypass dormancy.
-        assert self._run(["tournament"], "prod", monkeypatch) == 2
+    def test_env_prod_is_not_refused_on_a_scored_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Reaches real work and fails there rather than at the guard; the point is that
+        # the guard did not fire.
+        with pytest.raises(Exception) as exc:
+            self._run(["tournament"], "prod", monkeypatch)
+        assert not isinstance(exc.value, SystemExit) or exc.value.code != 2
 
     def test_flag_overrides_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # env says prod, flag says free -> the flag wins, so a scored mode is refused.

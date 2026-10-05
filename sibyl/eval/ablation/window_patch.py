@@ -16,7 +16,6 @@ from typing import Any, Iterator
 
 from forecasting_tools.data_models.questions import MetaculusQuestion
 
-from sibyl.common.forecast_context import forecast_times, question_key
 from sibyl.forecasting import prompts as prompts_module
 
 __all__ = [
@@ -92,8 +91,7 @@ def patched_window_for_question(question: MetaculusQuestion | Any) -> Iterator[N
     setattr(prompts_module, "_forecasting_window_str", _patched)
     _window_patch_active = True
     try:
-        with forecast_times({question_key(question): mid_window}):
-            yield
+        yield
     finally:
         setattr(prompts_module, "_forecasting_window_str", original)
         _window_patch_active = False

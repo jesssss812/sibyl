@@ -367,13 +367,6 @@ def _process_single_question(
         "options": options,
         "comment_text": comment_text,
         "comment_id": comment_id,
-        # The endpoint supplies the latest forecast and comments independently.
-        # A post-id match is insufficient to link a particular comment to that
-        # forecast event. Keep legacy parsed fields descriptive only.
-        "forecast_comment_link_status": "unverified_legacy" if comment_id is not None else "no_comment",
-        "forecast_event_id": None,
-        "variant_id": None,
-        "research_identity": None,
         # ISO-8601 timestamp on the bot's comment so cohort cuts can filter by
         # *submit*-date (e.g., May-vintage stack) instead of the coarser
         # actual_resolve_time stamp on the question.

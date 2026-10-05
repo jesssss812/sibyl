@@ -337,19 +337,6 @@ async def test_cache_hit_skips_make_prediction(
     cached_model = six_forecaster_llms[0].model
     cached_slug = model_slug_to_filename(cached_model)
     assert q.id_of_question is not None
-    from sibyl.eval.artifacts import model_identity, question_identity
-
-    cache.bind_inputs(
-        "forecaster",
-        q.id_of_question,
-        cached_slug,
-        {
-            "question": question_identity(q),
-            "research": "research blob",
-            "model": model_identity(six_forecaster_llms[0]),
-            "parser": model_identity(parser_llm),
-        },
-    )
     cache.write_forecaster_output(
         qid=q.id_of_question,
         model_slug=cached_slug,

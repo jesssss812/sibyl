@@ -10,7 +10,6 @@ from unittest.mock import patch
 import pytest
 
 from sibyl.config.settings import (
-    TOURNAMENT_ENABLED,
     TOURNAMENT_END_DATE,
     TOURNAMENT_HARD_STOP_WEEKS,
     TOURNAMENT_ID,
@@ -95,7 +94,7 @@ class TestTournamentConfigFreshness:
         hard_stop_date = end_date + timedelta(weeks=TOURNAMENT_HARD_STOP_WEEKS)
         today = datetime.now()
 
-        assert not TOURNAMENT_ENABLED or today <= hard_stop_date, (
+        assert today <= hard_stop_date, (
             f"\n\n"
             f"{'=' * 70}\n"
             f"TOURNAMENT CONFIG IS STALE - ACTION REQUIRED\n"

@@ -24,8 +24,6 @@ bug — check the dates before treating any of it as current.
 | [performance_analysis.md](performance_analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
 | [probabilistic_tools.md](probabilistic_tools.md) | The `probabilistic_tools/` package and the tool-runner that exposes it to forecaster models. |
 | [operations.md](operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
-| [experiment-funding.md](experiment-funding.md) | The isolated grant-funded MiniBench runner, local spending ledger, and private forecast archive. |
-| [minibench-readiness.md](minibench-readiness.md) | October 2026 launch checks and the statistical limits of the first MiniBench round. |
 
 ## Planning and evaluation strategy
 
@@ -38,7 +36,6 @@ bug — check the dates before treating any of it as current.
 | [vision.md](vision.md) | The ranked purpose and what wins when goals conflict. The tie-breaker when other docs don't settle a question. |
 | [design-principles.md](design-principles.md) | Evidence-graded architecture decisions (Strong / Moderate / Suggestive) drawn from the Metaculus analyses and the Fall-2025 bot-maker survey. |
 | [eval-strategy.md](eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
-| [plans/2026-09-25-evaluation-integrity.md](plans/2026-09-25-evaluation-integrity.md) | Implementation handoff for the September 25 review: fixture spend isolation, paired eligibility, uncertainty, cache identity, historical clocks, provenance, and prospective power checks. |
 | [calibration-primer.md](calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
 | [budget-strategy.md](budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
 | `bottega:docs/planning/nostreambot-reading-guide.md` | Reading order for this codebase, written when it was still an external reference. Not carried into this repo; *partly superseded* — see its header, in bottega. |

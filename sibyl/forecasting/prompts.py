@@ -9,7 +9,6 @@ from forecasting_tools import (
     clean_indents,
 )
 
-from sibyl.common.forecast_context import forecast_time
 from sibyl.common.time_utils import _as_utc
 from sibyl.forecasting.numeric.config import EXPECTED_PERCENTILE_COUNT, STANDARD_PERCENTILES
 from sibyl.forecasting.numeric.utils import nominal_bounds
@@ -126,7 +125,7 @@ def _forecasting_window_str(
     # value raises TypeError. ``datetime.now(timezone.utc)`` also fixes 0.2.54's
     # latent naive-local-vs-naive-UTC skew (harmless only when the host runs UTC,
     # e.g. CI). The rendered dates are unchanged for current naive UTC inputs.
-    today = forecast_time(question) or datetime.now(timezone.utc)
+    today = datetime.now(timezone.utc)
     open_time = _as_utc(question.open_time)
     scheduled_resolution_time = _as_utc(question.scheduled_resolution_time)
     elapsed_days = (today - open_time).days
@@ -145,13 +144,13 @@ def _forecasting_window_str(
     )
 
 
-def _today_str(question: BinaryQuestion | MultipleChoiceQuestion | NumericQuestion) -> str:
+def _today_str() -> str:
     """Today's date (UTC), formatted to match ``_forecasting_window_str``'s "Today:" line.
 
     UTC so it agrees with ``_forecasting_window_str`` (which normalizes to UTC)
     within the same prompt bundle, regardless of host timezone.
     """
-    return (forecast_time(question) or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def _aggregated_tool_output_section(aggregated_tool_output: str | None) -> str:
@@ -661,7 +660,7 @@ def binary_prompt(question: BinaryQuestion, research: str) -> str:
 
             0) Status-quo derivation (answer this FIRST, before weighing any research or news)
                • State in your own words: "This question is open and unresolved as of {
-            _today_str(question)
+            _today_str()
         }. If nothing changed between now and resolution, how would it resolve?" Derive the answer from that platform state alone — an open question means the resolution criteria have not yet been satisfied (or a qualifying event is so recent that resolution simply lags — the resolution check in 0a below covers that case).
                • To move off this status-quo answer, name the specific POST-OPEN event (or concretely expected in-window event) that changes it. Commit explicitly: either write "no qualifying event has yet occurred inside the window" or name the in-window trigger and its date.
 
@@ -805,7 +804,7 @@ def multiple_choice_prompt(question: MultipleChoiceQuestion, research: str) -> s
 
         (0) Status-quo derivation (answer this FIRST, before weighing any research or news)
             • State in your own words: "This question is open and unresolved as of {
-            _today_str(question)
+            _today_str()
         }. If nothing changed between now and resolution, which option would it resolve to?" Derive the answer from that platform state alone — an open question means the resolution criteria have not yet been satisfied (with one exception: if a qualifying event is so recent that resolution simply lags, treat the criteria as effectively met and weight your distribution accordingly).
             • To move probability mass off that status-quo option, name the specific POST-OPEN event (or concretely expected in-window event) that changes it. Commit explicitly: either write "no qualifying event has yet occurred inside the window" or name the in-window trigger and its date.
 
@@ -966,7 +965,7 @@ def numeric_prompt(
 
         (0) Status-quo derivation (answer this FIRST, before weighing any research or news)
             - State in your own words: "This question is open and unresolved as of {
-            _today_str(question)
+            _today_str()
         }. If nothing changed between now and resolution, what value would it resolve at?" Derive that value from the platform state and the most recent authoritative measurement alone. Note: an open question generally means the resolution criteria have not yet been satisfied, with one exception — if a qualifying event or measurement is so recent that resolution simply lags, treat that recent value as the anchor and weight your distribution accordingly.
             - To move your central estimate off that status-quo value, name the specific POST-OPEN event (or concretely expected in-window event) that changes it. Commit explicitly: either write "no qualifying event has yet occurred inside the window" or name the in-window trigger and its date.
 

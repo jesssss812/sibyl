@@ -67,7 +67,6 @@
     "download_research",
     "download_run_logs",
     "e2e_free",
-    "e2e_free_no_publish",
     "format",
     "install",
     "lint",
@@ -99,7 +98,6 @@
     "sibyl.eval.ensemble",
     "sibyl.eval.performance",
     "sibyl.eval.performance.width_monitor",
-    "sibyl.ops.experiment_grant",
     "sibyl.telemetry.check_credits"
   ],
   "telemetry_markers": [

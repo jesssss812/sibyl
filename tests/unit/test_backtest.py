@@ -172,8 +172,6 @@ def test_run_backtest_full_flow(
     mock_benchmark_result = Mock()
     mock_benchmark_result.name = "test-bot"
     mock_report = Mock()
-    mock_report.explanation = "fixture"
-    mock_report.errors = []
     mock_report.question = mock_question
     mock_report.question.id_of_question = 123
     mock_benchmark_result.forecast_reports = [mock_report]
@@ -195,7 +193,7 @@ def test_run_backtest_full_flow(
     # drifts silently every time an argument is added — this test broke on exactly that
     # when --fixture landed, and the failure was an AttributeError deep inside
     # run_backtest rather than anything pointing at the test.
-    args = backtest._build_parser().parse_args(["--fixture", "--bot-mode", "individual"])
+    args = backtest._build_parser().parse_args([])
     args.num_questions = 1
     args.resolved_after = "2025-12-01"
     args.tournament = "fall-aib-2025"
@@ -203,7 +201,7 @@ def test_run_backtest_full_flow(
     asyncio.run(backtest.run_backtest(args))
 
     mock_fetch.assert_called_once()
-    mock_leakage.assert_not_called()
+    mock_leakage.assert_called_once()
     mock_create_bots.assert_called_once()
     mock_patches.assert_called_once()
     mock_benchmarker.run_benchmark.assert_called_once()

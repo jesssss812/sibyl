@@ -112,19 +112,3 @@ fix was reachable: bumped 3.14.1 -> 3.14.3, a lock diff touching that package al
 - `eval/ablation/forecaster_lineup.py` re-exports the config roster's free lineup. It
   shrank from four models to three at the fork, so ablation results either side of that
   are not directly comparable.
-
-## Evaluation study registration pending
-
-The historical backtest harness now records frozen manifests, per-question results,
-research hashes, endpoint plans, and explicit drop accounting. Legacy score and
-comment-derived artifacts remain descriptive where they lack those identities.
-The live performance collector still receives only each question’s latest forecast
-and latest comment without an event-level join; its new
-`forecast_comment_link_status=unverified_legacy` field makes that limit explicit.
-Persist event IDs, timestamped forecast histories, variant IDs, and research
-identities before using live data for a forward rank-prediction study.
-
-The cheap-agreement study still needs a prespecified spread threshold, loss margin,
-primary contrast, tail measure, multiplicity rule, and power calculation for the
-bucket endpoint. Cross-tier disagreement alone cannot prove correlated error.
-No router is enabled. Pooled scoring remains pending a versioned definition.

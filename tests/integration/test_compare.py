@@ -83,7 +83,7 @@ class TestIdenticalArms:
         assert "n=20" in report
         assert "mean Δ   +0.00000" in report
         assert "0 dropped" in report
-        assert "exploratory only; no confirmatory verdict" in report
+        assert "no detectable difference" in report
 
 
 class TestRefusals:
@@ -159,8 +159,7 @@ class TestReportContent:
         b = _write(tmp_path, "b.json", _rows({qid: 0.20 for qid in range(1, 21)}))
         report = render_report(a, b)
         assert "mean Δ   -0.10000" in report
-        assert "mean Δ   -0.10000" in report
-        assert "no confirmatory verdict" in report
+        assert "B is better than A" in report
 
     def test_log_score_direction_is_inverted_relative_to_brier(self, tmp_path: Path) -> None:
         # log_score: higher is better, so the SAME negative delta means B is worse.
@@ -168,8 +167,7 @@ class TestReportContent:
         b = _write(tmp_path, "b.json", _rows({qid: -0.40 for qid in range(1, 21)}, metric="log_score"))
         report = render_report(a, b)
         assert "higher is better" in report
-        assert "mean Δ   -0.10000" in report
-        assert "no confirmatory verdict" in report
+        assert "B is worse than A" in report
 
     def test_never_prints_an_absolute_score(self, tmp_path: Path) -> None:
         """Rule 3: absolute backtest numbers are not reportable, so they are not printed."""

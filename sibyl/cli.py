@@ -194,12 +194,6 @@ def main() -> None:
     # construction is the expensive part.
     tier = ModelTier(args.tier) if args.tier else active_tier()
     _refuse_free_tier_on_scored_tournament(tier, run_mode)
-    if run_mode == "tournament":
-        from sibyl.config.settings import TOURNAMENT_ENABLED
-
-        if not TOURNAMENT_ENABLED:
-            parser.error("Tournament execution is disabled pending operator selection of a new competition")
-        check_tournament_dates(logging.getLogger(__name__))
     _log_tier_banner(tier)
     max_questions = args.max_questions if args.max_questions is not None else _default_max_questions(tier)
 

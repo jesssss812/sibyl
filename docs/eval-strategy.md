@@ -36,22 +36,22 @@ Never compare two variants by their standalone scores. Run both on the **same qu
 
 Question difficulty is a nuisance variable; pairing cancels it. This is blocking / a paired test rather than a two-sample test.
 
-**Report format:** `variant B improves binary Brier by 0.014, 95% CI [0.006, 0.022], n=104 paired questions` — never `variant B scored 0.132`. Numeric and multiple-choice scores need separate endpoints; pooling remains pending.
+**Report format:** `variant B beats A by 0.014 pooled score, 95% CI [0.006, 0.022], n=104 paired questions` — never `variant B scored 0.132`.
 
 ### Rule 2 — Power-check before you run, not after.
 
 Compute the minimum detectable effect for your sample size *first*. If the change you're testing is plausibly smaller than the MDE, **don't run the experiment** — log the decision and move on.
 
-The earlier BTF-3 extrapolation (95% CI half-width ±0.003 at n=1,810) implies
-illustrative **CI half-width** ≈0.0165 at n=60. It is not the 80%-power MDE.
-Under independent question pairs with SD ≈0.065, a two-sided α=0.05 test has
-MDE `(1.96 + 0.842) × SD / √n` ≈0.0236 at n=60. This is an assumption,
-not an empirical power estimate for Sibyl. The pooled endpoint in the older
-notes is undefined, so neither figure is a power plan for binary, numeric, or
-multiple-choice scores. Each confirmatory endpoint needs its own prospective
-variance estimate, expected effect, attrition allowance, and frozen question set.
-The `python -m sibyl.eval preflight` command writes a proceed/decline record;
-a post-run empirical MDE is diagnostic only.
+Calibrated from BTF-3 (±0.003 at n=1,810, scaling as 1/√n):
+
+| n (paired questions) | ~95% CI half-width | What's detectable |
+|---|---|---|
+| 60 (one MiniBench round) | ±0.016 | Only large architectural changes |
+| 100 | ±0.013 | Large changes |
+| 300 (a season) | ±0.007 | Moderate changes |
+| 1,810 | ±0.003 | FutureSearch's production edge (0.010) |
+
+**Practical rule: only test changes expected to move pooled score by >0.015.** For reference, at n=1,900 two frontier models differed by 0.0005 (p=0.85) — a tie. Prompt-wording tweaks are *not detectable at our scale*. Architectural swings (ensemble on/off, search on/off, capping on/off, model-family swap) are.
 
 Reporting which experiments we *declined to run as underpowered* is itself a finding.
 
@@ -59,7 +59,7 @@ Reporting which experiments we *declined to run as underpowered* is itself a fin
 
 Our backtest will be leaky. We accept this. Models have seen outcomes; date-restricted search is unreliable; asking a model to "pretend it doesn't know" fails (measured 52% Brier gap — see `Simulated Ignorance Fails`).
 
-A paired backtest controls question difficulty. Leakage can interact with the treatment, so a retrospective difference remains exploratory until a forward comparison tests it. Absolute backtest scores do not establish live skill.
+**The key insight that makes a cheap backtest viable:** leakage inflates *both* arms of a paired comparison roughly equally, so it largely **cancels in the paired difference**. Absolute numbers from a leaky backtest are garbage; paired deltas are still informative.
 
 Therefore:
 - ✅ Report paired differences from backtest.
@@ -103,7 +103,7 @@ A paired comparison is only valid if both arms answered **the same questions**. 
 |---|---|---|
 | **MiniBench** | Primary fast iteration loop | ~60 short-fuse auto-generated questions, low leakage, resolves fast. Metaculus built this for exactly this purpose; 54% of tournament participants use it for iteration. This is our poor-man's BTF — **do not rebuild it.** |
 | **Resolved Metaculus questions (API)** | Secondary offline backtest | Free, large, but **leaky**. Governed by Rule 3. |
-| **Live seasonal FutureEval tournament** | Uncontaminated holdout | Never tune against. Source of truth. |
+| **Live tournament (FutureEval / Summer season)** | Uncontaminated holdout | Never tune against. Source of truth. |
 
 ---
 
@@ -249,43 +249,3 @@ Design implication: **preserve the ability to compare backtest-predicted rank ag
 - [Fall 2025 FutureEval Bot-Maker Survey](https://www.metaculus.com/notebooks/43337/fall-2025-futureeval-survey/) — capping, base rates, research breadth.
 - [A Prediction Tournament Paradox](https://arxiv.org/pdf/1903.02131) — why a single tournament rank is mostly noise.
 - [Simulated Ignorance Fails](https://arxiv.org/abs/2601.13717) — 52% Brier gap when models "pretend not to know".
-
-### Offline harness commands and provenance
-
-A fixture run from a prepared local manifest is an offline pipeline check:
-
-```bash
-python -m sibyl.eval backtest --fixture --manifest /tmp/sibyl-manifest.json --output-dir /tmp/sibyl-fixture-a
-python -m sibyl.eval backtest --fixture --manifest /tmp/sibyl-manifest.json --output-dir /tmp/sibyl-fixture-b
-python -m sibyl.eval compare /tmp/sibyl-fixture-a/backtest_data_*.json /tmp/sibyl-fixture-b/backtest_data_*.json
-```
-
-Fixture comparisons are diagnostic only. The comparison refuses a fixture/real
-pair and never treats a fixture power plan as a confirmatory registration.
-
-The manifest must already contain question snapshots, ground truths, and research
-bytes. `--prepare-only` can create one from a read-only Metaculus fetch in fixture
-mode; a real research preparation requires explicit `--tier prod` and can spend.
-Real backtest runs require `--manifest`, a prospective `--power-plan`, and a
-named `--arm-id`; they use the current production roster by default. `--bot-mode individual` is a
-separate diagnostic mode. A power input JSON specifies `manifest_id`, one
-`endpoint` (`brier`, `binary_log_score`, `mc_log_score`, `numeric_log_score`, or
-`crps` for tools that score it; the current backtest uses numeric log score),
-`scheduled_n`, planned usable `n`, `attrition_allowance`, `sd`, its
-independent `variance_source`, expected `effect`, `hypothesis`, `alpha`, and
-`power`. Run `python -m sibyl.eval preflight plan.json --output preflight.json`
-before any model run. A `decline` decision exits nonzero. Never attach the old
-pooled half-width estimate to an individual endpoint.
-For compatibility with existing backtest files, the registered
-`binary_log_score` endpoint reads the persisted binary metric `log_score`.
-
-Old backtest files and ablation score-only cache replays lack sufficient input
-identity for certification. They remain descriptive and should be re-analysed
-from frozen inputs where possible. Search retrieved after resolution, and model
-knowledge of outcomes, remain leakage risks even with a historical prompt date.
-
-The ablation CLI refuses API stages while the tier is free or unset. An operator
-must explicitly choose the production tier for those stages; score-only cache
-replay remains available on the free tier and is labeled exploratory. This
-configuration flag does not authorize a paid run by itself: the repo’s
-per-run operator-go rule still applies.

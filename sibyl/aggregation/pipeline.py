@@ -33,7 +33,6 @@ from sibyl.aggregation.strategies import (
     combine_multiple_choice_predictions,
     combine_numeric_predictions,
 )
-from sibyl.common.forecast_context import forecast_time
 from sibyl.config.models import STACKER_FALLBACK_LLM
 from sibyl.config.settings import STACKER_FALLBACK_SOFT_DEADLINE, STACKER_SOFT_DEADLINE
 from sibyl.exceptions import UnitMismatchError
@@ -48,16 +47,6 @@ from sibyl.forecasting.post_processing import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _funding_aware_stacker_fallback() -> GeneralLlm:
-    from sibyl.platform.experiment_funding import active_grant
-
-    if active_grant() is None:
-        return STACKER_FALLBACK_LLM
-    from sibyl.platform.experiment_llm import clone_for_grant
-
-    return clone_for_grant(STACKER_FALLBACK_LLM, stage="stacker_fallback")
 
 
 @dataclass
@@ -362,7 +351,7 @@ class AggregationPipeline:
                         question,
                         research,
                         reasoned_predictions,
-                        stacker_llm_override=_funding_aware_stacker_fallback(),
+                        stacker_llm_override=STACKER_FALLBACK_LLM,
                         aggregated_tool_output=aggregated_tool_output,
                         stacker_wall_timeout=STACKER_FALLBACK_SOFT_DEADLINE,
                     ),
@@ -500,7 +489,7 @@ class AggregationPipeline:
         tests/test_main_platt_integration.py, which records that Platt is intentionally
         not applied on the base-combine path.
         """
-        return apply_resolution_state_guard(prediction, question, forecast_time(question) or datetime.now(timezone.utc))
+        return apply_resolution_state_guard(prediction, question, datetime.now(timezone.utc))
 
     def _maybe_snap_to_integers(self, prediction: PredictionTypes, question: MetaculusQuestion) -> PredictionTypes:
         if not isinstance(prediction, NumericDistribution) or not isinstance(question, NumericQuestion):

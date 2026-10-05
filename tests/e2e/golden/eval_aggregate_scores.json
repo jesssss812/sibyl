@@ -3,8 +3,8 @@
     "bot_mean": 0.27666666666666667,
     "bot_minus_community": 0.13666666666666666,
     "bot_minus_community_ci": {
-      "high": null,
-      "low": null,
+      "high": 0.03,
+      "low": 0.03,
       "mean": 0.03,
       "n": 2
     },
@@ -24,8 +24,8 @@
     "bot_mean": -1.025,
     "bot_minus_community": 0.0,
     "bot_minus_community_ci": {
-      "high": null,
-      "low": null,
+      "high": 0.0,
+      "low": 0.0,
       "mean": 0.0,
       "n": 2
     },
