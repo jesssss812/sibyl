@@ -78,8 +78,54 @@ def capture_grant_usage() -> Iterator[CostCapture]:
         _ACTIVE_CAPTURE.reset(token)
 
 
-async def generation_cost(generation_id: str, api_key: str) -> Decimal | None:
-    """Read billed USD from OpenRouter; this GET does not create a generation."""
+@dataclass(frozen=True)
+class GenerationRecord:
+    """What OpenRouter's billing record says, with the BYOK split preserved.
+
+    ``openrouter_charge`` is credits drawn from the key; ``upstream_cost`` is what the
+    provider billed when the request routed through a BYOK integration. Keeping only the
+    former is what made a BYOK run look free.
+    """
+
+    openrouter_charge: Decimal | None
+    upstream_cost: Decimal | None
+    is_byok: bool
+
+    @property
+    def billable(self) -> Decimal | None:
+        """The money that actually moved, which is what a budget must hold."""
+        if self.is_byok:
+            return self.upstream_cost
+        return self.openrouter_charge
+
+
+@dataclass(frozen=True)
+class CostResolution:
+    """A settled view of one call's cost, and how firmly it is known."""
+
+    billable: Decimal | None
+    openrouter_charge: Decimal | None
+    upstream_cost: Decimal | None
+    is_byok: bool | None
+    provider_request_id: str | None
+    evidence: str
+
+    @property
+    def confirmed(self) -> bool:
+        """True only when the figure the budget holds came from the provider.
+
+        A zero OpenRouter charge with unknown upstream cost is NOT confirmed: under BYOK
+        that is the signature of a real expense we cannot see yet, and confirming it
+        would discharge the reservation and report the run as free.
+        """
+        return self.billable is not None and self.evidence in _CONFIRMING_EVIDENCE
+
+
+_CONFIRMING_EVIDENCE = frozenset({"provider_response", "provider_generation"})
+
+
+async def generation_record(generation_id: str, api_key: str) -> GenerationRecord | None:
+    """Read the billing record from OpenRouter; this GET does not create a generation."""
     if not generation_id.startswith("gen-"):
         logger.warning("GRANT_BILLING_LOOKUP skipped: response ID is not an OpenRouter generation ID")
         return None
@@ -92,10 +138,13 @@ async def generation_cost(generation_id: str, api_key: str) -> Decimal | None:
             )
             response.raise_for_status()
             data = response.json().get("data", {})
-            cost = _reported_cost(data.get("total_cost"))
-            if cost is None:
-                logger.warning("GRANT_BILLING_LOOKUP generation_id=%s missing or invalid total_cost", generation_id)
-            return cost
+            charge = _reported_cost(data.get("total_cost"))
+            upstream = _reported_cost(data.get("upstream_inference_cost"))
+            is_byok = bool(data.get("is_byok"))
+            if charge is None and upstream is None:
+                logger.warning("GRANT_BILLING_LOOKUP generation_id=%s carried no usable cost", generation_id)
+                return None
+            return GenerationRecord(openrouter_charge=charge, upstream_cost=upstream, is_byok=is_byok)
     except httpx.HTTPStatusError as exc:
         logger.warning("GRANT_BILLING_LOOKUP generation_id=%s status=%s", generation_id, exc.response.status_code)
         return None
@@ -104,28 +153,63 @@ async def generation_cost(generation_id: str, api_key: str) -> Decimal | None:
         return None
 
 
-async def resolve_grant_cost(
-    capture: CostCapture, framework_cost: float, api_key: str
-) -> tuple[Decimal | None, str | None, str]:
-    """Return cost, request ID, and evidence class.
+async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_key: str) -> CostResolution:
+    """Establish what a completed call cost, preferring the provider's own figures.
 
-    Only the provider's generation billing record establishes a confirmed charge.
-    Callback and framework costs are local estimates, even when token usage is known.
+    Order of evidence, strongest first:
+
+    1. **The generation record** (a GET). Richest -- it alone carries the BYOK split, so
+       it is the only source that can give a confirmed billable figure for a BYOK route.
+    2. **The completion response's ``usage.cost``.** OpenRouter's account charge, already
+       in hand, no extra request. A POSITIVE value confirms. A ZERO does not: zero is
+       either a genuinely free route or a BYOK route whose real cost is upstream and not
+       yet visible, and those are indistinguishable from the response alone. Zero is
+       preserved rather than discarded -- it is a fact, just not a sufficient one.
+    3. **The framework estimate** (LiteLLM token maths). A guess; recorded, never confirmed.
+
+    Crucially this no longer decides whether a call may proceed. It reports what is known;
+    the caller settles on that and reconciles later. The previous design made the GET a
+    precondition of publication, so an eventually-consistent endpoint could discard a
+    forecast that had already been paid for.
     """
     # LiteLLM may finish its asynchronous callback after GeneralLlm returns.
-    # Wait for that callback before treating a successful call as unpriced.
     if not capture.ready.is_set():
         try:
             await asyncio.wait_for(capture.ready.wait(), timeout=2)
         except asyncio.TimeoutError:
             pass
+
     if capture.generation_id:
-        provider_cost = await generation_cost(capture.generation_id, api_key)
-        if provider_cost is not None:
-            return provider_cost, capture.generation_id, "provider_generation"
-    if capture.reported_cost is not None and capture.reported_cost > 0:
-        return capture.reported_cost, capture.generation_id, "callback_estimate"
-    fallback_cost = _reported_cost(framework_cost)
-    if fallback_cost is not None and fallback_cost > 0:
-        return fallback_cost, capture.generation_id, "framework_estimate"
-    return None, capture.generation_id, "unknown"
+        record = await generation_record(capture.generation_id, api_key)
+        if record is not None and record.billable is not None:
+            return CostResolution(
+                billable=record.billable,
+                openrouter_charge=record.openrouter_charge,
+                upstream_cost=record.upstream_cost,
+                is_byok=record.is_byok,
+                provider_request_id=capture.generation_id,
+                evidence="provider_generation",
+            )
+
+    if capture.reported_cost is not None:
+        # Positive confirms; zero is kept but left unconfirmed for reconciliation.
+        return CostResolution(
+            billable=capture.reported_cost,
+            openrouter_charge=capture.reported_cost,
+            upstream_cost=None,
+            is_byok=None,
+            provider_request_id=capture.generation_id,
+            evidence="provider_response" if capture.reported_cost > 0 else "provider_response_zero",
+        )
+
+    fallback = _reported_cost(framework_cost)
+    if fallback is not None and fallback > 0:
+        return CostResolution(
+            billable=fallback,
+            openrouter_charge=None,
+            upstream_cost=None,
+            is_byok=None,
+            provider_request_id=capture.generation_id,
+            evidence="framework_estimate",
+        )
+    return CostResolution(None, None, None, None, capture.generation_id, "unknown")

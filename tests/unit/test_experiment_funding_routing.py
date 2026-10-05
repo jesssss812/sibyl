@@ -78,11 +78,15 @@ async def test_each_mocked_model_attempt_settles_once(tmp_path: Path, monkeypatc
     monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", _fake_call)
     with grant_context(session):
         llm = build_grant_llm("openrouter/openai/test", allowed_tries=1)
-    with pytest.raises(GrantCostUnknown, match="provider-confirmed"):
-        await llm._mockable_direct_call_to_model("prompt")
-    assert session.ledger.summary(session.run_id)["charged_usd"] == "0.2"
-    assert session.ledger.summary(session.run_id)["estimated_usd"] == "0.2"
-    assert session.ledger.summary(session.run_id)["confirmed_usd"] == "0"
+    # A framework-only estimate no longer aborts the call: the money is already spent, so
+    # discarding the result buys nothing. It settles ONCE, as an estimate, and the
+    # reservation stays held until the provider record reconciles it.
+    await llm._mockable_direct_call_to_model("prompt")
+    summary = session.ledger.summary(session.run_id)
+    assert summary["charged_usd"] == "0.2"
+    assert summary["estimated_usd"] == "0.2"
+    assert summary["confirmed_usd"] == "0"
+    assert session.ledger.unreconciled(session.run_id), "an estimate must stay reconcilable"
 
 
 @pytest.mark.asyncio
@@ -109,7 +113,7 @@ async def test_missing_cost_retains_full_liability(tmp_path: Path, monkeypatch: 
 
 @pytest.mark.asyncio
 async def test_unknown_cost_keeps_generation_id_for_reconciliation(tmp_path, monkeypatch):
-    from sibyl.platform import experiment_llm
+    from sibyl.platform import experiment_llm, experiment_usage
 
     session = _session(tmp_path)
 
@@ -124,7 +128,8 @@ async def test_unknown_cost_keeps_generation_id_for_reconciliation(tmp_path, mon
         )
 
     async def unknown_cost(*args):
-        return None, "gen-reconcile-me", "unknown"
+        # No evidence at all -- the one case that still refuses to proceed.
+        return experiment_usage.CostResolution(None, None, None, None, "gen-reconcile-me", "unknown")
 
     monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", fake_call)
     monkeypatch.setattr(experiment_llm, "resolve_grant_cost", unknown_cost)

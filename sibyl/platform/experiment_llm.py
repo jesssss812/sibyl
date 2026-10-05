@@ -77,39 +77,60 @@ class FundedGeneralLlm(GeneralLlm):
             if isinstance(exc, Exception):
                 raise GrantCallError(f"OpenRouter grant call failed ({diagnostic}); charge uncertain") from None
             raise
-        cost, provider_request_id, evidence_source = await resolve_grant_cost(capture, response.cost, session.key)
-        if cost is None:
+        resolution = await resolve_grant_cost(capture, response.cost, session.key)
+        if resolution.billable is None:
             session.ledger.mark_uncertain(
-                attempt_id, provider_request_id=provider_request_id, evidence_source=evidence_source
+                attempt_id,
+                provider_request_id=resolution.provider_request_id,
+                evidence_source=resolution.evidence,
             )
             logger.warning(
                 "GRANT_COST_UNKNOWN attempt=%s model=%s generation_id=%s callback_received=%s",
                 attempt_id,
                 self.model,
-                provider_request_id,
+                resolution.provider_request_id,
                 capture.ready.is_set(),
             )
-            raise GrantCostUnknown("OpenRouter grant call returned no verifiable cost; reservation retained")
+            raise GrantCostUnknown("OpenRouter grant call returned no cost evidence at all; reservation retained")
         session.ledger.settle(
             attempt_id,
-            cost,
+            resolution.billable,
             response.prompt_tokens_used,
             response.completion_tokens_used,
-            provider_request_id,
-            certainty="confirmed" if evidence_source == "provider_generation" else "estimated",
-            evidence_source=evidence_source,
+            resolution.provider_request_id,
+            # Confirmed only when the provider established the figure the budget holds.
+            # An unconfirmed settlement keeps its full reservation, so an unseen BYOK
+            # expense cannot make the run look free.
+            certainty="confirmed" if resolution.confirmed else "estimated",
+            evidence_source=resolution.evidence if resolution.confirmed else "provider_response",
+            openrouter_charge_usd=resolution.openrouter_charge,
+            upstream_cost_usd=resolution.upstream_cost,
+            is_byok=resolution.is_byok,
         )
         logger.info(
-            "GRANT_CALL_SETTLED attempt=%s model=%s cost_usd=%s evidence=%s generation_id=%s",
+            "GRANT_CALL_SETTLED attempt=%s model=%s billable_usd=%s openrouter_usd=%s upstream_usd=%s "
+            "byok=%s evidence=%s confirmed=%s generation_id=%s",
             attempt_id,
             self.model,
-            cost,
-            evidence_source,
-            provider_request_id,
+            resolution.billable,
+            resolution.openrouter_charge,
+            resolution.upstream_cost,
+            resolution.is_byok,
+            resolution.evidence,
+            resolution.confirmed,
+            resolution.provider_request_id,
         )
-        if evidence_source != "provider_generation":
-            raise GrantCostUnknown("OpenRouter grant call has no provider-confirmed cost; estimate retained")
-        if cost > session.per_call_reserve_usd:
+        # The call proceeds on the evidence it has. An unconfirmed cost is a
+        # RECONCILIATION task, not a reason to discard a forecast that is already paid
+        # for -- which is what the previous `evidence_source != "provider_generation"`
+        # raise did, on an endpoint that is only eventually consistent.
+        if not resolution.confirmed:
+            logger.info(
+                "GRANT_RECONCILE_PENDING attempt=%s generation_id=%s reservation held until reconciled",
+                attempt_id,
+                resolution.provider_request_id,
+            )
+        if resolution.billable > session.per_call_reserve_usd:
             raise BudgetExceeded("Provider charge exceeded the per-call reservation; execution stopped")
         return response
 

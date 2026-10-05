@@ -1,93 +1,179 @@
-"""Generation cost reconciliation is mocked; no credential is sent to OpenRouter."""
+"""Cost resolution for grant-funded calls.
+
+These replace a set of tests that encoded the defect found on 2026-10-05: they asserted
+that a provider-reported zero was indistinguishable from a missing cost, and that
+OpenRouter's own ``usage.cost`` was a mere estimate. Together those made a second
+``/generation`` GET a precondition of publishing a forecast that had already been paid
+for -- against an endpoint that is only eventually consistent. The cases below pin the
+corrected policy, including the shapes that previously failed.
+
+Every test is offline. The HTTP layer is stubbed; no paid call is made.
+"""
+
+from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from sibyl.platform import experiment_usage
 
 
-@pytest.mark.asyncio
-async def test_generation_total_cost_overrides_unpriced_framework_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_generation_cost(generation_id: str, api_key: str) -> Decimal:
-        assert generation_id == "gen-dummy"
-        assert api_key == "dummy-key"
-        return Decimal("0.42")
-
-    monkeypatch.setattr(experiment_usage, "generation_cost", fake_generation_cost)
-    capture = experiment_usage.CostCapture(generation_id="gen-dummy")
-    cost, request_id, evidence = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
-    assert cost == Decimal("0.42")
-    assert request_id == "gen-dummy"
-    assert evidence == "provider_generation"
+def _capture(generation_id: str | None = None, reported: Decimal | None = None) -> experiment_usage.CostCapture:
+    capture = experiment_usage.CostCapture(generation_id=generation_id, reported_cost=reported)
+    capture.ready.set()
+    return capture
 
 
-@pytest.mark.asyncio
-async def test_callback_captures_only_cost_and_generation_id() -> None:
-    response = SimpleNamespace(id="gen-dummy", usage=SimpleNamespace(cost=0.12), choices=["sensitive-output"])
-    with experiment_usage.capture_grant_usage() as capture:
-        observer = experiment_usage._GrantUsageObserver()
-        await observer.async_log_success_event({}, response, None, None)
-    assert capture == experiment_usage.CostCapture("gen-dummy", Decimal("0.12"))
-    assert "sensitive-output" not in repr(capture)
+class _Response:
+    def __init__(self, payload: dict, status: int = 200) -> None:
+        self._payload, self.status_code = payload, status
+
+    def json(self) -> dict:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError("err", request=None, response=self)  # type: ignore[arg-type]
 
 
-@pytest.mark.asyncio
-async def test_zero_cost_without_generation_record_remains_uncertain() -> None:
-    capture = experiment_usage.CostCapture(reported_cost=Decimal("0"))
-    cost, request_id, evidence = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
-    assert cost is None
-    assert request_id is None
-    assert evidence == "unknown"
+def _stub_http(monkeypatch: pytest.MonkeyPatch, response: _Response) -> None:
+    class Client:
+        def __init__(self, *a: object, **k: object) -> None: ...
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *a: object) -> bool:
+            return False
+
+        async def get(self, *a: object, **k: object) -> _Response:
+            return response
+
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
 
 
-@pytest.mark.asyncio
-async def test_framework_and_callback_costs_are_estimates() -> None:
-    callback = experiment_usage.CostCapture(reported_cost=Decimal("0.12"))
-    assert await experiment_usage.resolve_grant_cost(callback, 0.5, "dummy-key") == (
-        Decimal("0.12"),
-        None,
-        "callback_estimate",
-    )
-    assert await experiment_usage.resolve_grant_cost(experiment_usage.CostCapture(), 0.5, "dummy-key") == (
-        Decimal("0.5"),
-        None,
-        "framework_estimate",
-    )
+class TestCallbackCapture:
+    @pytest.mark.asyncio
+    async def test_captures_only_cost_and_generation_id(self) -> None:
+        response = SimpleNamespace(id="gen-x", usage=SimpleNamespace(cost=0.12), choices=["sensitive-output"])
+        with experiment_usage.capture_grant_usage() as capture:
+            await experiment_usage._GrantUsageObserver().async_log_success_event({}, response, None, None)
+        assert (capture.generation_id, capture.reported_cost) == ("gen-x", Decimal("0.12"))
+        assert "sensitive-output" not in repr(capture)
+
+    @pytest.mark.asyncio
+    async def test_a_zero_provider_cost_is_captured_not_dropped(self) -> None:
+        """Zero is a fact. Under BYOK it is the NORMAL OpenRouter charge."""
+        response = SimpleNamespace(id="gen-byok", usage=SimpleNamespace(cost=0))
+        with experiment_usage.capture_grant_usage() as capture:
+            await experiment_usage._GrantUsageObserver().async_log_success_event({}, response, None, None)
+        assert capture.reported_cost == Decimal("0")
 
 
-@pytest.mark.asyncio
-async def test_delayed_callback_can_still_confirm_provider_cost(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_generation_cost(generation_id: str, api_key: str) -> Decimal:
-        assert (generation_id, api_key) == ("gen-delayed", "dummy-key")
-        return Decimal("0.18")
+class TestGenerationRecord:
+    @pytest.mark.asyncio
+    async def test_preserves_the_byok_split(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The real 2026-10-05 record: no OpenRouter credits, real upstream expense."""
+        _stub_http(
+            monkeypatch,
+            _Response({"data": {"total_cost": 0, "upstream_inference_cost": 0.1873175, "is_byok": True}}),
+        )
+        record = await experiment_usage.generation_record("gen-1", "k")
+        assert record is not None
+        assert record.openrouter_charge == Decimal("0")
+        assert record.upstream_cost == Decimal("0.1873175")
+        assert record.is_byok is True
+        # Billable follows the money, which under BYOK is upstream -- not OpenRouter's $0.
+        assert record.billable == Decimal("0.1873175")
 
-    monkeypatch.setattr(experiment_usage, "generation_cost", fake_generation_cost)
-    with experiment_usage.capture_grant_usage() as capture:
+    @pytest.mark.asyncio
+    async def test_non_byok_billable_is_the_openrouter_charge(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _stub_http(monkeypatch, _Response({"data": {"total_cost": 0.42, "is_byok": False}}))
+        record = await experiment_usage.generation_record("gen-1", "k")
+        assert record is not None and record.billable == Decimal("0.42")
 
-        async def delayed_callback() -> None:
-            await asyncio.sleep(0.15)
-            await experiment_usage._GrantUsageObserver().async_log_success_event(
-                {}, SimpleNamespace(id="gen-delayed", usage=SimpleNamespace(cost=0.18)), None, None
-            )
+    @pytest.mark.asyncio
+    async def test_a_404_is_absence_not_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _stub_http(monkeypatch, _Response({}, status=404))
+        assert await experiment_usage.generation_record("gen-1", "k") is None
 
-        callback = asyncio.create_task(delayed_callback())
-        result = await experiment_usage.resolve_grant_cost(capture, 0, "dummy-key")
-        await callback
-    assert result == (Decimal("0.18"), "gen-delayed", "provider_generation")
+    @pytest.mark.asyncio
+    async def test_a_non_openrouter_id_is_not_looked_up(self) -> None:
+        assert await experiment_usage.generation_record("chatcmpl-123", "k") is None
 
 
-@pytest.mark.asyncio
-async def test_billing_lookup_failure_logs_status_without_credentials(monkeypatch, caplog):
-    import httpx
+class TestResolution:
+    @pytest.mark.asyncio
+    async def test_positive_response_cost_confirms_despite_a_404(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """THE regression. This shape previously raised and discarded the forecast.
 
-    async def send(client, request, **kwargs):
-        return httpx.Response(403, request=request, text="sensitive provider body")
+        The call succeeded, OpenRouter reported the account charge in the response, and
+        the billing record simply was not queryable yet. That is now a confirmed charge.
+        """
+        _stub_http(monkeypatch, _Response({}, status=404))
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0.42")), 0, "k")
+        assert resolution.billable == Decimal("0.42")
+        assert resolution.evidence == "provider_response"
+        assert resolution.confirmed is True
 
-    monkeypatch.setattr(httpx.AsyncClient, "send", send)
-    assert await experiment_usage.generation_cost("gen-offline", "dummy-private-key") is None
-    assert "generation_id=gen-offline status=403" in caplog.text
-    assert "dummy-private-key" not in caplog.text
-    assert "sensitive provider body" not in caplog.text
+    @pytest.mark.asyncio
+    async def test_zero_response_cost_is_preserved_but_not_confirmed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A $0 OpenRouter charge with no record yet is ambiguous, so it must not confirm.
+
+        It is either a genuinely free route or a BYOK route billing upstream, and the
+        response alone cannot tell them apart. Confirming it would discharge the
+        reservation and report the run as free -- the under-accounting failure.
+        """
+        _stub_http(monkeypatch, _Response({}, status=404))
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0, "k")
+        assert resolution.billable == Decimal("0")
+        assert resolution.confirmed is False
+        assert resolution.evidence == "provider_response_zero"
+
+    @pytest.mark.asyncio
+    async def test_the_generation_record_outranks_the_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # It is the only source carrying the BYOK split, so it wins when available.
+        _stub_http(
+            monkeypatch,
+            _Response({"data": {"total_cost": 0, "upstream_inference_cost": 0.19, "is_byok": True}}),
+        )
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0, "k")
+        assert resolution.billable == Decimal("0.19")
+        assert resolution.evidence == "provider_generation"
+        assert resolution.confirmed is True
+        assert resolution.is_byok is True
+
+    @pytest.mark.asyncio
+    async def test_framework_estimate_is_recorded_but_never_confirms(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _stub_http(monkeypatch, _Response({}, status=404))
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1"), 0.5, "k")
+        assert resolution.billable == Decimal("0.5")
+        assert resolution.evidence == "framework_estimate"
+        assert resolution.confirmed is False
+
+    @pytest.mark.asyncio
+    async def test_no_evidence_at_all_is_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _stub_http(monkeypatch, _Response({}, status=404))
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1"), 0, "k")
+        assert resolution.billable is None
+        assert resolution.evidence == "unknown"
+        assert resolution.confirmed is False
+
+    @pytest.mark.asyncio
+    async def test_a_delayed_callback_still_resolves(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _stub_http(monkeypatch, _Response({"data": {"total_cost": 0.18, "is_byok": False}}))
+        with experiment_usage.capture_grant_usage() as capture:
+
+            async def delayed() -> None:
+                await asyncio.sleep(0.15)
+                await experiment_usage._GrantUsageObserver().async_log_success_event(
+                    {}, SimpleNamespace(id="gen-delayed", usage=SimpleNamespace(cost=0.18)), None, None
+                )
+
+            task = asyncio.create_task(delayed())
+            resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+            await task
+        assert (resolution.billable, resolution.evidence) == (Decimal("0.18"), "provider_generation")
