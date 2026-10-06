@@ -213,6 +213,21 @@ class TestByokCostComponents:
         assert _liability(ledger, "run") == Decimal("0.1873175")
         assert ledger.unreconciled("run") == []
 
+    def test_a_zero_provider_record_reconciles(self, tmp_path: Path) -> None:
+        # A free route bills $0; that is a provider fact, not an invalid amount.
+        ledger = self._ledger(tmp_path)
+        ledger.settle(
+            "a1", Decimal("0"), 1, 1, "gen-free", certainty="estimated", evidence_source="provider_response_partial"
+        )
+        ledger.reconcile("a1", Decimal("0"), openrouter_charge_usd=Decimal("0"), is_byok=False)
+        assert _liability(ledger, "run") == Decimal("0")
+        assert ledger.unreconciled("run") == []
+
+    def test_a_negative_record_is_refused(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        with pytest.raises(ValueError, match="nonnegative"):
+            ledger.reconcile("a1", Decimal("-0.1"))
+
     def test_reconciling_an_unknown_attempt_is_an_error(self, tmp_path: Path) -> None:
         ledger = self._ledger(tmp_path)
         with pytest.raises(ValueError, match="Unknown attempt"):

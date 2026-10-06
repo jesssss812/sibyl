@@ -303,10 +303,12 @@ class SpendLedger:
         hot path. That ordering is the point of the fix: a call publishes on the evidence
         it has, and the authoritative figure arrives later without a second paid request.
         """
-        charge = _amount(billable_usd)
+        charge = Decimal(billable_usd)
+        if not charge.is_finite() or charge < 0:
+            raise ValueError("Reconciled cost must be a finite nonnegative decimal")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT certainty FROM attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
+            row = db.execute("SELECT 1 FROM attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
             if row is None:
                 db.rollback()
                 raise ValueError("Unknown attempt ID")
