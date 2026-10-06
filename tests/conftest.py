@@ -1,3 +1,4 @@
+import os
 import socket
 from datetime import datetime, timedelta
 from typing import Any
@@ -87,6 +88,35 @@ def _isolate_feature_flags(monkeypatch: pytest.MonkeyPatch) -> None:
 _ALLOWED_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"})
 
 
+# Proxy variables route every request through a loopback listener that forwards it,
+# and a cloud agent proxy may add credentials on the way. A loopback allowance would
+# therefore wave real, authenticated API calls through. The proxy endpoints are read
+# once, before any fixture strips the variables, so clients that cached them at
+# import are still caught.
+_PROXY_ENV_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+
+
+def _proxy_endpoints(environ: Any) -> frozenset[tuple[str, int]]:
+    from urllib.parse import urlsplit
+
+    endpoints: set[tuple[str, int]] = set()
+    for name in _PROXY_ENV_VARS:
+        raw = environ.get(name, "").strip()
+        if not raw:
+            continue
+        parts = urlsplit(raw if "://" in raw else f"http://{raw}")
+        try:
+            port = parts.port
+        except ValueError:
+            continue
+        if parts.hostname:
+            endpoints.add((parts.hostname, port or (443 if parts.scheme == "https" else 80)))
+    return frozenset(endpoints)
+
+
+_PROXY_ENDPOINTS: frozenset[tuple[str, int]] = _proxy_endpoints(os.environ)
+
+
 def _host_from_address(address: Any) -> str | None:
     """Pull the host out of a connect() address (INET = (host, port), INET6 adds flow/scope)."""
     if isinstance(address, tuple) and address:
@@ -94,14 +124,16 @@ def _host_from_address(address: Any) -> str | None:
     return None
 
 
-def _address_is_blocked(family: int, address: Any) -> bool:
-    """True iff this is an AF_INET/AF_INET6 connect to a non-loopback host."""
+def _address_is_blocked(family: int, address: Any, proxies: frozenset[tuple[str, int]] = _PROXY_ENDPOINTS) -> bool:
+    """True iff this is an AF_INET/AF_INET6 connect to a non-loopback host or a proxy."""
     if family not in (socket.AF_INET, socket.AF_INET6):
         # AF_UNIX and everything else (socketpair, unix domain sockets) is fine.
         return False
     host = _host_from_address(address)
     if host is None:
         return False
+    if len(address) > 1 and any(port == address[1] for _, port in proxies) and host in _ALLOWED_HOSTS:
+        return True
     return host not in _ALLOWED_HOSTS
 
 
@@ -161,6 +193,9 @@ def _block_network_egress(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
+    # Clients built during the test then connect to the real host, which is blocked.
+    for name in _PROXY_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
 
 
 # ---------------------------------------------------------------------------

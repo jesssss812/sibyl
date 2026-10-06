@@ -29,7 +29,19 @@ python -m sibyl.ops.experiment_grant run-test \
 
 This is a command template, not standing authorization. Each live test needs operator approval for that specific run. Its manifest, question snapshot, and reports are written under `backtests/grant_test_runs/<run-id>/` by default. It uses the same grant-only routes, research preflight, per-call reservations, and publication gate as MiniBench.
 
-For publishing runs, open a visible terminal and use `python -u` with `2>&1 | tee <private-log-path>` so the operator can watch progress. Enable `set -o pipefail` in the shell so `tee` cannot hide a failed run. The runner emits question starts and completions, model call starts and settlements, and sanitized failure status codes at INFO level. It never logs credentials or upstream error bodies. A research charge that cannot be confirmed stops that question before its forecasters start; grant accounting errors are not retried by the outer LLM retry loop.
+For publishing runs, open a visible terminal and use `python -u` with `2>&1 | tee <private-log-path>` so the operator can watch progress. Enable `set -o pipefail` in the shell so `tee` cannot hide a failed run. The runner emits question starts and completions, model call starts and settlements, and sanitized failure status codes at INFO level. It never logs credentials or upstream error bodies. Gates are about missing answers, not costs, because every unconfirmed cost already holds its reservation. A question stops before its forecasters start when its research is empty or a research call returned no answer. Publication has no cost gate: a dropped forecaster publishes and alerts, as in prod, and the run exits non-zero. An estimated charge is logged as `GRANT_RECONCILE_NEEDED` and stays owed a reconciliation. Grant accounting errors are not retried by the outer LLM retry loop.
+
+Each kind of failed call has its own consequence:
+
+| Call outcome | Billed? | Ledger | Run |
+| --- | --- | --- | --- |
+| 401 invalid key, 402 no credit | No | `rejected`, $0 | Halts: no further call is made |
+| 400, 403 moderation, 404, 413, 422, 429 | No | `rejected`, $0, reservation released | Continues without that answer |
+| Lost after sending: 5xx, timeout, connection, cancellation | Maybe | `uncertain`, full reservation held | Continues without that answer |
+| Answered, no cost evidence | Yes | answer kept, full reservation held | Halts after 3 in a row |
+| Answered, charge above the reservation | Yes | answer kept, charge recorded | Halts: the reservation size cannot be trusted |
+
+A halted run makes no further model call and exits non-zero with the reason, even when the halt came on its last call.
 
 The following is a command template, **not authorization to execute it**. It publishes to scored MiniBench and spends credits. Set a unique run ID and a per-call reservation large enough for the chosen model's maximum output and research charges.
 
@@ -46,7 +58,18 @@ The run fails before calling a model if the grant key is missing or matches eith
 
 The runner writes `backtests/minibench_runs/<run-id>/manifest.json` before its first request, recording the code identity, routed models, research profile, budget, and start time without credentials. It records the exact selected question IDs and snapshots in `scheduled_questions.json` before forecasting. The forecasting framework saves successful reports in that run's `forecasts/` directory when the batch returns. These paths are private and excluded from Git. An interrupted batch can leave a manifest and ledger entries without a report file; reconcile those against Metaculus before scoring. A run ID with an existing manifest is refused so a second execution cannot overwrite its provenance. Use `--reports-dir` only when the alternate directory is private.
 
-The reservation is a local stop-loss, **not a provider-enforced hard cap**. A single provider charge can exceed its reservation, and spending from other machines or applications is invisible until recorded. The runner records the overage and stops before publishing that question. Use OpenRouter's own account/key controls where available, and reconcile against provider billing. The pinned framework does not report a reliable cost for every route or every web-search surcharge. The runner attempts a read-only lookup of each [generation's `total_cost`](https://openrouter.ai/docs/api/api-reference/generations/get-generation) to settle it. If provider billing cannot confirm the charge, a local estimate is retained for reporting or the full reservation stays uncertain; either state blocks publication of that question.
+The reservation is a local stop-loss, **not a provider-enforced hard cap**. A single provider charge can exceed its reservation, and spending from other machines or applications is invisible to the local ledger until recorded. Before any model call, the runner therefore reads the grant key's own `limit_remaining` from OpenRouter (free, read-only); it refuses the run when that cannot cover the run budget plus the $5 reserve, when the key reports no limit, or when the lookup fails. A charge above its reservation is recorded and halts the run. Use OpenRouter's own account/key controls where available, and reconcile against provider billing. The pinned framework does not report a reliable cost for every route or every web-search surcharge. Cost evidence is ranked rather than demanded from one source:
+
+1. the completion response's usage accounting, when it states `is_byok` — OpenRouter's `usage.cost` plus, under BYOK, `cost_details.upstream_inference_cost`. Already in hand, no extra request; it confirms;
+2. the [generation billing record](https://openrouter.ai/docs/api/api-reference/generations/get-generation), looked up when the response lacks the split. It is eventually consistent, so it is often not available yet;
+3. `usage.cost` alone — recorded, never confirming. Without `is_byok` it may be only OpenRouter's BYOK fee, and a zero may be a free route or an unseen upstream expense;
+4. the LiteLLM framework estimate — recorded, never confirming.
+
+An unconfirmed call settles as an estimate and keeps its whole reservation until reconciled, so an unseen BYOK expense cannot make a run read as free. It does not block publication.
+
+**Billable vs. components.** `charged_usd` is the figure the budget holds. Under BYOK that is the upstream provider's charge plus OpenRouter's BYOK fee, since the grant key's limit meters both; OpenRouter's own charge alone is often `0`. The components (`openrouter_charge_usd`, `upstream_cost_usd`, `is_byok`) are stored separately, because collapsing them is what let a run report `$0` spent while `$0.1873175` moved upstream.
+
+**Reconciliation.** `python -m sibyl.ops.experiment_grant reconcile --run-id <id>` confirms outstanding estimates from the provider's records. Read-only, concurrent lookups with a short bounded retry, and it never repeats a paid request to learn what one cost. The generation record is eventually consistent and has been observed resolving minutes after the call, so re-run it later for anything still outstanding. It exits non-zero while anything is unaccounted, and refuses a ledger path or run ID that does not exist.
 
 If grant credits were used elsewhere, record the prior amount with a stable unique ID:
 
@@ -55,7 +78,15 @@ python -m sibyl.ops.experiment_grant record-prior-spend \
   --id outside-001 --amount-usd 4.25 --note 'previous grant use'
 ```
 
-`report` separates confirmed charges, local estimates, reserved calls, uncertain calls, and prior-spend adjustments. Only a provider generation billing record or later provider reconciliation confirms a charge. LiteLLM/framework costs and callback costs are estimates even when token usage is known; their full pre-call reservation remains budget liability until reconciled. The model/stage breakdown never contains prompts or credentials. Use one shared ledger path for every local process using the grant. Keep the ledger as a private artifact; it is excluded from Git under `backtests/`.
+Attempts that failed without a generation ID can never be reconciled and hold their full reservation indefinitely. When OpenRouter's key metadata gives the total those attempts actually cost, `write-off` closes them at `$0` (`operator_write_off`) and records that total as one adjustment, in a single transaction. It refuses unless exactly `--expect-count` attempts match, so a wrong ledger or a repeat changes nothing:
+
+```bash
+python -m sibyl.ops.experiment_grant write-off \
+  --id trueup-2026-10-05 --provider-total-usd 0.796028 --expect-count 8 \
+  --note 'OpenRouter byok_usage for the 2026-10-05 grant attempts'
+```
+
+`report` separates confirmed charges, local estimates, reserved calls, uncertain calls, and prior-spend adjustments. A charge is confirmed by response usage accounting that states the BYOK split, a provider generation record, or later reconciliation. LiteLLM/framework estimates and a bare `usage.cost` never confirm; their full pre-call reservation remains budget liability until reconciled. The model/stage breakdown never contains prompts or credentials. Use one shared ledger path for every local process using the grant. Keep the ledger as a private artifact; it is excluded from Git under `backtests/`.
 
 Ordinary production routing is unchanged. To record *actual primary-to-personal fallback invocations* in the same report, set `SIBYL_PERSONAL_FALLBACK_LEDGER=backtests/experiment_grant_spend.sqlite3` for that process. Optionally set `SIBYL_PERSONAL_SPEND_RUN_ID` to a non-secret run label; otherwise a process-local ID is generated. The observer writes a separate `personal` table only when the secondary call is reached. A callback cost is an estimate, and a failed call or missing cost stays unknown. SDK-internal retries may create additional charges the observer cannot distinguish. Direct calls that use `OPENROUTER_API_KEY` without entering the primary-to-personal fallback wrapper are outside this table; do not interpret its total as all personal spending. Ledger failures are logged but never block the fallback call or change its route. This accounting is a separate change from the grant-only route and does not rewrite historical spend.
 

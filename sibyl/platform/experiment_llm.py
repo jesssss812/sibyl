@@ -10,7 +10,6 @@ from forecasting_tools import GeneralLlm
 from forecasting_tools.ai_models.ai_utils.response_types import TextTokenCostResponse
 
 from sibyl.platform.experiment_funding import (
-    BudgetExceeded,
     GrantExecutionError,
     GrantSession,
     active_grant,
@@ -21,12 +20,23 @@ from sibyl.platform.experiment_usage import capture_grant_usage, resolve_grant_c
 logger = logging.getLogger(__name__)
 
 
-class GrantCostUnknown(GrantExecutionError):
-    """Provider returned a response whose bill could not be established."""
-
-
 class GrantCallError(GrantExecutionError):
-    """A failed request may have incurred spend; its reservation is retained."""
+    """A grant request failed; whether it was billed depends on how it failed."""
+
+
+class GrantRunHalted(GrantExecutionError):
+    """An earlier call showed the run cannot continue safely; no further call is made."""
+
+
+# OpenRouter refuses these before any model runs, so nothing is billed.
+# 401: the key is invalid; 402: it has no credit left. Every later call would fail too.
+_KEY_REJECTED = frozenset({401, 402})
+# 400 bad request, 403 input flagged by moderation, 404 unknown model, 413 too large,
+# 422 unprocessable, 429 rate limited. Only this request is refused.
+_REQUEST_REJECTED = frozenset({400, 403, 404, 413, 422, 429})
+# Answered calls in a row with no cost evidence before the run stops: past this the
+# accounting for the route is broken, not one record late.
+_UNKNOWN_COST_LIMIT = 3
 
 
 class FundedGeneralLlm(GeneralLlm):
@@ -45,6 +55,8 @@ class FundedGeneralLlm(GeneralLlm):
 
     async def _mockable_direct_call_to_model(self, prompt: Any) -> TextTokenCostResponse:
         session = self._grant_session
+        if session.halt.reason is not None:
+            raise GrantRunHalted(f"Grant run halted: {session.halt.reason}")
         attempt_id = uuid4().hex
         session.ledger.reserve(
             attempt_id,
@@ -70,6 +82,19 @@ class FundedGeneralLlm(GeneralLlm):
             status = getattr(exc, "status_code", None)
             status = status if isinstance(status, int) else None
             diagnostic = f"{type(exc).__name__} status={status}"
+            if isinstance(exc, Exception) and status in _KEY_REJECTED | _REQUEST_REJECTED:
+                session.ledger.mark_rejected(attempt_id, evidence_source=f"provider_rejected {diagnostic}")
+                if status in _KEY_REJECTED:
+                    session.halt.stop(f"grant key rejected ({diagnostic})")
+                logger.warning(
+                    "GRANT_CALL_REJECTED attempt=%s model=%s %s; not billed, reservation released%s",
+                    attempt_id,
+                    self.model,
+                    diagnostic,
+                    "; run halted" if status in _KEY_REJECTED else "",
+                )
+                raise GrantCallError(f"OpenRouter rejected the grant call ({diagnostic}); not billed") from None
+            # Sent and lost: the provider may have billed it, so the reservation stays held.
             session.ledger.mark_uncertain(attempt_id, evidence_source=diagnostic)
             logger.warning(
                 "GRANT_CALL_FAILED attempt=%s model=%s %s; reservation retained", attempt_id, self.model, diagnostic
@@ -77,40 +102,77 @@ class FundedGeneralLlm(GeneralLlm):
             if isinstance(exc, Exception):
                 raise GrantCallError(f"OpenRouter grant call failed ({diagnostic}); charge uncertain") from None
             raise
-        cost, provider_request_id, evidence_source = await resolve_grant_cost(capture, response.cost, session.key)
-        if cost is None:
-            session.ledger.mark_uncertain(
-                attempt_id, provider_request_id=provider_request_id, evidence_source=evidence_source
+        resolution = await resolve_grant_cost(capture, response.cost, session.key)
+        if resolution.billable is None:
+            # The answer is paid for, so it is kept; the full reservation stays held.
+            session.ledger.mark_cost_unknown(
+                attempt_id,
+                response.prompt_tokens_used,
+                response.completion_tokens_used,
+                provider_request_id=resolution.provider_request_id,
+                evidence_source=resolution.evidence,
             )
+            session.halt.consecutive_unknown_cost += 1
+            if session.halt.consecutive_unknown_cost >= _UNKNOWN_COST_LIMIT:
+                session.halt.stop(f"{_UNKNOWN_COST_LIMIT} answered calls in a row carried no cost evidence")
             logger.warning(
-                "GRANT_COST_UNKNOWN attempt=%s model=%s generation_id=%s callback_received=%s",
+                "GRANT_COST_UNKNOWN attempt=%s model=%s generation_id=%s callback_received=%s; reservation held%s",
                 attempt_id,
                 self.model,
-                provider_request_id,
+                resolution.provider_request_id,
                 capture.ready.is_set(),
+                "; run halted" if session.halt.reason else "",
             )
-            raise GrantCostUnknown("OpenRouter grant call returned no verifiable cost; reservation retained")
+            return response
+        session.halt.consecutive_unknown_cost = 0
         session.ledger.settle(
             attempt_id,
-            cost,
+            resolution.billable,
             response.prompt_tokens_used,
             response.completion_tokens_used,
-            provider_request_id,
-            certainty="confirmed" if evidence_source == "provider_generation" else "estimated",
-            evidence_source=evidence_source,
+            resolution.provider_request_id,
+            # Confirmed only when the provider established the figure the budget holds.
+            # An unconfirmed settlement keeps its full reservation, so an unseen BYOK
+            # expense cannot make the run look free.
+            certainty="confirmed" if resolution.confirmed else "estimated",
+            evidence_source=resolution.evidence,
+            openrouter_charge_usd=resolution.openrouter_charge,
+            upstream_cost_usd=resolution.upstream_cost,
+            is_byok=resolution.is_byok,
         )
         logger.info(
-            "GRANT_CALL_SETTLED attempt=%s model=%s cost_usd=%s evidence=%s generation_id=%s",
+            "GRANT_CALL_SETTLED attempt=%s model=%s billable_usd=%s openrouter_usd=%s upstream_usd=%s "
+            "byok=%s evidence=%s confirmed=%s generation_id=%s",
             attempt_id,
             self.model,
-            cost,
-            evidence_source,
-            provider_request_id,
+            resolution.billable,
+            resolution.openrouter_charge,
+            resolution.upstream_cost,
+            resolution.is_byok,
+            resolution.evidence,
+            resolution.confirmed,
+            resolution.provider_request_id,
         )
-        if evidence_source != "provider_generation":
-            raise GrantCostUnknown("OpenRouter grant call has no provider-confirmed cost; estimate retained")
-        if cost > session.per_call_reserve_usd:
-            raise BudgetExceeded("Provider charge exceeded the per-call reservation; execution stopped")
+        # An unconfirmed cost is held at its full reservation until reconciled.
+        if not resolution.confirmed:
+            logger.info(
+                "GRANT_RECONCILE_PENDING attempt=%s generation_id=%s reservation held until reconciled",
+                attempt_id,
+                resolution.provider_request_id,
+            )
+        if resolution.billable > session.per_call_reserve_usd:
+            # This answer is paid for and kept. The reservation size is wrong, so no
+            # later reservation can be trusted: stop further calls.
+            session.halt.stop(
+                f"a charge of ${resolution.billable} exceeded the ${session.per_call_reserve_usd} per-call reservation"
+            )
+            logger.error(
+                "GRANT_CALL_OVER_RESERVE attempt=%s model=%s billable_usd=%s reserve_usd=%s; run halted",
+                attempt_id,
+                self.model,
+                resolution.billable,
+                session.per_call_reserve_usd,
+            )
         return response
 
 

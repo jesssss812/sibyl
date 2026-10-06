@@ -23,6 +23,7 @@ from uuid import uuid4
 from sibyl.platform.experiment_funding import (
     GRANT_KEY_ENV,
     GRANT_RESERVE_USD,
+    BudgetExceeded,
     GrantExecutionError,
     GrantSession,
     SpendLedger,
@@ -77,6 +78,40 @@ def _positive(raw: str, label: str) -> Decimal:
     return value
 
 
+def preflight_provider_limit(key: str, run_limit: Decimal) -> Decimal:
+    """Refuse a run the grant key's own limit cannot cover.
+
+    OpenRouter's ``limit_remaining`` is authoritative: it meters BYOK spend
+    (``include_byok_in_limit``) and spending from other machines, neither of which the
+    local ledger sees. The lookup is free and read-only. The local reserve margin is
+    kept on top of the run budget.
+    """
+    import httpx
+
+    from sibyl.telemetry.check_credits import fetch_auth_key
+
+    try:
+        data = fetch_auth_key(key)
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(f"Grant key limit lookup failed (HTTP {exc.response.status_code})") from None
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Grant key limit lookup failed ({type(exc).__name__})") from None
+    raw = data.get("limit_remaining")
+    if raw is None:
+        raise ValueError("Grant key reports no spending limit; refusing to run without a provider cap")
+    try:
+        remaining = Decimal(str(raw))
+    except InvalidOperation:
+        raise ValueError("Grant key reported an unreadable limit_remaining") from None
+    if not remaining.is_finite() or remaining < run_limit + GRANT_RESERVE_USD:
+        raise BudgetExceeded(
+            f"Grant key has ${remaining} remaining; run budget ${run_limit} plus "
+            f"${GRANT_RESERVE_USD} reserve does not fit"
+        )
+    logging.getLogger(__name__).info("GRANT_PREFLIGHT limit_remaining_usd=%s run_budget_usd=%s", remaining, run_limit)
+    return remaining
+
+
 def checked_session(args: argparse.Namespace) -> GrantSession:
     key = os.getenv(GRANT_KEY_ENV, "").strip()
     if not key:
@@ -90,6 +125,7 @@ def checked_session(args: argparse.Namespace) -> GrantSession:
     if run_limit > Decimal("100") - GRANT_RESERVE_USD:
         raise ValueError("Run budget exceeds the local grant allocation after reserve")
     preflight_research()
+    preflight_provider_limit(key, run_limit)
     ledger = SpendLedger(args.ledger)
     ledger.start_run(args.run_id, run_limit)
     return GrantSession(args.run_id, ledger, per_call, key)
@@ -177,10 +213,10 @@ async def _run_grant_forecasts(
     class GrantSibylBot(SibylBot):
         async def run_research(self, question: MetaculusQuestion) -> str:
             research = await super().run_research(question)
-            if not research.strip() or session.ledger.has_blocking_attempts(
-                session.run_id, str(question.id_of_question)
-            ):
-                raise GrantExecutionError("Research is empty or has unconfirmed charges; forecasters refused")
+            # Research is the question's first stage, so any failed call so far is a
+            # research call; forecasting on incomplete research is not worth paying for.
+            if not research.strip() or session.ledger.failed_attempts(session.run_id, str(question.id_of_question)):
+                raise GrantExecutionError("Research is empty or a research call failed; forecasters refused")
             return research
 
         async def forecast_questions(self, questions: Sequence[MetaculusQuestion], return_exceptions: bool = False):
@@ -218,15 +254,6 @@ async def _run_grant_forecasts(
                 report = await super()._run_individual_question(question)
             logging.getLogger(__name__).info("GRANT_QUESTION_COMPLETE question=%s", question.id_of_question)
             return report
-
-        def _create_unified_explanation(self, question, *args, **kwargs):
-            # forecasting-tools publishes immediately after creating this text.
-            # A failed call may have been dropped from the ensemble, so check the
-            # full question ledger instead of relying on prediction errors.
-            question_id = question.id_of_question
-            if question_id is None or session.ledger.has_blocking_attempts(session.run_id, str(question_id)):
-                raise RuntimeError("Grant question has unconfirmed charges or an overage; publication refused")
-            return super()._create_unified_explanation(question, *args, **kwargs)
 
     with grant_context(session):
         roster = _funded_roster(source_roster)
@@ -289,11 +316,20 @@ async def _run_grant_forecasts(
             reports = await bot.forecast_on_tournament(MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True)
         SibylBot.log_report_summary(reports)
         summary = session.ledger.summary(session.run_id)
+        if Decimal(str(summary["estimated_usd"])) > 0:
+            # Not a failure: the reservations stay held until `reconcile` confirms them.
+            logging.getLogger(__name__).warning(
+                "GRANT_RECONCILE_NEEDED run=%s estimated_usd=%s; run `reconcile --run-id %s`",
+                session.run_id,
+                summary["estimated_usd"],
+                session.run_id,
+            )
+        if session.halt.reason is not None:
+            raise RuntimeError(f"Grant run halted: {session.halt.reason}")
         if (
             any(isinstance(report, BaseException) for report in reports)
             or bot.alertable_count > 0
             or Decimal(str(summary["uncertain_usd"])) > 0
-            or Decimal(str(summary["estimated_usd"])) > 0
             or Decimal(str(summary["reserved_usd"])) > 0
         ):
             raise RuntimeError("Grant run finished with failed forecasts, degradation, or uncertain charges")
@@ -306,11 +342,26 @@ def _parser() -> argparse.ArgumentParser:
     report = sub.add_parser("report", help="Show local grant accounting; makes no API call")
     report.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     report.add_argument("--run-id")
+    rec = sub.add_parser(
+        "reconcile",
+        help="Confirm settled estimates from OpenRouter's billing records; read-only, makes no paid call",
+    )
+    rec.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    rec.add_argument("--run-id", required=True)
     adjust = sub.add_parser("record-prior-spend", help="Record previous grant spending in the local allocation")
     adjust.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     adjust.add_argument("--amount-usd", required=True)
     adjust.add_argument("--note", required=True)
     adjust.add_argument("--id", required=True, help="Stable unique adjustment ID for audit and duplicate protection")
+    write_off = sub.add_parser(
+        "write-off",
+        help="Replace unconfirmed attempts with no generation ID by OpenRouter's own total; makes no API call",
+    )
+    write_off.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    write_off.add_argument("--provider-total-usd", required=True, help="What OpenRouter metered for those attempts")
+    write_off.add_argument("--expect-count", type=int, required=True, help="Refuse unless exactly this many match")
+    write_off.add_argument("--note", required=True)
+    write_off.add_argument("--id", required=True, help="Stable unique adjustment ID for audit and duplicate protection")
     run = sub.add_parser("run-minibench", help="Paid, scored run; requires per-run operator authorization")
     run.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     run.add_argument("--run-id", default=None)
@@ -356,6 +407,37 @@ def main(argv: list[str] | None = None) -> int:
                     indent=2,
                 )
             )
+            return 0
+        if args.command == "reconcile":
+            # Read-only: the generation GET reads a billing record, it never creates one.
+            # So this needs the grant key but spends nothing, and is safe to re-run.
+            key = os.getenv(GRANT_KEY_ENV, "").strip()
+            if not key:
+                raise ValueError(f"{GRANT_KEY_ENV} is required to read the grant's billing records")
+            from sibyl.platform.experiment_usage import reconcile_pending
+
+            # SpendLedger creates a missing file, and an empty ledger would report
+            # nothing outstanding; a mistyped path or run ID must not read as success.
+            if not args.ledger.is_file():
+                raise ValueError(f"No grant ledger at {args.ledger}")
+            ledger = SpendLedger(args.ledger)
+            if not ledger.has_run(args.run_id):
+                raise ValueError(f"Run {args.run_id} is not in the ledger at {args.ledger}")
+            outcome = asyncio.run(reconcile_pending(ledger, args.run_id, key))
+            print(json.dumps(outcome, indent=2))
+            # Non-zero when anything is still unaccounted, so a wrapper notices.
+            return 0 if outcome["still_unknown"] == 0 and outcome["no_generation_id"] == 0 else 1
+        if args.command == "write-off":
+            if not args.ledger.is_file():
+                raise ValueError(f"No grant ledger at {args.ledger}")
+            ledger = SpendLedger(args.ledger)
+            written = ledger.write_off(
+                args.id,
+                _positive(args.provider_total_usd, "--provider-total-usd"),
+                args.note,
+                expected_count=args.expect_count,
+            )
+            print(json.dumps({"written_off": written, "totals": ledger.summary()}, indent=2))
             return 0
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)

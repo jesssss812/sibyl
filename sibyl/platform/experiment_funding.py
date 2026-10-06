@@ -9,13 +9,23 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 from typing import Iterator
 
 GRANT_KEY_ENV = "SIBYL_EXPERIMENT_OPENROUTER_API_KEY"
+# Evidence that establishes a real charge, as opposed to a local guess.
+#
+# `provider_response` is OpenRouter's usage accounting on the completion response, used
+# only when it states `is_byok` and so carries the full BYOK split. Accepting it means a
+# confirmed charge does not wait on the eventually-consistent /generation GET.
+# `provider_response_partial` (a bare `usage.cost`, possibly just the BYOK fee) and
+# `framework_estimate` (LiteLLM token maths) are NOT here: they must not discharge a
+# reservation.
+CONFIRMING_EVIDENCE: frozenset[str] = frozenset({"provider_response", "provider_generation", "provider_reconciliation"})
+
 GRANT_ALLOCATION_USD = Decimal("100")
 GRANT_RESERVE_USD = Decimal("5")
 
@@ -93,6 +103,17 @@ class SpendLedger:
                 db.execute("ALTER TABLE attempts ADD COLUMN evidence_source TEXT")
             if "reconciled_at" not in columns:
                 db.execute("ALTER TABLE attempts ADD COLUMN reconciled_at TEXT")
+            # charged_usd holds the BILLABLE figure -- the money the budget must hold.
+            # Under BYOK that is the upstream provider's charge, not OpenRouter's, so the
+            # two components are stored separately: a run can show a $0 OpenRouter charge
+            # and a real upstream expense, and collapsing them to one number is what let
+            # a BYOK run report $0 spent while money moved.
+            if "openrouter_charge_usd" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN openrouter_charge_usd TEXT")
+            if "upstream_cost_usd" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN upstream_cost_usd TEXT")
+            if "is_byok" not in columns:
+                db.execute("ALTER TABLE attempts ADD COLUMN is_byok INTEGER")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -201,13 +222,16 @@ class SpendLedger:
         *,
         certainty: str,
         evidence_source: str,
+        openrouter_charge_usd: Decimal | None = None,
+        upstream_cost_usd: Decimal | None = None,
+        is_byok: bool | None = None,
     ) -> None:
         charge = Decimal(charged_usd)
         if not charge.is_finite() or charge < 0:
             raise ValueError("Settled cost must be a finite nonnegative decimal")
         if certainty not in {"confirmed", "estimated"} or not evidence_source:
             raise ValueError("Settlement requires a valid certainty and evidence source")
-        if certainty == "confirmed" and evidence_source not in {"provider_generation", "provider_reconciliation"}:
+        if certainty == "confirmed" and evidence_source not in CONFIRMING_EVIDENCE:
             raise ValueError("Confirmed cost requires provider billing evidence")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -218,15 +242,6 @@ class SpendLedger:
                 db.rollback()
                 raise ValueError("Unknown attempt ID")
             if row[0] is not None:
-                if row[1] == "estimated" and certainty == "confirmed" and evidence_source == "provider_reconciliation":
-                    db.execute(
-                        """UPDATE attempts SET charged_usd = ?, certainty = 'confirmed', evidence_source = ?,
-                        provider_request_id = COALESCE(?, provider_request_id), reconciled_at = CURRENT_TIMESTAMP
-                        WHERE attempt_id = ?""",
-                        (str(charge), evidence_source, provider_request_id, attempt_id),
-                    )
-                    db.commit()
-                    return
                 db.rollback()
                 if Decimal(row[0]) != charge or row[1] != certainty:
                     raise ValueError("Attempt has already settled at a different cost")
@@ -234,7 +249,8 @@ class SpendLedger:
             db.execute(
                 """UPDATE attempts SET charged_usd = ?, certainty = ?, evidence_source = ?,
                 status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
-                provider_request_id = ?, completed_at = CURRENT_TIMESTAMP
+                provider_request_id = ?, openrouter_charge_usd = ?, upstream_cost_usd = ?,
+                is_byok = ?, completed_at = CURRENT_TIMESTAMP
                 WHERE attempt_id = ?""",
                 (
                     str(charge),
@@ -243,6 +259,9 @@ class SpendLedger:
                     prompt_tokens,
                     completion_tokens,
                     provider_request_id,
+                    None if openrouter_charge_usd is None else str(Decimal(openrouter_charge_usd)),
+                    None if upstream_cost_usd is None else str(Decimal(upstream_cost_usd)),
+                    None if is_byok is None else int(is_byok),
                     attempt_id,
                 ),
             )
@@ -259,26 +278,147 @@ class SpendLedger:
                 (provider_request_id, evidence_source, attempt_id),
             )
 
-    def has_blocking_attempts(self, run_id: str, question_id: str) -> bool:
-        """Block publication for unconfirmed charges or a per-call overage."""
+    def mark_rejected(self, attempt_id: str, *, evidence_source: str) -> None:
+        """Close a request the provider refused before processing; it is not billed."""
         with self._connect() as db:
-            rows = db.execute(
-                """SELECT 1 FROM attempts
-                WHERE run_id = ? AND (question_id = ? OR question_id IS NULL) AND source = ?
-                AND (status != 'succeeded' OR certainty != 'confirmed') LIMIT 1""",
+            db.execute(
+                """UPDATE attempts SET status = 'rejected', charged_usd = '0', certainty = 'confirmed',
+                evidence_source = ?, completed_at = CURRENT_TIMESTAMP
+                WHERE attempt_id = ? AND charged_usd IS NULL""",
+                (evidence_source, attempt_id),
+            )
+
+    def mark_cost_unknown(
+        self,
+        attempt_id: str,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        *,
+        provider_request_id: str | None,
+        evidence_source: str,
+    ) -> None:
+        """Record a call that answered but carried no cost; its full reservation stays held."""
+        with self._connect() as db:
+            db.execute(
+                """UPDATE attempts SET status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
+                provider_request_id = ?, evidence_source = ?, completed_at = CURRENT_TIMESTAMP
+                WHERE attempt_id = ? AND charged_usd IS NULL""",
+                (prompt_tokens, completion_tokens, provider_request_id, evidence_source, attempt_id),
+            )
+
+    def reconcile(
+        self,
+        attempt_id: str,
+        billable_usd: Decimal,
+        *,
+        openrouter_charge_usd: Decimal | None = None,
+        upstream_cost_usd: Decimal | None = None,
+        is_byok: bool | None = None,
+        provider_request_id: str | None = None,
+    ) -> None:
+        """Replace an estimated settlement with the provider's billing record.
+
+        Separate from ``settle`` because reconciliation happens AFTER the run, off the
+        hot path, and reads the provider's record without a second paid request. Until
+        then the estimate holds its reservation and blocks its question's publication.
+        """
+        charge = Decimal(billable_usd)
+        if not charge.is_finite() or charge < 0:
+            raise ValueError("Reconciled cost must be a finite nonnegative decimal")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT 1 FROM attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
+            if row is None:
+                db.rollback()
+                raise ValueError("Unknown attempt ID")
+            db.execute(
+                """UPDATE attempts SET charged_usd = ?, certainty = 'confirmed',
+                evidence_source = 'provider_reconciliation', status = 'succeeded',
+                provider_request_id = COALESCE(?, provider_request_id),
+                openrouter_charge_usd = COALESCE(?, openrouter_charge_usd),
+                upstream_cost_usd = COALESCE(?, upstream_cost_usd),
+                is_byok = COALESCE(?, is_byok),
+                reconciled_at = CURRENT_TIMESTAMP WHERE attempt_id = ?""",
+                (
+                    str(charge),
+                    provider_request_id,
+                    None if openrouter_charge_usd is None else str(Decimal(openrouter_charge_usd)),
+                    None if upstream_cost_usd is None else str(Decimal(upstream_cost_usd)),
+                    None if is_byok is None else int(is_byok),
+                    attempt_id,
+                ),
+            )
+            db.commit()
+
+    def has_run(self, run_id: str) -> bool:
+        with self._connect() as db:
+            return db.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone() is not None
+
+    def unreconciled(self, run_id: str) -> list[tuple[str, str | None]]:
+        """Attempts whose real cost is still unknown, as (attempt_id, provider_request_id).
+
+        These hold their full reservation against the budget until reconciled, which is
+        what keeps a BYOK run from reading as free.
+        """
+        with self._connect() as db:
+            return [
+                (row[0], row[1])
+                for row in db.execute(
+                    """SELECT attempt_id, provider_request_id FROM attempts
+                    WHERE run_id = ? AND source = ? AND certainty != 'confirmed'""",
+                    (run_id, FundingSource.EXPERIMENT_GRANT),
+                )
+            ]
+
+    def failed_attempts(self, run_id: str, question_id: str) -> int:
+        """Calls on a question that returned no answer: rejected, or lost after sending.
+
+        Costs are not the question here -- every unconfirmed cost holds its reservation.
+        This counts missing answers, which is what makes a question's research unusable.
+        """
+        with self._connect() as db:
+            (count,) = db.execute(
+                """SELECT COUNT(*) FROM attempts WHERE run_id = ? AND question_id = ? AND source = ?
+                AND status IN ('uncertain', 'rejected')""",
                 (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
             ).fetchone()
-            if rows is not None:
-                return True
-            return any(
-                Decimal(charged) > Decimal(reserved)
-                for reserved, charged in db.execute(
-                    """SELECT reserved_usd, charged_usd FROM attempts
-                    WHERE run_id = ? AND (question_id = ? OR question_id IS NULL)
-                    AND source = ? AND charged_usd IS NOT NULL""",
-                    (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
-                )
+            return int(count)
+
+    def write_off(self, adjustment_id: str, provider_total_usd: Decimal, note: str, *, expected_count: int) -> int:
+        """Replace attempts that can never be reconciled with the provider's own total.
+
+        Covers unconfirmed attempts with no generation ID, so there is no billing record
+        to look up. Each is closed at $0 as ``operator_write_off`` and one adjustment of
+        ``provider_total_usd`` takes their place, in a single transaction. The count must
+        match what the operator expects, so a wrong ledger or a second application
+        changes nothing.
+        """
+        if not adjustment_id or not note:
+            raise ValueError("Adjustment ID and note are required")
+        amount = _amount(provider_total_usd)
+        selector = """FROM attempts WHERE source = ? AND certainty != 'confirmed'
+            AND provider_request_id IS NULL AND status != 'reserved'"""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            (count,) = db.execute(f"SELECT COUNT(*) {selector}", (FundingSource.EXPERIMENT_GRANT,)).fetchone()
+            if count != expected_count:
+                db.rollback()
+                raise ValueError(f"Found {count} unreconcilable attempts, expected {expected_count}; nothing changed")
+            if db.execute("SELECT 1 FROM adjustments WHERE adjustment_id = ?", (adjustment_id,)).fetchone():
+                db.rollback()
+                raise ValueError("Adjustment ID already used")
+            db.execute(
+                f"""UPDATE attempts SET charged_usd = '0', certainty = 'confirmed',
+                evidence_source = 'operator_write_off', reconciled_at = CURRENT_TIMESTAMP
+                WHERE attempt_id IN (SELECT attempt_id {selector})""",
+                (FundingSource.EXPERIMENT_GRANT,),
             )
+            db.execute(
+                "INSERT INTO adjustments (adjustment_id, source, amount_usd, note) VALUES (?, ?, ?, ?)",
+                (adjustment_id, FundingSource.EXPERIMENT_GRANT, str(amount), note),
+            )
+            db.commit()
+        return count
 
     def adjust(self, adjustment_id: str, amount_usd: Decimal, note: str) -> None:
         if not adjustment_id or not note:
@@ -306,7 +446,7 @@ class SpendLedger:
                 (Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "estimated"), Decimal(0)
             )
             pending = sum((Decimal(r) for status, r, c, _ in rows if status == "reserved" and c is None), Decimal(0))
-            uncertain = sum((Decimal(r) for status, r, c, _ in rows if status == "uncertain" and c is None), Decimal(0))
+            uncertain = sum((Decimal(r) for status, r, c, _ in rows if status != "reserved" and c is None), Decimal(0))
             adjustments = Decimal(0)
             if run_id is None:
                 adjustments = sum(
@@ -362,12 +502,24 @@ class SpendLedger:
                 field = (
                     "charged_usd"
                     if charged is not None
-                    else ("uncertain_usd" if status == "uncertain" else "reserved_usd")
+                    else ("reserved_usd" if status == "reserved" else "uncertain_usd")
                 )
                 group[field] = str(Decimal(str(group[field])) + Decimal(charged if charged is not None else reserved))
                 if charged is not None and certainty in {"confirmed", "estimated"}:
                     group[certainty + "_usd"] = str(Decimal(str(group[certainty + "_usd"])) + Decimal(charged))
             return [groups[key] for key in sorted(groups)]
+
+
+@dataclass
+class RunHalt:
+    """Shared, mutable stop state for one grant run."""
+
+    reason: str | None = None
+    consecutive_unknown_cost: int = 0
+
+    def stop(self, reason: str) -> None:
+        if self.reason is None:
+            self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -376,6 +528,7 @@ class GrantSession:
     ledger: SpendLedger
     per_call_reserve_usd: Decimal
     key: str
+    halt: RunHalt = field(default_factory=RunHalt, compare=False)
 
     def __repr__(self) -> str:
         return f"GrantSession(run_id={self.run_id!r}, key=<redacted>)"
