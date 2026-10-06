@@ -303,6 +303,38 @@ class TestReconciliation:
         assert slept == [2.0, 4.0], "bounded exponential backoff"
 
     @pytest.mark.asyncio
+    async def test_lookups_for_different_attempts_overlap(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One slow record must not serialise the rest of the run's reconciliation."""
+        from sibyl.platform.experiment_funding import SpendLedger
+
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run", Decimal("50"))
+        for index in range(3):
+            ledger.reserve(f"a{index}", "run", "openrouter/openai/t", "forecaster", Decimal("1"))
+            ledger.settle(
+                f"a{index}",
+                Decimal("0"),
+                1,
+                1,
+                f"gen-{index}",
+                certainty="estimated",
+                evidence_source="provider_response_partial",
+            )
+        in_flight = {"now": 0, "peak": 0}
+
+        async def slow(generation_id: str, api_key: str):
+            in_flight["now"] += 1
+            in_flight["peak"] = max(in_flight["peak"], in_flight["now"])
+            await asyncio.sleep(0.01)
+            in_flight["now"] -= 1
+            return experiment_usage.GenerationRecord(Decimal("0.1"), None, False)
+
+        monkeypatch.setattr(experiment_usage, "generation_record", slow)
+        outcome = await experiment_usage.reconcile_pending(ledger, "run", "k")
+        assert outcome["reconciled"] == 3
+        assert in_flight["peak"] == 3
+
+    @pytest.mark.asyncio
     async def test_a_permanently_missing_record_keeps_its_reservation(
         self, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

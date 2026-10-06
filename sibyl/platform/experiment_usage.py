@@ -267,14 +267,17 @@ async def reconcile_pending(
     *,
     attempts: int = 4,
     base_delay: float = 2.0,
+    concurrency: int = 8,
     sleep: Any = None,
 ) -> dict[str, int]:
     """Turn settled estimates into confirmed charges from the provider's own records.
 
     Runs AFTER a run, never on the hot path, and issues only the read-only generation GET
-    -- it never repeats a paid request to learn what one cost. Bounded exponential backoff
-    exists because that record is eventually consistent: the 2026-10-05 investigation saw
-    the same ID return 404 twice and then resolve about eleven minutes later.
+    -- it never repeats a paid request to learn what one cost. Lookups for different
+    attempts run concurrently, each with a short bounded backoff. The record is
+    eventually consistent (the 2026-10-05 investigation saw one resolve about eleven
+    minutes after the call), so an attempt still unresolved is reported, keeps its
+    reservation, and is picked up by re-running this later.
 
     Returns counts of what happened, so an operator can see what is still outstanding
     rather than assuming the ledger is complete.
@@ -282,19 +285,23 @@ async def reconcile_pending(
     pause = sleep or asyncio.sleep
     outstanding = ledger.unreconciled(run_id)
     result = {"pending": len(outstanding), "reconciled": 0, "still_unknown": 0, "no_generation_id": 0}
-    for attempt_id, generation_id in outstanding:
-        if not generation_id:
-            # Nothing to look it up by; it keeps its reservation and stays visible.
-            result["no_generation_id"] += 1
-            continue
-        record = None
-        for round_index in range(attempts):
-            record = await generation_record(generation_id, api_key)
-            if record is not None and record.billable is not None:
-                break
-            record = None
-            if round_index < attempts - 1:
-                await pause(base_delay * (2**round_index))
+    gate = asyncio.Semaphore(concurrency)
+
+    async def lookup(generation_id: str) -> GenerationRecord | None:
+        async with gate:
+            for round_index in range(attempts):
+                record = await generation_record(generation_id, api_key)
+                if record is not None and record.billable is not None:
+                    return record
+                if round_index < attempts - 1:
+                    await pause(base_delay * (2**round_index))
+        return None
+
+    with_ids = [(attempt_id, generation_id) for attempt_id, generation_id in outstanding if generation_id]
+    # Nothing to look these up by; they keep their reservation and stay visible.
+    result["no_generation_id"] = len(outstanding) - len(with_ids)
+    records = await asyncio.gather(*(lookup(generation_id) for _, generation_id in with_ids))
+    for (attempt_id, generation_id), record in zip(with_ids, records):
         if record is None or record.billable is None:
             result["still_unknown"] += 1
             logger.warning(
