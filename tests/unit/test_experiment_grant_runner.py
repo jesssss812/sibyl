@@ -68,6 +68,66 @@ def test_per_call_reservation_must_fit_run_limit(tmp_path: Path, monkeypatch: py
         checked_session(args)
 
 
+def _stub_key_lookup(monkeypatch: pytest.MonkeyPatch, outcome: object) -> list[str]:
+    from sibyl.telemetry import check_credits
+
+    seen: list[str] = []
+
+    def fake_fetch(api_key: str, **kwargs: object) -> object:
+        seen.append(api_key)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(check_credits, "fetch_auth_key", fake_fetch)
+    return seen
+
+
+class TestProviderLimitPreflight:
+    """OpenRouter's limit_remaining, not the local ledger, decides whether a run fits."""
+
+    def test_a_run_that_fits_the_key_limit_starts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(GRANT_KEY_ENV, "dummy-grant")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
+        seen = _stub_key_lookup(monkeypatch, {"limit": 100, "limit_remaining": 99.203972})
+        session = checked_session(_args(tmp_path))
+        assert seen == ["dummy-grant"], "the grant key, and only it, is checked"
+        assert session.run_id == "test-run"
+
+    @pytest.mark.parametrize("remaining", [7.99, 0])
+    def test_a_run_the_key_cannot_cover_is_refused(
+        self, remaining: float, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sibyl.platform.experiment_funding import BudgetExceeded
+
+        monkeypatch.setenv(GRANT_KEY_ENV, "dummy-grant")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
+        _stub_key_lookup(monkeypatch, {"limit": 100, "limit_remaining": remaining})
+        with pytest.raises(BudgetExceeded, match="remaining"):
+            checked_session(_args(tmp_path))
+        assert not (tmp_path / "spend.sqlite3").exists(), "refused before the run is recorded"
+
+    def test_a_key_without_a_limit_is_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(GRANT_KEY_ENV, "dummy-grant")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
+        _stub_key_lookup(monkeypatch, {"limit": None, "limit_remaining": None})
+        with pytest.raises(ValueError, match="no spending limit"):
+            checked_session(_args(tmp_path))
+
+    def test_an_unreachable_lookup_is_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        monkeypatch.setenv(GRANT_KEY_ENV, "dummy-grant")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.delenv("OAI_ANTH_OPENROUTER_KEY", raising=False)
+        _stub_key_lookup(monkeypatch, httpx.ConnectError("down"))
+        with pytest.raises(ValueError, match="lookup failed"):
+            checked_session(_args(tmp_path))
+
+
 @pytest.mark.asyncio
 async def test_grant_test_run_selects_one_exact_sandbox_question(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

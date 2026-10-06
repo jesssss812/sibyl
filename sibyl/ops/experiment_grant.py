@@ -23,6 +23,7 @@ from uuid import uuid4
 from sibyl.platform.experiment_funding import (
     GRANT_KEY_ENV,
     GRANT_RESERVE_USD,
+    BudgetExceeded,
     GrantExecutionError,
     GrantSession,
     SpendLedger,
@@ -77,6 +78,40 @@ def _positive(raw: str, label: str) -> Decimal:
     return value
 
 
+def preflight_provider_limit(key: str, run_limit: Decimal) -> Decimal:
+    """Refuse a run the grant key's own limit cannot cover.
+
+    OpenRouter's ``limit_remaining`` is authoritative: it meters BYOK spend
+    (``include_byok_in_limit``) and spending from other machines, neither of which the
+    local ledger sees. The lookup is free and read-only. The local reserve margin is
+    kept on top of the run budget.
+    """
+    import httpx
+
+    from sibyl.telemetry.check_credits import fetch_auth_key
+
+    try:
+        data = fetch_auth_key(key)
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(f"Grant key limit lookup failed (HTTP {exc.response.status_code})") from None
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Grant key limit lookup failed ({type(exc).__name__})") from None
+    raw = data.get("limit_remaining")
+    if raw is None:
+        raise ValueError("Grant key reports no spending limit; refusing to run without a provider cap")
+    try:
+        remaining = Decimal(str(raw))
+    except InvalidOperation:
+        raise ValueError("Grant key reported an unreadable limit_remaining") from None
+    if not remaining.is_finite() or remaining < run_limit + GRANT_RESERVE_USD:
+        raise BudgetExceeded(
+            f"Grant key has ${remaining} remaining; run budget ${run_limit} plus "
+            f"${GRANT_RESERVE_USD} reserve does not fit"
+        )
+    logging.getLogger(__name__).info("GRANT_PREFLIGHT limit_remaining_usd=%s run_budget_usd=%s", remaining, run_limit)
+    return remaining
+
+
 def checked_session(args: argparse.Namespace) -> GrantSession:
     key = os.getenv(GRANT_KEY_ENV, "").strip()
     if not key:
@@ -90,6 +125,7 @@ def checked_session(args: argparse.Namespace) -> GrantSession:
     if run_limit > Decimal("100") - GRANT_RESERVE_USD:
         raise ValueError("Run budget exceeds the local grant allocation after reserve")
     preflight_research()
+    preflight_provider_limit(key, run_limit)
     ledger = SpendLedger(args.ledger)
     ledger.start_run(args.run_id, run_limit)
     return GrantSession(args.run_id, ledger, per_call, key)
