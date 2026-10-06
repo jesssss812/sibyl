@@ -20,6 +20,8 @@ import httpx
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
 
+from sibyl.platform.experiment_funding import CONFIRMING_EVIDENCE
+
 _GENERATION_URL = "https://openrouter.ai/api/v1/generation"
 logger = logging.getLogger(__name__)
 
@@ -138,10 +140,7 @@ class CostResolution:
         that is the signature of a real expense we cannot see yet, and confirming it
         would discharge the reservation and report the run as free.
         """
-        return self.billable is not None and self.evidence in _CONFIRMING_EVIDENCE
-
-
-_CONFIRMING_EVIDENCE = frozenset({"provider_response", "provider_generation"})
+        return self.billable is not None and self.evidence in CONFIRMING_EVIDENCE
 
 
 def _response_record(capture: CostCapture) -> GenerationRecord | None:
