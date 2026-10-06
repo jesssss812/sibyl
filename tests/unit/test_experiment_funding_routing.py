@@ -87,6 +87,9 @@ async def test_each_mocked_model_attempt_settles_once(tmp_path: Path, monkeypatc
     assert summary["estimated_usd"] == "0.2"
     assert summary["confirmed_usd"] == "0"
     assert session.ledger.unreconciled(session.run_id), "an estimate must stay reconcilable"
+    with sqlite3.connect(session.ledger.path) as db:
+        # The row names the evidence it rests on, not a confirming source it lacks.
+        assert db.execute("SELECT evidence_source FROM attempts").fetchone() == ("framework_estimate",)
 
 
 @pytest.mark.asyncio

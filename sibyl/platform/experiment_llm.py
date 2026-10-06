@@ -102,7 +102,7 @@ class FundedGeneralLlm(GeneralLlm):
             # An unconfirmed settlement keeps its full reservation, so an unseen BYOK
             # expense cannot make the run look free.
             certainty="confirmed" if resolution.confirmed else "estimated",
-            evidence_source=resolution.evidence if resolution.confirmed else "provider_response",
+            evidence_source=resolution.evidence,
             openrouter_charge_usd=resolution.openrouter_charge,
             upstream_cost_usd=resolution.upstream_cost,
             is_byok=resolution.is_byok,
