@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 class CostCapture:
     generation_id: str | None = None
     reported_cost: Decimal | None = None
+    # OpenRouter's usage accounting also reports the BYOK split on the response.
+    reported_upstream_cost: Decimal | None = None
+    reported_is_byok: bool | None = None
     ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False, compare=False)
 
 
@@ -56,9 +59,19 @@ class _GrantUsageObserver(CustomLogger):
         if isinstance(response_id, str) and response_id:
             capture.generation_id = response_id
         usage = getattr(response_obj, "usage", None)
-        cost = usage.get("cost") if isinstance(usage, dict) else getattr(usage, "cost", None)
-        capture.reported_cost = _reported_cost(cost)
+        capture.reported_cost = _reported_cost(_field(usage, "cost"))
+        is_byok = _field(usage, "is_byok")
+        capture.reported_is_byok = is_byok if isinstance(is_byok, bool) else None
+        capture.reported_upstream_cost = _reported_cost(
+            _field(_field(usage, "cost_details"), "upstream_inference_cost")
+        )
         capture.ready.set()
+
+
+def _field(container: Any, name: str) -> Any:
+    if isinstance(container, dict):
+        return container.get(name)
+    return getattr(container, name, None)
 
 
 def _install_observer() -> None:
@@ -131,6 +144,21 @@ class CostResolution:
 _CONFIRMING_EVIDENCE = frozenset({"provider_response", "provider_generation"})
 
 
+def _response_record(capture: CostCapture) -> GenerationRecord | None:
+    """The response's own billing figures, when they say whether the route was BYOK.
+
+    Without ``is_byok`` a positive ``usage.cost`` could be the whole charge or only
+    OpenRouter's BYOK fee, so it cannot settle the budget figure on its own.
+    """
+    if capture.reported_cost is None or capture.reported_is_byok is None:
+        return None
+    return GenerationRecord(
+        openrouter_charge=capture.reported_cost,
+        upstream_cost=capture.reported_upstream_cost,
+        is_byok=capture.reported_is_byok,
+    )
+
+
 async def generation_record(generation_id: str, api_key: str) -> GenerationRecord | None:
     """Read the billing record from OpenRouter; this GET does not create a generation."""
     if not generation_id.startswith("gen-"):
@@ -165,19 +193,17 @@ async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_ke
 
     Order of evidence, strongest first:
 
-    1. **The generation record** (a GET). Richest -- it alone carries the BYOK split, so
-       it is the only source that can give a confirmed billable figure for a BYOK route.
-    2. **The completion response's ``usage.cost``.** OpenRouter's account charge, already
-       in hand, no extra request. A POSITIVE value confirms. A ZERO does not: zero is
-       either a genuinely free route or a BYOK route whose real cost is upstream and not
-       yet visible, and those are indistinguishable from the response alone. Zero is
-       preserved rather than discarded -- it is a fact, just not a sufficient one.
-    3. **The framework estimate** (LiteLLM token maths). A guess; recorded, never confirmed.
+    1. **The completion response's usage accounting**, when it states ``is_byok``.
+       OpenRouter's own figures, already in hand: ``usage.cost`` plus, under BYOK,
+       ``cost_details.upstream_inference_cost``. This confirms without a request.
+    2. **The generation record** (a GET), for responses that do not carry the split.
+       The record is eventually consistent, so it is often not there yet.
+    3. **``usage.cost`` alone.** Without ``is_byok`` it may be only OpenRouter's BYOK
+       fee, so it is recorded as an estimate and never confirms.
+    4. **The framework estimate** (LiteLLM token maths). A guess; recorded, never confirmed.
 
-    Crucially this no longer decides whether a call may proceed. It reports what is known;
-    the caller settles on that and reconciles later. The previous design made the GET a
-    precondition of publication, so an eventually-consistent endpoint could discard a
-    forecast that had already been paid for.
+    This reports what is known; the caller settles on it and ``reconcile_pending``
+    confirms estimates afterwards from the provider's records.
     """
     # LiteLLM may finish its asynchronous callback after GeneralLlm returns.
     if not capture.ready.is_set():
@@ -185,6 +211,18 @@ async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_ke
             await asyncio.wait_for(capture.ready.wait(), timeout=2)
         except asyncio.TimeoutError:
             pass
+
+    response_record = _response_record(capture)
+    if response_record is not None and response_record.billable is not None:
+        # The response already carries the full split; no lookup is needed.
+        return CostResolution(
+            billable=response_record.billable,
+            openrouter_charge=response_record.openrouter_charge,
+            upstream_cost=response_record.upstream_cost,
+            is_byok=response_record.is_byok,
+            provider_request_id=capture.generation_id,
+            evidence="provider_response",
+        )
 
     if capture.generation_id:
         record = await generation_record(capture.generation_id, api_key)
@@ -199,14 +237,15 @@ async def resolve_grant_cost(capture: CostCapture, framework_cost: float, api_ke
             )
 
     if capture.reported_cost is not None:
-        # Positive confirms; zero is kept but left unconfirmed for reconciliation.
+        # The OpenRouter charge alone: under BYOK it is only the fee, so it is kept as an
+        # estimate and its reservation is held until reconciliation.
         return CostResolution(
             billable=capture.reported_cost,
             openrouter_charge=capture.reported_cost,
-            upstream_cost=None,
-            is_byok=None,
+            upstream_cost=capture.reported_upstream_cost,
+            is_byok=capture.reported_is_byok,
             provider_request_id=capture.generation_id,
-            evidence="provider_response" if capture.reported_cost > 0 else "provider_response_zero",
+            evidence="provider_response_partial",
         )
 
     fallback = _reported_cost(framework_cost)

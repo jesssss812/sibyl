@@ -22,8 +22,19 @@ import pytest
 from sibyl.platform import experiment_usage
 
 
-def _capture(generation_id: str | None = None, reported: Decimal | None = None) -> experiment_usage.CostCapture:
-    capture = experiment_usage.CostCapture(generation_id=generation_id, reported_cost=reported)
+def _capture(
+    generation_id: str | None = None,
+    reported: Decimal | None = None,
+    *,
+    is_byok: bool | None = None,
+    upstream: Decimal | None = None,
+) -> experiment_usage.CostCapture:
+    capture = experiment_usage.CostCapture(
+        generation_id=generation_id,
+        reported_cost=reported,
+        reported_upstream_cost=upstream,
+        reported_is_byok=is_byok,
+    )
     capture.ready.set()
     return capture
 
@@ -71,6 +82,15 @@ class TestCallbackCapture:
         with experiment_usage.capture_grant_usage() as capture:
             await experiment_usage._GrantUsageObserver().async_log_success_event({}, response, None, None)
         assert capture.reported_cost == Decimal("0")
+
+    @pytest.mark.asyncio
+    async def test_captures_the_byok_split_from_usage_accounting(self) -> None:
+        usage = {"cost": 0.0095, "is_byok": True, "cost_details": {"upstream_inference_cost": 0.19}}
+        response = SimpleNamespace(id="gen-byok", usage=usage)
+        with experiment_usage.capture_grant_usage() as capture:
+            await experiment_usage._GrantUsageObserver().async_log_success_event({}, response, None, None)
+        assert capture.reported_is_byok is True
+        assert capture.reported_upstream_cost == Decimal("0.19")
 
 
 class TestGenerationRecord:
@@ -122,14 +142,45 @@ class TestResolution:
         the billing record simply was not queryable yet. That is now a confirmed charge.
         """
         _stub_http(monkeypatch, _Response({}, status=404))
-        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0.42")), 0, "k")
+        capture = _capture("gen-1", Decimal("0.42"), is_byok=False)
+        resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
         assert resolution.billable == Decimal("0.42")
         assert resolution.evidence == "provider_response"
         assert resolution.confirmed is True
 
     @pytest.mark.asyncio
+    async def test_a_byok_split_on_the_response_confirms_without_a_lookup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def no_lookup(generation_id: str, api_key: str):
+            raise AssertionError("the response already settled the cost")
+
+        monkeypatch.setattr(experiment_usage, "generation_record", no_lookup)
+        capture = _capture("gen-1", Decimal("0.0095"), is_byok=True, upstream=Decimal("0.19"))
+        resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+        assert resolution.billable == Decimal("0.1995")
+        assert (resolution.openrouter_charge, resolution.upstream_cost) == (Decimal("0.0095"), Decimal("0.19"))
+        assert resolution.confirmed is True
+
+    @pytest.mark.asyncio
+    async def test_a_byok_fee_alone_never_confirms(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A positive usage.cost under BYOK is only OpenRouter's fee, not the expense.
+
+        Confirming it would discharge the reservation at a fraction of the real spend.
+        """
+        _stub_http(monkeypatch, _Response({}, status=404))
+        for capture in (
+            _capture("gen-1", Decimal("0.0095"), is_byok=True),
+            _capture("gen-1", Decimal("0.0095")),
+        ):
+            resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+            assert resolution.billable == Decimal("0.0095")
+            assert resolution.evidence == "provider_response_partial"
+            assert resolution.confirmed is False
+
+    @pytest.mark.asyncio
     async def test_zero_response_cost_is_preserved_but_not_confirmed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A $0 OpenRouter charge with no record yet is ambiguous, so it must not confirm.
+        """A $0 OpenRouter charge that does not say whether it was BYOK must not confirm.
 
         It is either a genuinely free route or a BYOK route billing upstream, and the
         response alone cannot tell them apart. Confirming it would discharge the
@@ -139,7 +190,7 @@ class TestResolution:
         resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0, "k")
         assert resolution.billable == Decimal("0")
         assert resolution.confirmed is False
-        assert resolution.evidence == "provider_response_zero"
+        assert resolution.evidence == "provider_response_partial"
 
     @pytest.mark.asyncio
     async def test_the_generation_record_outranks_the_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
