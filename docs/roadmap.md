@@ -53,6 +53,9 @@ plan does not name" rule.
   write different shapes and cannot be compared with it yet.
 - **docs/architecture-notes.md was never written.** [vision.md](vision.md) makes it the
   comprehension checkpoint gating repo surgery; the surgery happened first.
+- **A golden scenario relies on the network guard.** `pipeline_conditional_stacking`
+  does not stub `run_targeted_search`; its record (`search_failures=5`) holds only
+  because the guard makes the real call fail. Stub it so parity never depends on egress.
 
 ## Free roster (repaired 2026-09-02, verification pending)
 
