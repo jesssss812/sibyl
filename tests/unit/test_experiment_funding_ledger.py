@@ -247,3 +247,46 @@ class TestByokCostComponents:
         ledger = self._ledger(tmp_path)
         with pytest.raises(ValueError, match="Unknown attempt"):
             ledger.reconcile("nope", Decimal("1"))
+
+
+class TestWriteOff:
+    """Truing up attempts that can never be reconciled against OpenRouter's own total."""
+
+    def _ledger(self, tmp_path: Path) -> SpendLedger:
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("old", Decimal("30"))
+        for index in range(8):
+            ledger.reserve(f"x{index}", "old", "openrouter/test", "forecaster", Decimal("3"))
+            ledger.mark_uncertain(f"x{index}")
+        return ledger
+
+    def test_stale_rows_are_replaced_by_the_provider_total(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        assert ledger.summary()["remaining_local_usd"] == "71"
+        written = ledger.write_off("trueup-1", Decimal("0.796028"), "OpenRouter byok_usage", expected_count=8)
+        assert written == 8
+        summary = ledger.summary()
+        assert summary["remaining_local_usd"] == str(Decimal("95") - Decimal("0.796028"))
+        assert summary["uncertain_usd"] == "0"
+        assert ledger.unreconciled("old") == []
+
+    def test_a_count_mismatch_changes_nothing(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        with pytest.raises(ValueError, match="expected 7"):
+            ledger.write_off("trueup-1", Decimal("0.796028"), "note", expected_count=7)
+        assert ledger.summary()["remaining_local_usd"] == "71"
+
+    def test_reconcilable_and_confirmed_rows_are_left_alone(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        ledger.reserve("g", "old", "openrouter/test", "forecaster", Decimal("1"))
+        ledger.settle("g", Decimal("0.1"), 1, 1, "gen-g", certainty="estimated", evidence_source="framework_estimate")
+        ledger.reserve("c", "old", "openrouter/test", "forecaster", Decimal("1"))
+        ledger.settle("c", Decimal("0.1"), 1, 1, certainty="confirmed", evidence_source="provider_generation")
+        assert ledger.write_off("trueup-1", Decimal("0.5"), "note", expected_count=8) == 8
+        assert ledger.unreconciled("old") == [("g", "gen-g")]
+
+    def test_it_cannot_be_applied_twice(self, tmp_path: Path) -> None:
+        ledger = self._ledger(tmp_path)
+        ledger.write_off("trueup-1", Decimal("0.796028"), "note", expected_count=8)
+        with pytest.raises(ValueError, match="expected 8"):
+            ledger.write_off("trueup-2", Decimal("0.796028"), "note", expected_count=8)

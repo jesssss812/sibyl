@@ -66,6 +66,14 @@ python -m sibyl.ops.experiment_grant record-prior-spend \
   --id outside-001 --amount-usd 4.25 --note 'previous grant use'
 ```
 
+Attempts that failed without a generation ID can never be reconciled and hold their full reservation indefinitely. When OpenRouter's key metadata gives the total those attempts actually cost, `write-off` closes them at `$0` (`operator_write_off`) and records that total as one adjustment, in a single transaction. It refuses unless exactly `--expect-count` attempts match, so a wrong ledger or a repeat changes nothing:
+
+```bash
+python -m sibyl.ops.experiment_grant write-off \
+  --id trueup-2026-10-05 --provider-total-usd 0.796028 --expect-count 8 \
+  --note 'OpenRouter byok_usage for the 2026-10-05 grant attempts'
+```
+
 `report` separates confirmed charges, local estimates, reserved calls, uncertain calls, and prior-spend adjustments. A charge is confirmed by response usage accounting that states the BYOK split, a provider generation record, or later reconciliation. LiteLLM/framework estimates and a bare `usage.cost` never confirm; their full pre-call reservation remains budget liability until reconciled. The model/stage breakdown never contains prompts or credentials. Use one shared ledger path for every local process using the grant. Keep the ledger as a private artifact; it is excluded from Git under `backtests/`.
 
 Ordinary production routing is unchanged. To record *actual primary-to-personal fallback invocations* in the same report, set `SIBYL_PERSONAL_FALLBACK_LEDGER=backtests/experiment_grant_spend.sqlite3` for that process. Optionally set `SIBYL_PERSONAL_SPEND_RUN_ID` to a non-secret run label; otherwise a process-local ID is generated. The observer writes a separate `personal` table only when the secondary call is reached. A callback cost is an estimate, and a failed call or missing cost stays unknown. SDK-internal retries may create additional charges the observer cannot distinguish. Direct calls that use `OPENROUTER_API_KEY` without entering the primary-to-personal fallback wrapper are outside this table; do not interpret its total as all personal spending. Ledger failures are logged but never block the fallback call or change its route. This accounting is a separate change from the grant-only route and does not rewrite historical spend.

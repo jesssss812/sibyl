@@ -488,3 +488,20 @@ class TestReconcileSubcommand:
         rc = experiment_grant.main(["reconcile", "--ledger", str(ledger_path), "--run-id", "real-rnu"])
         assert rc != 0
         assert "not in the ledger" in capsys.readouterr().out
+
+
+def test_write_off_command_trues_up_the_ledger(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from sibyl.ops.experiment_grant import main
+
+    ledger_path = tmp_path / "l.sqlite3"
+    ledger = SpendLedger(ledger_path)
+    ledger.start_run("old", Decimal("30"))
+    for index in range(8):
+        ledger.reserve(f"x{index}", "old", "openrouter/test", "forecaster", Decimal("3"))
+        ledger.mark_uncertain(f"x{index}")
+    argv = ["write-off", "--ledger", str(ledger_path), "--provider-total-usd", "0.796028"]
+    argv += ["--expect-count", "8", "--note", "OpenRouter byok_usage 2026-10-05", "--id", "trueup-2026-10-05"]
+    assert main(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["written_off"] == 8
+    assert payload["totals"]["remaining_local_usd"] == "94.203972"

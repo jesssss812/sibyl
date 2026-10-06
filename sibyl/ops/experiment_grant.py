@@ -360,6 +360,15 @@ def _parser() -> argparse.ArgumentParser:
     adjust.add_argument("--amount-usd", required=True)
     adjust.add_argument("--note", required=True)
     adjust.add_argument("--id", required=True, help="Stable unique adjustment ID for audit and duplicate protection")
+    write_off = sub.add_parser(
+        "write-off",
+        help="Replace unconfirmed attempts with no generation ID by OpenRouter's own total; makes no API call",
+    )
+    write_off.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
+    write_off.add_argument("--provider-total-usd", required=True, help="What OpenRouter metered for those attempts")
+    write_off.add_argument("--expect-count", type=int, required=True, help="Refuse unless exactly this many match")
+    write_off.add_argument("--note", required=True)
+    write_off.add_argument("--id", required=True, help="Stable unique adjustment ID for audit and duplicate protection")
     run = sub.add_parser("run-minibench", help="Paid, scored run; requires per-run operator authorization")
     run.add_argument("--ledger", type=Path, default=Path("backtests/experiment_grant_spend.sqlite3"))
     run.add_argument("--run-id", default=None)
@@ -425,6 +434,18 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(outcome, indent=2))
             # Non-zero when anything is still unaccounted, so a wrapper notices.
             return 0 if outcome["still_unknown"] == 0 and outcome["no_generation_id"] == 0 else 1
+        if args.command == "write-off":
+            if not args.ledger.is_file():
+                raise ValueError(f"No grant ledger at {args.ledger}")
+            ledger = SpendLedger(args.ledger)
+            written = ledger.write_off(
+                args.id,
+                _positive(args.provider_total_usd, "--provider-total-usd"),
+                args.note,
+                expected_count=args.expect_count,
+            )
+            print(json.dumps({"written_off": written, "totals": ledger.summary()}, indent=2))
+            return 0
         if args.command == "record-prior-spend":
             ledger = SpendLedger(args.ledger)
             ledger.adjust(args.id, _positive(args.amount_usd, "--amount-usd"), args.note)

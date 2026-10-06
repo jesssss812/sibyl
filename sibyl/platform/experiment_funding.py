@@ -367,6 +367,42 @@ class SpendLedger:
                 )
             )
 
+    def write_off(self, adjustment_id: str, provider_total_usd: Decimal, note: str, *, expected_count: int) -> int:
+        """Replace attempts that can never be reconciled with the provider's own total.
+
+        Covers unconfirmed attempts with no generation ID, so there is no billing record
+        to look up. Each is closed at $0 as ``operator_write_off`` and one adjustment of
+        ``provider_total_usd`` takes their place, in a single transaction. The count must
+        match what the operator expects, so a wrong ledger or a second application
+        changes nothing.
+        """
+        if not adjustment_id or not note:
+            raise ValueError("Adjustment ID and note are required")
+        amount = _amount(provider_total_usd)
+        selector = """FROM attempts WHERE source = ? AND certainty != 'confirmed'
+            AND provider_request_id IS NULL AND status != 'reserved'"""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            (count,) = db.execute(f"SELECT COUNT(*) {selector}", (FundingSource.EXPERIMENT_GRANT,)).fetchone()
+            if count != expected_count:
+                db.rollback()
+                raise ValueError(f"Found {count} unreconcilable attempts, expected {expected_count}; nothing changed")
+            if db.execute("SELECT 1 FROM adjustments WHERE adjustment_id = ?", (adjustment_id,)).fetchone():
+                db.rollback()
+                raise ValueError("Adjustment ID already used")
+            db.execute(
+                f"""UPDATE attempts SET charged_usd = '0', certainty = 'confirmed',
+                evidence_source = 'operator_write_off', reconciled_at = CURRENT_TIMESTAMP
+                WHERE attempt_id IN (SELECT attempt_id {selector})""",
+                (FundingSource.EXPERIMENT_GRANT,),
+            )
+            db.execute(
+                "INSERT INTO adjustments (adjustment_id, source, amount_usd, note) VALUES (?, ?, ?, ?)",
+                (adjustment_id, FundingSource.EXPERIMENT_GRANT, str(amount), note),
+            )
+            db.commit()
+        return count
+
     def adjust(self, adjustment_id: str, amount_usd: Decimal, note: str) -> None:
         if not adjustment_id or not note:
             raise ValueError("Adjustment ID and note are required")
