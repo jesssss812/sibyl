@@ -120,10 +120,8 @@ class FundedGeneralLlm(GeneralLlm):
             resolution.confirmed,
             resolution.provider_request_id,
         )
-        # The call proceeds on the evidence it has. An unconfirmed cost is a
-        # RECONCILIATION task, not a reason to discard a forecast that is already paid
-        # for -- which is what the previous `evidence_source != "provider_generation"`
-        # raise did, on an endpoint that is only eventually consistent.
+        # The call returns on the evidence it has; an unconfirmed cost is held for
+        # reconciliation, and the question's publication gate refuses it until then.
         if not resolution.confirmed:
             logger.info(
                 "GRANT_RECONCILE_PENDING attempt=%s generation_id=%s reservation held until reconciled",

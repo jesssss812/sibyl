@@ -18,12 +18,12 @@ from typing import Iterator
 GRANT_KEY_ENV = "SIBYL_EXPERIMENT_OPENROUTER_API_KEY"
 # Evidence that establishes a real charge, as opposed to a local guess.
 #
-# `provider_response` is OpenRouter's own `usage.cost` from the completion response. It is
-# the account charge, not a token-price estimate, and treating it as an estimate is what
-# made a second /generation GET mandatory before publication -- a synchronous dependency
-# on an eventually-consistent endpoint, on the hot path, after the money was already
-# spent. `framework_estimate` (LiteLLM token maths) is NOT here: it is a guess, and a
-# guess must not discharge a reservation.
+# `provider_response` is OpenRouter's usage accounting on the completion response, used
+# only when it states `is_byok` and so carries the full BYOK split. Accepting it means a
+# confirmed charge does not wait on the eventually-consistent /generation GET.
+# `provider_response_partial` (a bare `usage.cost`, possibly just the BYOK fee) and
+# `framework_estimate` (LiteLLM token maths) are NOT here: they must not discharge a
+# reservation.
 CONFIRMING_EVIDENCE: frozenset[str] = frozenset({"provider_response", "provider_generation", "provider_reconciliation"})
 
 GRANT_ALLOCATION_USD = Decimal("100")
@@ -291,8 +291,8 @@ class SpendLedger:
         """Replace an estimated settlement with the provider's billing record.
 
         Separate from ``settle`` because reconciliation happens AFTER the run, off the
-        hot path. That ordering is the point of the fix: a call publishes on the evidence
-        it has, and the authoritative figure arrives later without a second paid request.
+        hot path, and reads the provider's record without a second paid request. Until
+        then the estimate holds its reservation and blocks its question's publication.
         """
         charge = Decimal(billable_usd)
         if not charge.is_finite() or charge < 0:

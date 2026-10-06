@@ -84,3 +84,18 @@ correctly.
 `grant_route_for` maps the roster's Anthropic-direct slots onto OpenRouter under
 a grant (`anthropic/claude-opus-4-8` → `openrouter/anthropic/claude-opus-4.8`,
 note the dot). That path has never run against a live grant key.
+
+## Addendum, 2026-10-06 — review follow-up
+
+A review of this branch before merge changed three points above:
+
+- **A positive `usage.cost` no longer confirms by itself.** Under BYOK it is only
+  OpenRouter's fee. The response confirms when its usage accounting states
+  `is_byok` (and, under BYOK, `cost_details.upstream_inference_cost`); otherwise the
+  generation record is consulted, and failing that the call settles as an estimate.
+- **Billable under BYOK is upstream cost plus OpenRouter's fee**, since the key's
+  limit meters both. With the fee at `0`, as in the record above, nothing changes.
+- **Publication stays gated on confirmation.** An estimated charge still blocks its
+  question, as `test_estimated_charge_blocks_scored_publication` requires. What
+  changed is that grant routes confirm from the response, so the gate no longer
+  waits on the eventually-consistent lookup.
