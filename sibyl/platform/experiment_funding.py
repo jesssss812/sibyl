@@ -242,15 +242,6 @@ class SpendLedger:
                 db.rollback()
                 raise ValueError("Unknown attempt ID")
             if row[0] is not None:
-                if row[1] == "estimated" and certainty == "confirmed" and evidence_source == "provider_reconciliation":
-                    db.execute(
-                        """UPDATE attempts SET charged_usd = ?, certainty = 'confirmed', evidence_source = ?,
-                        provider_request_id = COALESCE(?, provider_request_id), reconciled_at = CURRENT_TIMESTAMP
-                        WHERE attempt_id = ?""",
-                        (str(charge), evidence_source, provider_request_id, attempt_id),
-                    )
-                    db.commit()
-                    return
                 db.rollback()
                 if Decimal(row[0]) != charge or row[1] != certainty:
                     raise ValueError("Attempt has already settled at a different cost")

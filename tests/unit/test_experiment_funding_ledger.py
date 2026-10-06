@@ -44,7 +44,7 @@ def test_estimate_keeps_reservation_until_provider_reconciliation(tmp_path: Path
     assert ledger.summary("run-a")["estimated_usd"] == "0.4"
     with pytest.raises(BudgetExceeded):
         ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.3"))
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_reconciliation")
+    ledger.reconcile("a", Decimal("0.4"))
     ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.3"))
     assert ledger.summary("run-a")["confirmed_usd"] == "0.4"
 
@@ -58,7 +58,7 @@ def test_unconfirmed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
     ledger.settle("b", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
     assert ledger.has_blocking_attempts("run-a", "101")
     assert not ledger.has_blocking_attempts("run-a", "102")
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_reconciliation")
+    ledger.reconcile("a", Decimal("0.4"))
     assert not ledger.has_blocking_attempts("run-a", "101")
 
 
@@ -227,6 +227,13 @@ class TestByokCostComponents:
         ledger = self._ledger(tmp_path)
         with pytest.raises(ValueError, match="nonnegative"):
             ledger.reconcile("a1", Decimal("-0.1"))
+
+    def test_settle_cannot_overwrite_an_estimate(self, tmp_path: Path) -> None:
+        # Confirming an estimate goes through reconcile(), which records the BYOK split.
+        ledger = self._ledger(tmp_path)
+        ledger.settle("a1", Decimal("0.4"), 1, 1, certainty="estimated", evidence_source="framework_estimate")
+        with pytest.raises(ValueError, match="already settled"):
+            ledger.settle("a1", Decimal("0.4"), 1, 1, certainty="confirmed", evidence_source="provider_reconciliation")
 
     def test_reconciling_an_unknown_attempt_is_an_error(self, tmp_path: Path) -> None:
         ledger = self._ledger(tmp_path)
