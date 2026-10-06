@@ -371,7 +371,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"{GRANT_KEY_ENV} is required to read the grant's billing records")
             from sibyl.platform.experiment_usage import reconcile_pending
 
-            outcome = asyncio.run(reconcile_pending(SpendLedger(args.ledger), args.run_id, key))
+            # SpendLedger creates a missing file, and an empty ledger would report
+            # nothing outstanding; a mistyped path or run ID must not read as success.
+            if not args.ledger.is_file():
+                raise ValueError(f"No grant ledger at {args.ledger}")
+            ledger = SpendLedger(args.ledger)
+            if not ledger.has_run(args.run_id):
+                raise ValueError(f"Run {args.run_id} is not in the ledger at {args.ledger}")
+            outcome = asyncio.run(reconcile_pending(ledger, args.run_id, key))
             print(json.dumps(outcome, indent=2))
             # Non-zero when anything is still unaccounted, so a wrapper notices.
             return 0 if outcome["still_unknown"] == 0 and outcome["no_generation_id"] == 0 else 1

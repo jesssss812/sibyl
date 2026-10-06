@@ -347,7 +347,7 @@ class TestReconcileSubcommand:
             1,
             None,
             certainty="estimated",
-            evidence_source="provider_response",
+            evidence_source="provider_response_partial",
             openrouter_charge_usd=Decimal("0"),
         )
         monkeypatch.setenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", "grant-key")
@@ -360,3 +360,31 @@ class TestReconcileSubcommand:
         payload = json.loads(capsys.readouterr().out)
         assert payload["no_generation_id"] == 1
         assert rc == 1, "outstanding spend must not exit zero"
+
+    def test_a_missing_ledger_is_refused_not_created(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sibyl.config import env as env_module
+        from sibyl.ops import experiment_grant
+
+        monkeypatch.setattr(env_module, "load_environment", lambda: None)
+        monkeypatch.setenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", "grant-key")
+        typo = tmp_path / "typo.sqlite3"
+        rc = experiment_grant.main(["reconcile", "--ledger", str(typo), "--run-id", "r"])
+        assert rc != 0, "a wrong path must not read as everything accounted"
+        assert "No grant ledger" in capsys.readouterr().out
+        assert not typo.exists()
+
+    def test_an_unknown_run_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sibyl.config import env as env_module
+        from sibyl.ops import experiment_grant
+
+        monkeypatch.setattr(env_module, "load_environment", lambda: None)
+        monkeypatch.setenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", "grant-key")
+        ledger_path = tmp_path / "l.sqlite3"
+        SpendLedger(ledger_path).start_run("real-run", Decimal("5"))
+        rc = experiment_grant.main(["reconcile", "--ledger", str(ledger_path), "--run-id", "real-rnu"])
+        assert rc != 0
+        assert "not in the ledger" in capsys.readouterr().out

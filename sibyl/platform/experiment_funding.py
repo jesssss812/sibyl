@@ -322,6 +322,10 @@ class SpendLedger:
             )
             db.commit()
 
+    def has_run(self, run_id: str) -> bool:
+        with self._connect() as db:
+            return db.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone() is not None
+
     def unreconciled(self, run_id: str) -> list[tuple[str, str | None]]:
         """Attempts whose real cost is still unknown, as (attempt_id, provider_request_id).
 
