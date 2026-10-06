@@ -100,3 +100,9 @@ A review of this branch before merge changed three points above:
   `reconcile` confirms it later. Failed calls and over-reserve charges still block.
 - **Remaining work item 1 is done:** a run preflights against the key's
   `limit_remaining` and refuses when it cannot cover the budget plus the reserve.
+- **Failed calls are handled by kind** (table in `docs/experiment-funding.md`):
+  rejected requests are released, a rejected key or a charge above the reservation
+  halts the run, and an answered call with no cost keeps its answer.
+- **Remaining work item 2 is done:** `write-off` replaces the 8 stale rows with
+  OpenRouter's $0.796028 in one transaction. The operator runs it on the private
+  ledger; it is not in the repo.
