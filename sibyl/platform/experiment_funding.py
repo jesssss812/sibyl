@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
@@ -278,6 +278,34 @@ class SpendLedger:
                 (provider_request_id, evidence_source, attempt_id),
             )
 
+    def mark_rejected(self, attempt_id: str, *, evidence_source: str) -> None:
+        """Close a request the provider refused before processing; it is not billed."""
+        with self._connect() as db:
+            db.execute(
+                """UPDATE attempts SET status = 'rejected', charged_usd = '0', certainty = 'confirmed',
+                evidence_source = ?, completed_at = CURRENT_TIMESTAMP
+                WHERE attempt_id = ? AND charged_usd IS NULL""",
+                (evidence_source, attempt_id),
+            )
+
+    def mark_cost_unknown(
+        self,
+        attempt_id: str,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        *,
+        provider_request_id: str | None,
+        evidence_source: str,
+    ) -> None:
+        """Record a call that answered but carried no cost; its full reservation stays held."""
+        with self._connect() as db:
+            db.execute(
+                """UPDATE attempts SET status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
+                provider_request_id = ?, evidence_source = ?, completed_at = CURRENT_TIMESTAMP
+                WHERE attempt_id = ? AND charged_usd IS NULL""",
+                (prompt_tokens, completion_tokens, provider_request_id, evidence_source, attempt_id),
+            )
+
     def reconcile(
         self,
         attempt_id: str,
@@ -429,7 +457,7 @@ class SpendLedger:
                 (Decimal(c) for _, _, c, certainty in rows if c is not None and certainty == "estimated"), Decimal(0)
             )
             pending = sum((Decimal(r) for status, r, c, _ in rows if status == "reserved" and c is None), Decimal(0))
-            uncertain = sum((Decimal(r) for status, r, c, _ in rows if status == "uncertain" and c is None), Decimal(0))
+            uncertain = sum((Decimal(r) for status, r, c, _ in rows if status != "reserved" and c is None), Decimal(0))
             adjustments = Decimal(0)
             if run_id is None:
                 adjustments = sum(
@@ -485,12 +513,24 @@ class SpendLedger:
                 field = (
                     "charged_usd"
                     if charged is not None
-                    else ("uncertain_usd" if status == "uncertain" else "reserved_usd")
+                    else ("reserved_usd" if status == "reserved" else "uncertain_usd")
                 )
                 group[field] = str(Decimal(str(group[field])) + Decimal(charged if charged is not None else reserved))
                 if charged is not None and certainty in {"confirmed", "estimated"}:
                     group[certainty + "_usd"] = str(Decimal(str(group[certainty + "_usd"])) + Decimal(charged))
             return [groups[key] for key in sorted(groups)]
+
+
+@dataclass
+class RunHalt:
+    """Shared, mutable stop state for one grant run."""
+
+    reason: str | None = None
+    consecutive_unknown_cost: int = 0
+
+    def stop(self, reason: str) -> None:
+        if self.reason is None:
+            self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -499,6 +539,7 @@ class GrantSession:
     ledger: SpendLedger
     per_call_reserve_usd: Decimal
     key: str
+    halt: RunHalt = field(default_factory=RunHalt, compare=False)
 
     def __repr__(self) -> str:
         return f"GrantSession(run_id={self.run_id!r}, key=<redacted>)"
