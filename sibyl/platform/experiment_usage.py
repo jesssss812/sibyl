@@ -93,9 +93,16 @@ class GenerationRecord:
 
     @property
     def billable(self) -> Decimal | None:
-        """The money that actually moved, which is what a budget must hold."""
+        """The money that actually moved, which is what a budget must hold.
+
+        Under BYOK both components count: the grant key's limit meters the upstream
+        expense (``include_byok_in_limit``) and OpenRouter's BYOK fee is drawn from
+        credits. Without an upstream figure the BYOK cost is not known at all.
+        """
         if self.is_byok:
-            return self.upstream_cost
+            if self.upstream_cost is None:
+                return None
+            return self.upstream_cost + (self.openrouter_charge or Decimal(0))
         return self.openrouter_charge
 
 

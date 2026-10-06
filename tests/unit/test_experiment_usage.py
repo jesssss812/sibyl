@@ -89,6 +89,14 @@ class TestGenerationRecord:
         # Billable follows the money, which under BYOK is upstream -- not OpenRouter's $0.
         assert record.billable == Decimal("0.1873175")
 
+    def test_byok_billable_includes_the_openrouter_fee(self) -> None:
+        # The key's limit meters both the upstream expense and OpenRouter's BYOK fee.
+        record = experiment_usage.GenerationRecord(Decimal("0.0095"), Decimal("0.19"), True)
+        assert record.billable == Decimal("0.1995")
+
+    def test_byok_without_an_upstream_figure_is_not_billable(self) -> None:
+        assert experiment_usage.GenerationRecord(Decimal("0.0095"), None, True).billable is None
+
     @pytest.mark.asyncio
     async def test_non_byok_billable_is_the_openrouter_charge(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_http(monkeypatch, _Response({"data": {"total_cost": 0.42, "is_byok": False}}))
