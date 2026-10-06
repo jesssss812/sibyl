@@ -344,7 +344,7 @@ async def test_estimated_charge_still_publishes(tmp_path: Path, monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_overage_blocks_publication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_halt_on_the_last_call_still_fails_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from sibyl.forecasting import bot as bot_module
     from sibyl.platform import metaculus_preflight
 
@@ -352,29 +352,71 @@ async def test_overage_blocks_publication(tmp_path: Path, monkeypatch: pytest.Mo
     ledger.start_run("mock-run", Decimal("5"))
     session = GrantSession("mock-run", ledger, Decimal("1"), "dummy-grant")
 
-    class FakeBot:
+    class Base:
+        alertable_count = 0
+
         def __init__(self, **kwargs):
             pass
 
         async def forecast_on_tournament(self, tournament_id, *, return_exceptions):
-            ledger.reserve("a", "mock-run", "openrouter/test", "forecast", Decimal("1"), question_id="101")
-            ledger.settle("a", Decimal("1.5"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
-            self._create_unified_explanation(SimpleNamespace(id_of_question=101))
-            pytest.fail("An overage reached the publication path")
+            session.halt.stop("a charge exceeded the per-call reservation")
+            return []
 
-        def _create_unified_explanation(self, question, *args, **kwargs):
-            pytest.fail("The base formatter was reached before the grant gate")
+        @classmethod
+        def log_report_summary(cls, *args, **kwargs):
+            pass
 
-    monkeypatch.setattr(bot_module, "SibylBot", FakeBot)
+    monkeypatch.setattr(bot_module, "SibylBot", Base)
     monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
-    with pytest.raises(RuntimeError, match="publication refused"):
+    with pytest.raises(RuntimeError, match="halted: a charge exceeded"):
         await _run_minibench(
             argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
         )
 
 
 @pytest.mark.asyncio
-async def test_failed_research_stops_before_forecasting(tmp_path, monkeypatch):
+async def test_a_failed_forecaster_call_still_publishes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dropped forecaster publishes and alerts, as in prod; the run then exits non-zero."""
+    from sibyl.forecasting import bot as bot_module
+    from sibyl.platform import metaculus_preflight
+
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("mock-run", Decimal("5"))
+    session = GrantSession("mock-run", ledger, Decimal("1"), "dummy-grant")
+    published: list[int] = []
+
+    class Base:
+        alertable_count = 1
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def forecast_on_tournament(self, tournament_id, *, return_exceptions):
+            ledger.reserve("a", "mock-run", "openrouter/test", "forecaster", Decimal("1"), question_id="101")
+            ledger.mark_uncertain("a")
+            self._create_unified_explanation(SimpleNamespace(id_of_question=101))
+            return []
+
+        def _create_unified_explanation(self, question, *args, **kwargs):
+            published.append(question.id_of_question)
+            return "explanation"
+
+        @classmethod
+        def log_report_summary(cls, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(bot_module, "SibylBot", Base)
+    monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
+    with pytest.raises(RuntimeError, match="finished with failed forecasts"):
+        await _run_minibench(
+            argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
+        )
+    assert published == [101]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["uncertain", "rejected"])
+async def test_failed_research_stops_before_forecasting(failure, tmp_path, monkeypatch):
     from sibyl.forecasting import bot as bot_module
     from sibyl.platform import metaculus_preflight
     from sibyl.platform.experiment_funding import GrantExecutionError
@@ -393,12 +435,15 @@ async def test_failed_research_stops_before_forecasting(tmp_path, monkeypatch):
 
         async def run_research(self, question):
             ledger.reserve("research", session.run_id, "openrouter/test", "research", Decimal("1"), question_id="101")
-            ledger.mark_uncertain("research")
+            if failure == "uncertain":
+                ledger.mark_uncertain("research")
+            else:
+                ledger.mark_rejected("research", evidence_source="provider_rejected status=429")
             return "Research unavailable"
 
     monkeypatch.setattr(bot_module, "SibylBot", FakeBot)
     monkeypatch.setattr(metaculus_preflight, "verify_metaculus_api_identity", lambda: None)
-    with pytest.raises(GrantExecutionError, match="Research.*failed"):
+    with pytest.raises(GrantExecutionError, match="research call failed"):
         await _run_minibench(
             argparse.Namespace(max_questions=1, max_cost_usd="5", reports_dir=tmp_path / "reports"), session
         )

@@ -213,10 +213,10 @@ async def _run_grant_forecasts(
     class GrantSibylBot(SibylBot):
         async def run_research(self, question: MetaculusQuestion) -> str:
             research = await super().run_research(question)
-            if not research.strip() or session.ledger.has_blocking_attempts(
-                session.run_id, str(question.id_of_question)
-            ):
-                raise GrantExecutionError("Research is empty or has a failed or over-reserve call; forecasters refused")
+            # Research is the question's first stage, so any failed call so far is a
+            # research call; forecasting on incomplete research is not worth paying for.
+            if not research.strip() or session.ledger.failed_attempts(session.run_id, str(question.id_of_question)):
+                raise GrantExecutionError("Research is empty or a research call failed; forecasters refused")
             return research
 
         async def forecast_questions(self, questions: Sequence[MetaculusQuestion], return_exceptions: bool = False):
@@ -254,15 +254,6 @@ async def _run_grant_forecasts(
                 report = await super()._run_individual_question(question)
             logging.getLogger(__name__).info("GRANT_QUESTION_COMPLETE question=%s", question.id_of_question)
             return report
-
-        def _create_unified_explanation(self, question, *args, **kwargs):
-            # forecasting-tools publishes immediately after creating this text.
-            # A failed call may have been dropped from the ensemble, so check the
-            # full question ledger instead of relying on prediction errors.
-            question_id = question.id_of_question
-            if question_id is None or session.ledger.has_blocking_attempts(session.run_id, str(question_id)):
-                raise RuntimeError("Grant question has a failed call or an overage; publication refused")
-            return super()._create_unified_explanation(question, *args, **kwargs)
 
     with grant_context(session):
         roster = _funded_roster(source_roster)
@@ -333,6 +324,8 @@ async def _run_grant_forecasts(
                 summary["estimated_usd"],
                 session.run_id,
             )
+        if session.halt.reason is not None:
+            raise RuntimeError(f"Grant run halted: {session.halt.reason}")
         if (
             any(isinstance(report, BaseException) for report in reports)
             or bot.alertable_count > 0

@@ -370,30 +370,19 @@ class SpendLedger:
                 )
             ]
 
-    def has_blocking_attempts(self, run_id: str, question_id: str) -> bool:
-        """Block for a call that did not succeed, or a per-call overage.
+    def failed_attempts(self, run_id: str, question_id: str) -> int:
+        """Calls on a question that returned no answer: rejected, or lost after sending.
 
-        An estimated charge does not block: the money is spent either way, and its held
-        reservation already guards the limit. It is confirmed later by reconciliation.
+        Costs are not the question here -- every unconfirmed cost holds its reservation.
+        This counts missing answers, which is what makes a question's research unusable.
         """
         with self._connect() as db:
-            rows = db.execute(
-                """SELECT 1 FROM attempts
-                WHERE run_id = ? AND (question_id = ? OR question_id IS NULL) AND source = ?
-                AND status != 'succeeded' LIMIT 1""",
+            (count,) = db.execute(
+                """SELECT COUNT(*) FROM attempts WHERE run_id = ? AND question_id = ? AND source = ?
+                AND status IN ('uncertain', 'rejected')""",
                 (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
             ).fetchone()
-            if rows is not None:
-                return True
-            return any(
-                Decimal(charged) > Decimal(reserved)
-                for reserved, charged in db.execute(
-                    """SELECT reserved_usd, charged_usd FROM attempts
-                    WHERE run_id = ? AND (question_id = ? OR question_id IS NULL)
-                    AND source = ? AND charged_usd IS NOT NULL""",
-                    (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
-                )
-            )
+            return int(count)
 
     def write_off(self, adjustment_id: str, provider_total_usd: Decimal, note: str, *, expected_count: int) -> int:
         """Replace attempts that can never be reconciled with the provider's own total.
