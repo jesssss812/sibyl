@@ -49,17 +49,25 @@ def test_estimate_keeps_reservation_until_provider_reconciliation(tmp_path: Path
     assert ledger.summary("run-a")["confirmed_usd"] == "0.4"
 
 
-def test_unconfirmed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
+def test_failed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "spend.sqlite3")
     ledger.start_run("run-a", Decimal("3"))
     ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"), question_id="101")
     ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.8"), question_id="102")
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
+    ledger.mark_uncertain("a")
     ledger.settle("b", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
     assert ledger.has_blocking_attempts("run-a", "101")
     assert not ledger.has_blocking_attempts("run-a", "102")
-    ledger.reconcile("a", Decimal("0.4"))
+
+
+def test_an_estimated_charge_does_not_block(tmp_path: Path) -> None:
+    # The money is spent either way; the held reservation already guards the limit.
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("run-a", Decimal("3"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"), question_id="101")
+    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
     assert not ledger.has_blocking_attempts("run-a", "101")
+    assert ledger.summary("run-a")["remaining_local_usd"] == str(Decimal("95") - Decimal("0.8"))
 
 
 def test_provider_charge_above_reservation_blocks_publication(tmp_path: Path) -> None:

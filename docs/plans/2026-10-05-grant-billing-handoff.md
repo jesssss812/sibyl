@@ -95,7 +95,8 @@ A review of this branch before merge changed three points above:
   generation record is consulted, and failing that the call settles as an estimate.
 - **Billable under BYOK is upstream cost plus OpenRouter's fee**, since the key's
   limit meters both. With the fee at `0`, as in the record above, nothing changes.
-- **Publication stays gated on confirmation.** An estimated charge still blocks its
-  question, as `test_estimated_charge_blocks_scored_publication` requires. What
-  changed is that grant routes confirm from the response, so the gate no longer
-  waits on the eventually-consistent lookup.
+- **Estimated charges publish.** Withholding a forecast that is already paid for
+  recovers nothing; the estimate's held reservation guards the limit, and
+  `reconcile` confirms it later. Failed calls and over-reserve charges still block.
+- **Remaining work item 1 is done:** a run preflights against the key's
+  `limit_remaining` and refuses when it cannot cover the budget plus the reserve.

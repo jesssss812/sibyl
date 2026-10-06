@@ -343,12 +343,16 @@ class SpendLedger:
             ]
 
     def has_blocking_attempts(self, run_id: str, question_id: str) -> bool:
-        """Block publication for unconfirmed charges or a per-call overage."""
+        """Block for a call that did not succeed, or a per-call overage.
+
+        An estimated charge does not block: the money is spent either way, and its held
+        reservation already guards the limit. It is confirmed later by reconciliation.
+        """
         with self._connect() as db:
             rows = db.execute(
                 """SELECT 1 FROM attempts
                 WHERE run_id = ? AND (question_id = ? OR question_id IS NULL) AND source = ?
-                AND (status != 'succeeded' OR certainty != 'confirmed') LIMIT 1""",
+                AND status != 'succeeded' LIMIT 1""",
                 (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
             ).fetchone()
             if rows is not None:

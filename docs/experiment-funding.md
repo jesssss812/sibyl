@@ -29,7 +29,7 @@ python -m sibyl.ops.experiment_grant run-test \
 
 This is a command template, not standing authorization. Each live test needs operator approval for that specific run. Its manifest, question snapshot, and reports are written under `backtests/grant_test_runs/<run-id>/` by default. It uses the same grant-only routes, research preflight, per-call reservations, and publication gate as MiniBench.
 
-For publishing runs, open a visible terminal and use `python -u` with `2>&1 | tee <private-log-path>` so the operator can watch progress. Enable `set -o pipefail` in the shell so `tee` cannot hide a failed run. The runner emits question starts and completions, model call starts and settlements, and sanitized failure status codes at INFO level. It never logs credentials or upstream error bodies. A research charge that is not provider-confirmed stops that question before its forecasters start, and an unconfirmed charge anywhere on a question blocks its publication. Grant routes normally confirm from the completion response itself, so this gate does not wait on the generation lookup. Grant accounting errors are not retried by the outer LLM retry loop.
+For publishing runs, open a visible terminal and use `python -u` with `2>&1 | tee <private-log-path>` so the operator can watch progress. Enable `set -o pipefail` in the shell so `tee` cannot hide a failed run. The runner emits question starts and completions, model call starts and settlements, and sanitized failure status codes at INFO level. It never logs credentials or upstream error bodies. A failed call or a charge above its reservation stops a question: in research, before its forecasters start; anywhere on the question, before publication. An estimated charge does not stop it — the money is already spent, and its held reservation guards the limit — but the run logs `GRANT_RECONCILE_NEEDED` and the charge stays owed a reconciliation. Grant accounting errors are not retried by the outer LLM retry loop.
 
 The following is a command template, **not authorization to execute it**. It publishes to scored MiniBench and spends credits. Set a unique run ID and a per-call reservation large enough for the chosen model's maximum output and research charges.
 
@@ -53,7 +53,7 @@ The reservation is a local stop-loss, **not a provider-enforced hard cap**. A si
 3. `usage.cost` alone — recorded, never confirming. Without `is_byok` it may be only OpenRouter's BYOK fee, and a zero may be a free route or an unseen upstream expense;
 4. the LiteLLM framework estimate — recorded, never confirming.
 
-An unconfirmed call settles as an estimate, keeps its whole reservation until reconciled, and blocks publication of its question — so an unseen BYOK expense can neither make a run read as free nor publish unaccounted.
+An unconfirmed call settles as an estimate and keeps its whole reservation until reconciled, so an unseen BYOK expense cannot make a run read as free. It does not block publication.
 
 **Billable vs. components.** `charged_usd` is the figure the budget holds. Under BYOK that is the upstream provider's charge plus OpenRouter's BYOK fee, since the grant key's limit meters both; OpenRouter's own charge alone is often `0`. The components (`openrouter_charge_usd`, `upstream_cost_usd`, `is_byok`) are stored separately, because collapsing them is what let a run report `$0` spent while `$0.1873175` moved upstream.
 

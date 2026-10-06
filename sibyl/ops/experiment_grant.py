@@ -216,7 +216,7 @@ async def _run_grant_forecasts(
             if not research.strip() or session.ledger.has_blocking_attempts(
                 session.run_id, str(question.id_of_question)
             ):
-                raise GrantExecutionError("Research is empty or has unconfirmed charges; forecasters refused")
+                raise GrantExecutionError("Research is empty or has a failed or over-reserve call; forecasters refused")
             return research
 
         async def forecast_questions(self, questions: Sequence[MetaculusQuestion], return_exceptions: bool = False):
@@ -261,7 +261,7 @@ async def _run_grant_forecasts(
             # full question ledger instead of relying on prediction errors.
             question_id = question.id_of_question
             if question_id is None or session.ledger.has_blocking_attempts(session.run_id, str(question_id)):
-                raise RuntimeError("Grant question has unconfirmed charges or an overage; publication refused")
+                raise RuntimeError("Grant question has a failed call or an overage; publication refused")
             return super()._create_unified_explanation(question, *args, **kwargs)
 
     with grant_context(session):
@@ -325,11 +325,18 @@ async def _run_grant_forecasts(
             reports = await bot.forecast_on_tournament(MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True)
         SibylBot.log_report_summary(reports)
         summary = session.ledger.summary(session.run_id)
+        if Decimal(str(summary["estimated_usd"])) > 0:
+            # Not a failure: the reservations stay held until `reconcile` confirms them.
+            logging.getLogger(__name__).warning(
+                "GRANT_RECONCILE_NEEDED run=%s estimated_usd=%s; run `reconcile --run-id %s`",
+                session.run_id,
+                summary["estimated_usd"],
+                session.run_id,
+            )
         if (
             any(isinstance(report, BaseException) for report in reports)
             or bot.alertable_count > 0
             or Decimal(str(summary["uncertain_usd"])) > 0
-            or Decimal(str(summary["estimated_usd"])) > 0
             or Decimal(str(summary["reserved_usd"])) > 0
         ):
             raise RuntimeError("Grant run finished with failed forecasts, degradation, or uncertain charges")
