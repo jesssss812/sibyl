@@ -58,8 +58,11 @@ make typecheck   # basedpyright, must report 0 errors
 Run `make e2e_free_no_publish` after the final code edit and before every push.
 It requires `OPENROUTER_API_KEY`, makes live free-model calls, and must never
 publish. If the key, network, or a free provider is unavailable, do not substitute
-`make e2e_free` or claim the check passed; report the blocker and hold the push.
-This standing authorization applies only to this nonpublishing check.
+`make e2e_free` or claim the check passed; report the blocker. A feature branch may
+still be pushed so the work is not lost, with the skipped check stated in the
+report, but it must not be merged into `main` or `clean-fork` until the check has
+passed on its final commit. This standing authorization applies only to this
+nonpublishing check.
 
 ## Layout
 
