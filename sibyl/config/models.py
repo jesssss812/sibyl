@@ -157,18 +157,18 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # OPENROUTER_API_KEY now; the other two slots route via the primary key.
     # (Dates anchor config eras for residual analysis.)
     #
-    # OpenAI flagship (5.6 series). 2026-07-20: effort xhigh -> high. The
+    # OpenAI Sol slot (GPT-6 since 2026-10-08). 2026-07-20: effort xhigh -> high. The
     # reasoning-effort audit (bottega:scratch/reasoning_effort_audit_2026-07-20/) found
     # default->high clearly worth it but high->xhigh UNMEASURED; sol is ~70% of
     # forecaster reasoning spend, so we stop paying the unmeasured premium on the
-    # dominant-cost slot. opus-4.8 keeps xhigh below as the remaining premium bet
+    # dominant-cost slot. The Opus slot keeps xhigh below as the remaining premium bet
     # (bottega:FUTURE.md "Price the high->xhigh reasoning-effort premium"). (2026-07-15
     # had bumped this high -> xhigh.) Live-verified: OpenRouter's effort enum is
     # max|xhigh|high|medium|low|minimal|none and this model accepts high (bogus
     # values 400). NOTE: "max" is Anthropic-only — OpenAI's ceiling is xhigh and
     # OpenAI rejects max upstream even though OpenRouter's enum validation admits it.
     build_llm_with_openrouter_fallback(
-        model="openrouter/openai/gpt-5.6-sol",
+        model="openrouter/openai/gpt-6-sol",
         reasoning={"effort": "high"},
         **_FORECASTER_CONFIG,
     ),
@@ -178,6 +178,7 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # FORECASTER_SOFT_DEADLINE stalls on the retired opus-4.6 slot, e.g. Q14333 on
     # 2026-05-07.
     #
+    # 2026-10-08: Opus 5 -> Opus 5.5, the current Opus route on OpenRouter.
     # 2026-10-08: back on OpenRouter after five weeks on the Anthropic API direct. The
     # 2026-08-31 move was a credit workaround (the OpenRouter keys could not cover a 64k
     # max_tokens reservation); the OpenRouter grant now funds these calls, and every
@@ -185,7 +186,7 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # The effort goes back to the OpenRouter dict form: `reasoning_effort` is the
     # Anthropic-direct spelling, and litellm's drop_params would discard the wrong one.
     build_llm_with_openrouter_fallback(
-        model="openrouter/anthropic/claude-opus-5",
+        model="openrouter/anthropic/claude-opus-5.5",
         reasoning={"effort": "xhigh"},
         **_FORECASTER_CONFIG,
     ),
@@ -203,7 +204,7 @@ FORECASTER_LLMS: list[GeneralLlm] = [
 
 
 def _forecaster_display_name(llm: GeneralLlm) -> str:
-    """Short label for a forecaster (e.g. 'claude-opus-4.8') — strips the 'openrouter/<provider>/' prefix.
+    """Short label for a forecaster (e.g. 'claude-opus-5.5') — strips the 'openrouter/<provider>/' prefix.
 
     Used by performance_analysis.parsing to map 'Forecaster N' labels in bot comments
     back to a model name without having to hand-maintain a parallel list.
@@ -254,15 +255,11 @@ SUMMARIZER_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
 )
 # Parser: deterministic extraction of percentiles/JSON from rationales — a
 # capability-saturated task, so it rides the cheapest tier that saturates it and
-# keeps allowed_tries=3 for robustness. mini → luna 2026-08-03: the per-token
-# comparison that used to favor mini inverted. Luna is $0.20/$1.20 vs mini's
-# $0.75/$4.50 per 1M, so the newer model is also the ~3.75x cheaper one. (The
-# models API showed $0.10/$0.60 behind a "50% off" badge on 2026-08-03; a live
-# call on 2026-08-04 billed at double that, so the promo does not apply on this
-# route — see the ranker cost comment below. The swap still wins, by less.)
-# Effort unchanged at low.
+# keeps allowed_tries=3 for robustness. mini → luna 2026-08-03; GPT-5.6 Luna →
+# GPT-6 Luna 2026-10-08 at the same role tier and a lower listed price ($0.10/$0.50
+# per 1M, not yet confirmed by a live bill). Effort unchanged at low.
 PARSER_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
-    "openrouter/openai/gpt-5.6-luna",
+    "openrouter/openai/gpt-6-luna",
     reasoning={"effort": "low"},
     **UTILITY_MODEL_CONFIG,
 )
@@ -287,26 +284,27 @@ STACKER_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
     # 2026-07-20: fable-5 → opus-4.8 (fable-5 pulled from BOTH roles after
     # content=None failures in the 2026-07-19 test_bot run — see the forecaster-slot
     # comment above + bottega:FUTURE.md). Stacking is prod-disabled, so this is
-    # backtest/ablation-only exposure today. opus-4.8 uses effort-based adaptive
+    # backtest/ablation-only exposure today. Opus uses effort-based adaptive
     # thinking, not a max_tokens budget. Live-verified OpenRouter effort enum:
-    # none/minimal/low/medium/high/xhigh/max. effort=xhigh matches the opus-4.8
+    # none/minimal/low/medium/high/xhigh/max. effort=xhigh matches the Opus
     # forecaster slot; "max" (one tier above xhigh) is deliberately held back for
     # latency — the stacker runs under STACKER_SOFT_DEADLINE.
-    # 2026-10-08: back on OpenRouter with the forecaster slot (see its comment).
-    "openrouter/anthropic/claude-opus-4.8",
+    # 2026-10-08: back on OpenRouter with the forecaster slot (see its comment), and
+    # Opus 4.8 -> Opus 5.5 so the stacker and the Opus forecaster are the same model.
+    "openrouter/anthropic/claude-opus-5.5",
     reasoning={"effort": "xhigh"},
     **{**REASONING_MODEL_CONFIG, "allowed_tries": 1},
 )
 
 # Fallback stacker used when the primary stacker times out or errors.
-# Reasoning slot → strongest OpenAI tier (gpt-5.6-sol) at high effort;
-# deliberately cross-provider from the Anthropic Fable primary so an Anthropic
+# Reasoning slot → OpenAI Sol tier (gpt-6-sol) at high effort;
+# deliberately cross-provider from the Anthropic Opus primary so an Anthropic
 # stall doesn't take both attempts down. Tighter timeout and single try since
 # we're already running late on the critical path by the time this fires.
 # Stays at high (not xhigh) for that same reason — the 2026-07-15 xhigh bump
 # covers the primary stacker and forecaster slots, not this tighter-budget path.
 STACKER_FALLBACK_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
-    "openrouter/openai/gpt-5.6-sol",
+    "openrouter/openai/gpt-6-sol",
     reasoning={"effort": "high"},
     **{**REASONING_MODEL_CONFIG, "allowed_tries": 1, "timeout": 300},
 )
@@ -329,14 +327,16 @@ STACKER_FALLBACK_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
 # litellm `timeout` sits ABOVE its elapsed-gated wall cap in constants.py, so the wall is the
 # binding bound.
 #
-# Luna is the cheapest tier that saturates both tasks. The real rate on this route is $0.20/M in
+# Luna is the cheapest tier that saturates both tasks. 2026-10-08: GPT-5.6 Luna -> GPT-6 Luna,
+# listed at $0.10/M in and $0.50/M out; no live bill has confirmed that yet, and the
+# measurements below are GPT-5.6 Luna's. Its real rate on this route was $0.20/M in
 # and $1.20/M out — TWICE the $0.10/$0.60 the bake-off read off the models API on 2026-08-03,
 # where a "50% off" badge was displayed that has since lapsed or never applied here. A live
 # ranking call reconciled the true rates to 7 significant figures against OpenRouter's own
 # `upstream_inference_cost` (26,250 in / 685 out / a 25% cache-WRITE surcharge on the input,
 # `bottega:scratch/market_port_2026-08-04/QA_DRY_RUN.md`), so this is measured rather than quoted.
 #
-# MEASURED cost per question: ranker $0.0074 (26k in at the median post-enrichment,
+# MEASURED (GPT-5.6 Luna) cost per question: ranker $0.0074 (26k in at the median post-enrichment,
 # full-PredictIt shape + ~685 out, cache write included); author ~1.4k in + ~300 out ≈ $0.0005.
 # The two keyword calls they replace measured ~170 tok in / ~50 out ≈ $0.0001, so net new is
 # ≈ +$0.008 per question — under a cent per run at the prod shape of 1-2 questions, and ~$0.24
@@ -350,7 +350,7 @@ STACKER_FALLBACK_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
 # RANKED_ARM_RESULTS.md). max_tokens sits ~3x above that max because a TRUNCATED ranking is a
 # fail-open — the whole ranking is lost, not just its tail — and luna's output tokens are cheap.
 MARKET_RANKER_LLM_CONFIG: dict = {
-    "model": "openrouter/openai/gpt-5.6-luna",
+    "model": "openrouter/openai/gpt-6-luna",
     "temperature": None,
     "max_tokens": 3000,
     "reasoning_effort": "low",
@@ -363,7 +363,7 @@ MARKET_RANKER_LLM_CONFIG: dict = {
 # a deterministic query set, so its failure costs recall nothing. Measured completion max 588
 # tokens including reasoning; max_tokens sits ~2.5x above that.
 MARKET_QUERY_AUTHOR_LLM_CONFIG: dict = {
-    "model": "openrouter/openai/gpt-5.6-luna",
+    "model": "openrouter/openai/gpt-6-luna",
     "temperature": None,
     "max_tokens": 1500,
     "reasoning_effort": "low",

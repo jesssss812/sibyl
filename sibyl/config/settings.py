@@ -749,7 +749,7 @@ FRED_API_KEY_ENV: str = "FRED_API_KEY"
 # Binary-ish routing classification (is this a financial/economic question?)
 # under a 30s timeout — capability-saturated, so it rides the cheapest capable
 # tier (mini → luna 2026-08-03, when luna's markdown made it cheaper than mini).
-FINANCIAL_CLASSIFIER_MODEL: str = "openrouter/openai/gpt-5.6-luna"
+FINANCIAL_CLASSIFIER_MODEL: str = "openrouter/openai/gpt-6-luna"
 FINANCIAL_CLASSIFIER_TIMEOUT: int = 30
 FINANCIAL_YFINANCE_LOOKBACK_DAYS: int = 365
 FINANCIAL_YFINANCE_RECENT_DAYS: int = 30
@@ -881,7 +881,7 @@ BACKTEST_DEFAULT_MIN_FORECASTERS: int = 40
 BACKTEST_OVERFETCH_RATIO: int = 3
 # Mechanical leakage screen over research text, backtest-only — saturated task,
 # luna is the cheapest capable tier (mini → luna 2026-08-03).
-LEAKAGE_DETECTOR_MODEL: str = "openrouter/openai/gpt-5.6-luna"
+LEAKAGE_DETECTOR_MODEL: str = "openrouter/openai/gpt-6-luna"
 
 # --- Per-type stacking gates ---
 # Each question type has an independent enable/disable flag. All three default

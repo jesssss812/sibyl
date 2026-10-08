@@ -80,7 +80,8 @@ ARM_MEAN = "mean"  # deterministic mean over base predictions, no LLM (see sibyl
 # primary-key compatibility (see the History note below), independent of the
 # current prod ``STACKER_LLM`` primary (claude-opus-4.8 in ``llm_configs.py``
 # since 2026-07-20, when fable-5 was pulled from both roles).
-# gpt-5.6-sol as fallback matches prod STACKER_FALLBACK_LLM (different provider
+# gpt-5.6-sol as fallback was prod's STACKER_FALLBACK_LLM until the 2026-10-08 model
+# refresh (gpt-6-sol); it stays frozen here until the roadmap item decides (different provider
 # so an Anthropic stall doesn't take both attempts down). Both are routed through
 # ``build_llm_with_openrouter_fallback`` for the primary→paid key fallback the
 # wrapper provides on credit/auth/data-policy errors.
@@ -91,11 +92,12 @@ ARM_MEAN = "mean"  # deterministic mean over base predictions, no LLM (see sibyl
 # different `OAI_ANTH_OPENROUTER_KEY` GitHub-secret value works, but local
 # couldn't. claude-opus-4.5 sidesteps the issue entirely.
 DEFAULT_STACKER_MODEL = "openrouter/anthropic/claude-opus-4.5"
-# Matches prod STACKER_FALLBACK_LLM post the 2026-07-09 gpt-5.6 migration.
+# Prod's STACKER_FALLBACK_LLM from the 2026-07-09 gpt-5.6 migration to the 2026-10-08 refresh.
 DEFAULT_STACKER_FALLBACK_MODEL = "openrouter/openai/gpt-5.6-sol"
 DEFAULT_PARSER_MODEL = "openrouter/openai/gpt-oss-120b:free"
 
-# Prod-ish ablation stacker. Mirrors the prod-ish forecaster posture (opus-4.8 at
+# Prod-ish ablation stacker, frozen at the pre-2026-10-08 prod model (prod now runs
+# opus-5.5; see the roadmap). Mirrors the prod-ish forecaster posture (opus-4.8 at
 # medium reasoning effort, no sampling params): ``temperature=None`` keeps litellm
 # from injecting a temperature, and top_p / max_tokens are deliberately unset.
 # Selected by --lineup prod in the --plain-llm path (a plain GeneralLlm, no
@@ -149,7 +151,7 @@ def _build_default_stacker_llm() -> GeneralLlm:
 def _build_default_fallback_stacker_llm() -> GeneralLlm:
     """Fallback ablation stacker (gpt-5.6-sol).
 
-    Mirrors production STACKER_FALLBACK_LLM. Different provider on purpose —
+    Production's STACKER_FALLBACK_LLM before the 2026-10-08 refresh. Different provider on purpose —
     if Anthropic is thrashing, retrying against Anthropic rarely recovers.
     Goes through the primary-key wrapper too; if the primary key data-policy
     blocks the OpenAI model (operator-specific), the wrapper's fallback to the

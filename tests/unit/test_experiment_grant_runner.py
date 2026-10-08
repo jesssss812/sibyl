@@ -239,8 +239,8 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
             assert len(llms["forecasters"]) == 3
             assert all(isinstance(llm, FundedGeneralLlm) for llm in llms["forecasters"])
             assert all(llm.litellm_kwargs["api_key"] == "dummy-grant" for llm in llms["forecasters"])
-            assert llms["forecasters"][1].model == "openrouter/anthropic/claude-opus-5"
-            assert llms["stacker"].model == "openrouter/anthropic/claude-opus-4.8"
+            assert llms["forecasters"][1].model == "openrouter/anthropic/claude-opus-5.5"
+            assert llms["stacker"].model == "openrouter/anthropic/claude-opus-5.5"
             assert kwargs["folder_to_save_reports_to"] == str(tmp_path / "reports" / "mock-run" / "forecasts")
             research = ResearchOrchestrator(default_llm=llms["researcher"], summarizer_llm=llms["summarizer"])
             assert [name for _, name in research._select_research_providers()] == ["native_search_grant"]
@@ -294,7 +294,7 @@ async def test_mocked_minibench_uses_three_grant_slots_and_only_grant_research(
     manifest = json.loads(manifest_path.read_text())
     assert manifest["run_id"] == "mock-run"
     assert manifest["code"]["git_sha"]
-    assert manifest["configuration"]["forecasters"][1] == "openrouter/anthropic/claude-opus-5"
+    assert manifest["configuration"]["forecasters"][1] == "openrouter/anthropic/claude-opus-5.5"
     assert "dummy-grant" not in manifest_path.read_text()
     with pytest.raises(ValueError, match="already has a forecast manifest"):
         await _run_minibench(
