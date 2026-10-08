@@ -177,45 +177,16 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # held back deliberately for latency: unbounded adaptive thinking caused silent
     # FORECASTER_SOFT_DEADLINE stalls on the retired opus-4.6 slot, e.g. Q14333 on
     # 2026-05-07.
+    #
+    # 2026-10-08: back on OpenRouter after five weeks on the Anthropic API direct. The
+    # 2026-08-31 move was a credit workaround (the OpenRouter keys could not cover a 64k
+    # max_tokens reservation); the OpenRouter grant now funds these calls, and every
+    # OpenRouter key can carry them, so the slot no longer needs its own transport.
+    # The effort goes back to the OpenRouter dict form: `reasoning_effort` is the
+    # Anthropic-direct spelling, and litellm's drop_params would discard the wrong one.
     build_llm_with_openrouter_fallback(
-        # 2026-08-31: ROUTING moved from OpenRouter to the Anthropic API direct
-        # ("openrouter/anthropic/claude-opus-5" -> "anthropic/claude-opus-5"). The model
-        # is unchanged; only the transport is. The primary Metaculus OpenRouter key is
-        # exhausted until next season and the fallback OpenRouter balance could not even
-        # cover a 64k max_tokens reservation (2026-08-31 run: three 402s, 0/3 forecasters),
-        # so the OpenRouter hop bought nothing but a middleman on a key with no credit.
-        #
-        # `build_llm_with_openrouter_fallback` returns a PLAIN GeneralLlm for any slug
-        # that does not start with "openrouter/" (see should_route_via_primary_key), so
-        # this correctly bypasses the primary-key wrapper and litellm reads
-        # ANTHROPIC_API_KEY from the environment. The call is kept (rather than
-        # constructing GeneralLlm directly) so the roster stays uniform and re-routing
-        # back through OpenRouter is a one-token change.
-        #
-        # TWO PARAMETER CHANGES ARE MANDATORY, not cosmetic:
-        #   * `reasoning={"effort": ...}` -> `reasoning_effort=...`. The dict form is an
-        #     OpenRouter passthrough. litellm's Anthropic transform lists
-        #     `reasoning_effort` (not `reasoning`) in get_supported_openai_params, and
-        #     forecasting_tools sets `litellm.drop_params = True` process-globally — so
-        #     the dict form is SILENTLY DISCARDED, not rejected. The slot would have run
-        #     at default effort with no error anywhere in the logs.
-        #   * `extra_body={"verbosity": "high"}` is dropped entirely. `verbosity` is an
-        #     OpenRouter-only knob with no Anthropic API equivalent; same silent-drop
-        #     path.
-        # Verified against the litellm model map: claude-opus-5 advertises
-        # supports_output_config + supports_xhigh_reasoning_effort, so effort=xhigh
-        # survives the translation to output_config.effort.
-        #
-        # 2026-08-27: claude-opus-4.8 -> claude-opus-5. Anthropic's current flagship,
-        # released 2026-07-24, at the SAME OpenRouter list price ($5/M in, $25/M out) and
-        # the same 1M context / 128k max-output envelope. Verified against the live
-        # /api/v1/models catalogue, including that it advertises the same
-        # reasoning/reasoning_effort parameter support, so effort=xhigh carries over.
-        # NOT verified by a live call — no forecast has been made with it. Fire one
-        # `test_bot_basic` dispatch before trusting a scored run.
-        # This starts a new config era for residual analysis (merge date, per AGENTS.md).
-        model="anthropic/claude-opus-5",
-        reasoning_effort="xhigh",
+        model="openrouter/anthropic/claude-opus-5",
+        reasoning={"effort": "xhigh"},
         **_FORECASTER_CONFIG,
     ),
     # Google slot. No explicit reasoning-effort kwarg — gemini-3.1-pro-preview has
@@ -308,7 +279,7 @@ RESEARCHER_LLM = SUMMARIZER_LLM
 # allowed_tries=1: a single attempt at REASONING_MODEL_CONFIG's timeout, no
 # retries. The outer STACKER_SOFT_DEADLINE catches wholly stuck calls; on failure
 # we fall back to STACKER_FALLBACK_LLM rather than burning two more full-timeout
-# attempts against the same Anthropic API that just stalled. Retrying against the same
+# attempts against the same Anthropic route that just stalled. Retrying against the same
 # provider after a stall rarely succeeds (we're almost certainly re-rolling a
 # dice with the same distribution), and the budget is better spent on a
 # different-provider fallback.
@@ -321,13 +292,9 @@ STACKER_LLM: GeneralLlm = build_llm_with_openrouter_fallback(
     # none/minimal/low/medium/high/xhigh/max. effort=xhigh matches the opus-4.8
     # forecaster slot; "max" (one tier above xhigh) is deliberately held back for
     # latency — the stacker runs under STACKER_SOFT_DEADLINE.
-    # 2026-08-31: routed direct alongside the forecaster slot. NOTE the model id
-    # changes SHAPE, not identity: Anthropic's own ids are dash-separated
-    # ("claude-opus-4-8"), while OpenRouter uses dots ("claude-opus-4.8"). The dotted
-    # form 404s against the Anthropic API. Same reasoning_effort / verbosity treatment
-    # as the forecaster slot above — see that comment for why the dict form is unsafe.
-    "anthropic/claude-opus-4-8",
-    reasoning_effort="xhigh",
+    # 2026-10-08: back on OpenRouter with the forecaster slot (see its comment).
+    "openrouter/anthropic/claude-opus-4.8",
+    reasoning={"effort": "xhigh"},
     **{**REASONING_MODEL_CONFIG, "allowed_tries": 1},
 )
 
