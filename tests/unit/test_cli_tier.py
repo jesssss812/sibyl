@@ -125,3 +125,13 @@ class TestTierResolutionThroughArgv:
     def test_contradictory_mode_spellings_are_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # argparse exits 2 on parser.error; the point is that it does not silently pick one.
         assert self._run(["tournament", "--mode", "minibench"], "prod", monkeypatch) == 2
+
+    def test_a_grant_budget_is_refused_on_the_free_tier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A free run must not be able to spend, whichever key would pay.
+        assert self._run(["test", "--grant-budget-usd", "5"], "free", monkeypatch) == 2
+
+    def test_a_grant_budget_without_the_grant_key_is_refused_before_the_bot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", raising=False)
+        assert self._run(["test", "--tier", "prod", "--grant-budget-usd", "5"], None, monkeypatch) == 2

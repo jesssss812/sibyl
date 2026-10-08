@@ -42,6 +42,9 @@ against the ACTUAL emitted format strings (the source of truth):
   breakdown, emitted on BOTH exit paths so a fully-suppressed green run is still
   recorded)
 * ``CREDIT_BALANCE`` / ``CREDIT_SPEND`` / ``CREDIT_FLOOR_BREACH`` — ``sibyl/telemetry/credits.py``
+* ``SPEND_SUMMARY`` / ``GRANT_STOPPED`` — ``sibyl/platform/funding.py`` (one spend line
+  per paying source at the end of a run, from the CLI; the moment a run stops offering
+  calls to the OpenRouter grant)
 * ``STACKER_OUTCOME`` / ``TOOLS_USED`` / ``ANCHOR_OVERSHOOT_PP`` /
   ``CLAUSE_PRODUCT_DIVERGENCE_PP`` — ``sibyl/publishing/comment/markers.py``
 
@@ -499,6 +502,19 @@ MARKER_SPECS: list[MarkerSpec] = [
             r"CREDIT_SPEND:\s*key=(?P<key>\S+)\s+run_delta_usd=(?P<run_delta_usd>\S+)\s+remaining=(?P<remaining>\S+)"
             r"(?:\s+source=(?P<source>\S+))?"
         ),
+    ),
+    MarkerSpec(
+        "spend_summary",
+        re.compile(
+            r"SPEND_SUMMARY:\s*run=(?P<run>\S+)\s+source=(?P<source>\S+)\s+attempts=(?P<attempts>\S+)"
+            r"\s+unconfirmed=(?P<unconfirmed>\S+)\s+confirmed_usd=(?P<confirmed_usd>\S+)"
+            r"\s+estimated_usd=(?P<estimated_usd>\S+)\s+uncertain_usd=(?P<uncertain_usd>\S+)"
+        ),
+    ),
+    MarkerSpec(
+        "grant_stopped",
+        # ``reason`` is free text with spaces, so it runs to end of line.
+        re.compile(r"GRANT_STOPPED:\s*run=(?P<run>\S+)\s+reason=(?P<reason>.*)$"),
     ),
     MarkerSpec(
         "credit_floor_breach",

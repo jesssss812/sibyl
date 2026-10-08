@@ -26,6 +26,7 @@ from sibyl.config.settings import (
     GOOGLE_API_KEY_ENV,
     RESOLUTION_SOURCE_MAX_RESPONSE_BYTES,
 )
+from sibyl.platform.funding import record_direct_call
 from sibyl.research import providers as research_providers
 from sibyl.research import resolution_source
 from sibyl.research.agentic.types import ToolOutcome, ToolSpec
@@ -395,11 +396,15 @@ async def _call_asknews_search(query: str) -> list[Any]:
             for attempt in range(1, tries + 1):
                 try:
                     await research_providers.asknews_rate_gate()
-                    response = await sdk.news.search_news(
-                        query=query,
-                        n_articles=6,
-                        return_type="both",
-                        strategy="news knowledge",
+                    response = await record_direct_call(
+                        "asknews/search_news",
+                        "gap_fill_v2_search_news",
+                        lambda: sdk.news.search_news(
+                            query=query,
+                            n_articles=6,
+                            return_type="both",
+                            strategy="news knowledge",
+                        ),
                     )
                     return list(response.as_dicts or [])
                 except Exception as exc:
@@ -445,7 +450,7 @@ async def _run_exa_search(query: str, end_published_date: str | None) -> Any:
     if end_published_date is not None:
         kwargs["end_published_date"] = end_published_date
     try:
-        return await client.search(**kwargs)
+        return await record_direct_call("exa/search", "gap_fill_v2_search_web", lambda: client.search(**kwargs))
     finally:
         await client._client.aclose()
 
@@ -988,8 +993,12 @@ async def read_document(url: str, ask: str) -> ToolOutcome:
     if not os.getenv(GOOGLE_API_KEY_ENV):
         return _format_fetch_error(f"Google API key is not configured; set {GOOGLE_API_KEY_ENV}.", method="document")
     try:
-        text, n_url_success = await asyncio.wait_for(
-            asyncio.to_thread(_run_document_read_sync, url, ask), timeout=_READ_DOCUMENT_TIMEOUT_S
+        text, n_url_success = await record_direct_call(
+            f"google/{GAP_FILL_V2_READER_MODEL}",
+            "gap_fill_v2_read_document",
+            lambda: asyncio.wait_for(
+                asyncio.to_thread(_run_document_read_sync, url, ask), timeout=_READ_DOCUMENT_TIMEOUT_S
+            ),
         )
     except asyncio.TimeoutError:
         return _format_fetch_error("Document read timed out.", method="document")

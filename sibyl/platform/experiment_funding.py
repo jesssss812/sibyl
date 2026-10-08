@@ -51,7 +51,16 @@ class GrantExecutionError(RuntimeError):
 
 
 class BudgetExceeded(GrantExecutionError):
-    """A local spend limit has insufficient unreserved capacity."""
+    """A local spend limit has insufficient unreserved capacity.
+
+    ``in_flight`` is True when the limit would hold if the requests still in flight
+    were left out: capacity may come back as they settle, so only this attempt is turned
+    away. False means the budget is spent whatever happens to them.
+    """
+
+    def __init__(self, message: str, *, in_flight: bool = False) -> None:
+        super().__init__(message)
+        self.in_flight = in_flight
 
 
 def _cost(value: Decimal) -> Decimal:
@@ -205,10 +214,16 @@ class SpendLedger:
 
     @staticmethod
     def _liability(
-        db: sqlite3.Connection, *, run_id: str | None = None, source: FundingSource = FundingSource.EXPERIMENT_GRANT
+        db: sqlite3.Connection,
+        *,
+        run_id: str | None = None,
+        source: FundingSource = FundingSource.EXPERIMENT_GRANT,
+        settled_only: bool = False,
     ) -> Decimal:
         query = "SELECT reserved_usd, charged_usd, certainty FROM attempts WHERE source = ?"
         args: tuple[str, ...] = (source,)
+        if settled_only:
+            query += " AND status != 'reserved'"
         if run_id is not None:
             query += " AND run_id = ?"
             args += (run_id,)
@@ -261,12 +276,16 @@ class SpendLedger:
             if row is None:
                 db.rollback()
                 raise ValueError("Run has not been started")
-            if grant and self._liability(db, run_id=run_id) + reserve > Decimal(row[0]):
+            run_limit = Decimal(row[0])
+            allocation = GRANT_ALLOCATION_USD - GRANT_RESERVE_USD
+            if grant and self._liability(db, run_id=run_id) + reserve > run_limit:
+                in_flight = self._liability(db, run_id=run_id, settled_only=True) + reserve <= run_limit
                 db.rollback()
-                raise BudgetExceeded("Run budget exhausted")
-            if grant and self._liability(db) + reserve > GRANT_ALLOCATION_USD - GRANT_RESERVE_USD:
+                raise BudgetExceeded("Run budget exhausted", in_flight=in_flight)
+            if grant and self._liability(db) + reserve > allocation:
+                in_flight = self._liability(db, settled_only=True) + reserve <= allocation
                 db.rollback()
-                raise BudgetExceeded("Local grant allocation exhausted")
+                raise BudgetExceeded("Local grant allocation exhausted", in_flight=in_flight)
             db.execute(
                 """INSERT INTO attempts
                 (attempt_id, run_id, source, model, stage, question_id, arm_id,

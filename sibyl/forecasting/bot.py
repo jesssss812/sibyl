@@ -652,8 +652,13 @@ class SibylBot(CompactLoggingForecastBot):
         submission time. We gate the marker on that flag: backtests/benchmarks don't
         submit and run resolved (past-close) questions, so a margin there would be a
         meaningless negative — the marker is a *submission*-latency watch signal.
+
+        The spend ledger attributes every paid call made inside to this question.
         """
-        report = await super()._run_individual_question(question)
+        from sibyl.platform.funding import spend_question
+
+        with spend_question(getattr(question, "id_of_question", None)):
+            report = await super()._run_individual_question(question)
         if self.publish_reports_to_metaculus:
             marker = format_close_margin_marker(question, datetime.now(timezone.utc))
             if marker is not None:

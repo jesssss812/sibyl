@@ -1,5 +1,6 @@
 import os
 import socket
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -257,6 +258,26 @@ def _redirect_artifact_store(tmp_path_factory: pytest.TempPathFactory, monkeypat
     unaffected.
     """
     monkeypatch.setattr(gha_artifacts, "DEFAULT_STORE_DIR", str(tmp_path_factory.mktemp("gha_artifact_store")))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_spend_ledger(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep every test's spend ledger out of ``backtests/``, and its funding and seam out of the next test.
+
+    The CLI opens a ledger at ``SIBYL_SPEND_LEDGER`` (default under ``backtests/``) and
+    sets a process-wide funding configuration; without this, a CLI test would write
+    fake attempts into the operator's real spend history.
+    """
+    from forecasting_tools import GeneralLlm
+
+    from sibyl.platform import funding
+
+    monkeypatch.setenv(funding.SPEND_LEDGER_ENV, str(tmp_path_factory.mktemp("spend") / "spend.sqlite3"))
+    # cli.main() installs the funding seam on the class; undo it with the rest.
+    monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", GeneralLlm._mockable_direct_call_to_model)
+    monkeypatch.setattr(funding, "_ORIGINAL_DIRECT_CALL", funding._ORIGINAL_DIRECT_CALL)
+    yield
+    funding.configure_funding(None)
 
 
 # Shared failure fixtures

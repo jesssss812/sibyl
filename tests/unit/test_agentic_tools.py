@@ -1845,3 +1845,32 @@ class TestReadDocumentRequiresRealRetrieval:
         # If this ever stopped being true the guard above would be defending nothing;
         # pin the coupling that makes it load-bearing.
         assert _method_to_tier("document") == "fetched"
+
+
+@pytest.mark.asyncio
+async def test_each_exa_search_attempt_is_in_the_spend_ledger(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """A retried search is two attempts; the ledger shows both, under the right service and stage."""
+    from decimal import Decimal
+
+    from sibyl.platform import funding
+    from sibyl.platform.experiment_funding import SpendLedger
+
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("run")
+    funding.configure_funding(funding.Funding("run", ledger, None, Decimal("1")))
+    monkeypatch.setenv("EXA_API_KEY", "key")
+    searcher = MagicMock(
+        side_effect=[
+            RuntimeError("429 too many requests"),
+            SimpleNamespace(results=[SimpleNamespace(title="Found", url="https://example.com", highlights=[])]),
+        ]
+    )
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    _patch_async_exa(monkeypatch, searcher)
+
+    assert (await agentic_tools.search_web("query")).status == "ok"
+    with ledger._connect() as db:
+        assert db.execute("SELECT source, model, stage, status FROM attempts ORDER BY rowid").fetchall() == [
+            ("direct-service", "exa/search", "gap_fill_v2_search_web", "uncertain"),
+            ("direct-service", "exa/search", "gap_fill_v2_search_web", "succeeded"),
+        ]

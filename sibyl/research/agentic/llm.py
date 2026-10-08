@@ -7,6 +7,7 @@ from typing import Any
 from litellm import acompletion
 
 from sibyl.config.settings import OAI_ANTH_OPENROUTER_KEY_ENV, OPENROUTER_API_KEY_ENV
+from sibyl.platform.funding import funded_openrouter_call
 from sibyl.platform.key_fallback import (
     record_primary_key_fallback,
     should_retry_with_fallback_key,
@@ -56,12 +57,35 @@ def build_default_llm_call(config: LoopConfig) -> LlmCall:
             kwargs["api_key"] = api_key
         return await acompletion(**kwargs)
 
+    def _token_counts(response: Any) -> tuple[int | None, int | None]:
+        usage = getattr(response, "usage", None)
+        return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+
+    async def _send(
+        messages: list[dict[str, Any]],
+        tools_json: list[dict[str, Any]] | None,
+        api_key: str | None,
+        *,
+        offer_grant: bool = True,
+    ) -> Any:
+        # The same key choice and spend record as every forecasting-tools call: the
+        # grant first when the run has one, then this caller's own key.
+        return await funded_openrouter_call(
+            model,
+            "gap_fill_v2",
+            with_key=lambda key: _call_once(messages, tools_json, key),
+            own_key=api_key,
+            own_call=lambda: _call_once(messages, tools_json, api_key),
+            token_counts=_token_counts,
+            offer_grant=offer_grant,
+        )
+
     async def _call(messages: list[dict[str, Any]], tools_json: list[dict[str, Any]] | None) -> Any:
         if use_fallback:
             assert primary_key is not None
             assert fallback_key is not None
             try:
-                return await _call_once(messages, tools_json, primary_key)
+                return await _send(messages, tools_json, primary_key)
             except Exception as exc:  # classifier re-raises non-key-scoped errors
                 if not should_retry_with_fallback_key(exc):
                     raise
@@ -71,13 +95,13 @@ def build_default_llm_call(config: LoopConfig) -> LlmCall:
                 # path in the bot — v2 runs on every question in all four prod
                 # workflows — failed over to the paid key completely silently.
                 await record_primary_key_fallback(model, exc)  # noqa: ASYNC120
-                return await _call_once(messages, tools_json, fallback_key)
+                return await _send(messages, tools_json, fallback_key, offer_grant=False)
 
         api_key = primary_key if should_route_via_primary_key(model) and primary_key else fallback_key
         # The counted/logged fallback DECISION is now shared with key_fallback
         # (record_primary_key_fallback). Only the transport differs: this path calls
         # raw litellm.acompletion for tool-loop support, where the wrapper goes
         # through GeneralLlm. Share the transport too if this grows a retry ladder.
-        return await _call_once(messages, tools_json, api_key)
+        return await _send(messages, tools_json, api_key)
 
     return _call

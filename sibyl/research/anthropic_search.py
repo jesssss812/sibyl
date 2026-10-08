@@ -47,6 +47,7 @@ from sibyl.config.settings import (
     ANTHROPIC_SEARCH_TIMEOUT,
 )
 from sibyl.forecasting.prompts import web_research_prompt
+from sibyl.platform.funding import record_direct_call
 from sibyl.research.provider_diagnostics import record_provider_detail
 from sibyl.research.providers import ResearchCallable
 from sibyl.research.raw_log import record_raw_research
@@ -303,7 +304,11 @@ async def invoke_anthropic_grounded(
             return await stream.get_final_message()
 
     try:
-        message = await asyncio.wait_for(_call(), timeout=ANTHROPIC_SEARCH_TIMEOUT)
+        message = await record_direct_call(
+            f"anthropic/{model}",
+            "anthropic_search",
+            lambda: asyncio.wait_for(_call(), timeout=ANTHROPIC_SEARCH_TIMEOUT),
+        )
     except asyncio.TimeoutError:
         logger.warning(f"AnthropicSearch: {model} timed out after {ANTHROPIC_SEARCH_TIMEOUT}s")
         raise

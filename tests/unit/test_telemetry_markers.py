@@ -19,6 +19,9 @@ tests loudly instead of silently dropping records from the archive:
 """
 
 import json
+from pathlib import Path
+
+import pytest
 
 from sibyl.telemetry.markers import (
     MARKER_SPECS,
@@ -1035,3 +1038,37 @@ class TestGapFillAnalyzerFailed:
         assert rec["marker"] == "gap_fill_analyzer_failed"
         assert rec["qid"] is None
         assert rec["error"] == "TimeoutError"
+
+
+class TestSpend:
+    """Built from what sibyl.platform.funding actually logs, not from a copy of its format."""
+
+    @staticmethod
+    def _emitted(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> list[str]:
+        import logging
+        from decimal import Decimal
+
+        from sibyl.platform import funding
+        from sibyl.platform.experiment_funding import FundingSource, SpendLedger
+
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run-1", Decimal("5"))
+        ledger.reserve("a", "run-1", "openrouter/x", "forecaster", Decimal(0), source=FundingSource.PERSONAL_KEY)
+        ledger.settle("a", Decimal("0.25"), 1, 1, certainty="estimated", evidence_source="framework_estimate")
+        configured = funding.Funding("run-1", ledger, "grant", Decimal("1"))
+        with caplog.at_level(logging.INFO, logger="sibyl.platform.funding"):
+            configured.stop_grant("the grant key was refused (APIError)")
+            funding.log_spend_summary(configured)
+        return [PFX + record.getMessage() for record in caplog.records]
+
+    def test_spend_summary(self, caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+        lines = [line for line in self._emitted(caplog, tmp_path) if "SPEND_SUMMARY" in line]
+        rec = _parse_one(lines[0])
+        assert rec["marker"] == "spend_summary"
+        assert (rec["run"], rec["source"], rec["attempts"], rec["estimated_usd"]) == ("run-1", "personal-key", 1, 0.25)
+
+    def test_grant_stopped_keeps_the_whole_reason(self, caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+        lines = [line for line in self._emitted(caplog, tmp_path) if "GRANT_STOPPED" in line]
+        rec = _parse_one(lines[0])
+        assert rec["marker"] == "grant_stopped"
+        assert rec["reason"] == "the grant key was refused (APIError)"
