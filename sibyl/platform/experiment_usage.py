@@ -36,6 +36,9 @@ class CostCapture:
     ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False, compare=False)
 
 
+# How long to wait for LiteLLM's success callback, which can land just after the call returns.
+CALLBACK_WAIT_S = 2.0
+
 _ACTIVE_CAPTURE: ContextVar[CostCapture | None] = ContextVar("sibyl_grant_capture", default=None)
 _CALLBACK_LOCK = Lock()
 
@@ -176,7 +179,7 @@ async def resolve_grant_cost(capture: CostCapture, framework_cost: float) -> Cos
     # LiteLLM may finish its asynchronous callback after GeneralLlm returns.
     if not capture.ready.is_set():
         try:
-            await asyncio.wait_for(capture.ready.wait(), timeout=2)
+            await asyncio.wait_for(capture.ready.wait(), timeout=CALLBACK_WAIT_S)
         except asyncio.TimeoutError:
             pass
 

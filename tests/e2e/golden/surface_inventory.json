@@ -124,12 +124,14 @@
     "ghost_forecast_json",
     "ghost_pre",
     "ghost_pre_json",
+    "grant_stopped",
     "market_ranking",
     "open_bound_piling",
     "paid_personal_key_fallback",
     "provider_degradation",
     "resolution_guard",
     "run_alertable_summary",
+    "spend_summary",
     "stacker_outcome",
     "tools_used"
   ]

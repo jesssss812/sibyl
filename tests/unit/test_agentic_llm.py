@@ -260,3 +260,50 @@ class TestKeyRouting:
 
         acompletion.assert_awaited_once()
         assert _last_kwargs(acompletion)["api_key"] == _FALLBACK
+
+
+class TestGrantFunding:
+    """Gap-fill v2 calls litellm directly, so it must reach the same key choice itself."""
+
+    @pytest.fixture()
+    def grant(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+        from decimal import Decimal
+
+        from sibyl.platform import experiment_usage, funding
+        from sibyl.platform.experiment_funding import SpendLedger
+
+        monkeypatch.setattr(experiment_usage, "CALLBACK_WAIT_S", 0)
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run", Decimal("10"))
+        configured = funding.Funding("run", ledger, "sk-grant", Decimal("1"))
+        funding.configure_funding(configured)
+        return configured
+
+    @pytest.mark.asyncio
+    async def test_the_grant_pays_before_the_primary_key(
+        self, acompletion: AsyncMock, grant: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_keys(monkeypatch, _PRIMARY, _FALLBACK)
+        await agentic_llm.build_default_llm_call(_config())(_messages(), None)
+        assert [call.kwargs["api_key"] for call in acompletion.await_args_list] == ["sk-grant"]
+        with grant.ledger._connect() as db:
+            assert db.execute("SELECT source, stage FROM attempts").fetchall() == [("experiment-grant", "gap_fill_v2")]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_grant_falls_to_primary_then_fallback_without_a_second_grant_try(
+        self, acompletion: AsyncMock, grant: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import litellm
+
+        _set_keys(monkeypatch, _PRIMARY, _FALLBACK)
+        sent: list[str] = []
+
+        async def respond(**kwargs: Any) -> Any:
+            sent.append(kwargs["api_key"])
+            if kwargs["api_key"] != _FALLBACK:
+                raise litellm.exceptions.RateLimitError(message="slow down", llm_provider="openrouter", model="m")
+            return {"ok": True}
+
+        acompletion.side_effect = respond
+        assert await agentic_llm.build_default_llm_call(_config())(_messages(), None) == {"ok": True}
+        assert sent == ["sk-grant", _PRIMARY, _FALLBACK]

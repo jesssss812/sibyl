@@ -500,6 +500,17 @@ def should_retry_with_fallback_key(exc: Exception) -> bool:
     # wrapper's invoke() carries the slug; this is a safety net for any other
     # call site that routes through this predicate.
     _record_deprecation_if_matched("<unknown>", msg_raw)
+    return is_key_scoped_failure(exc)
+
+
+def is_key_scoped_failure(exc: Exception) -> bool:
+    """The classification behind ``should_retry_with_fallback_key``, with no side effects.
+
+    True when another OpenRouter key could serve the same request: a rate limit, a bad
+    credential, no credit, or a key-scoped route block. OpenRouter refuses these before
+    the model runs. See ``should_retry_with_fallback_key`` for the cases.
+    """
+    msg_raw = str(exc)
 
     # 429 rate-limit: BYOK quotas are per-key, so primary being throttled does
     # NOT imply secondary is also throttled. Fall back immediately — litellm
@@ -706,6 +717,10 @@ class FallbackOpenRouterLlm(GeneralLlm):
         self._secondary_llm: GeneralLlm | None = (
             GeneralLlm(model=model, api_key=secondary_api_key, **kwargs) if secondary_api_key else None
         )
+        if self._secondary_llm is not None:
+            # The primary call already offered the request to the grant (funding seam);
+            # the fallback goes straight to the personal key, like gap-fill v2's.
+            self._secondary_llm.offer_grant = False  # type: ignore[attr-defined]
 
     async def invoke(self, prompt: Any, system_prompt: str | None = None) -> str:  # type: ignore[override]
         # system_prompt widened in to match 0.2.92's GeneralLlm.invoke signature

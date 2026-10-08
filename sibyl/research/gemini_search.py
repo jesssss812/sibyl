@@ -26,6 +26,7 @@ from sibyl.config.settings import (
     GOOGLE_API_KEY_ENV,
 )
 from sibyl.forecasting.prompts import web_research_prompt
+from sibyl.platform.funding import record_direct_call
 from sibyl.research.provider_diagnostics import record_provider_detail
 from sibyl.research.providers import ResearchCallable
 from sibyl.research.raw_log import record_raw_research
@@ -269,9 +270,13 @@ async def invoke_gemini_grounded(
 
     logger.info(f"GeminiSearch: calling {model} with grounding")
     try:
-        response = await asyncio.wait_for(
-            client.aio.models.generate_content(model=model, contents=prompt, config=config),
-            timeout=GEMINI_SEARCH_TIMEOUT,
+        response = await record_direct_call(
+            f"google/{model}",
+            "gemini_search",
+            lambda: asyncio.wait_for(
+                client.aio.models.generate_content(model=model, contents=prompt, config=config),
+                timeout=GEMINI_SEARCH_TIMEOUT,
+            ),
         )
     except asyncio.TimeoutError:
         logger.warning(f"GeminiSearch: {model} timed out after {GEMINI_SEARCH_TIMEOUT}s")

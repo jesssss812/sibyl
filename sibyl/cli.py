@@ -5,7 +5,9 @@ import asyncio
 import logging
 import os
 import sys
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
+from uuid import uuid4
 
 from forecasting_tools import MetaculusApi
 
@@ -31,6 +33,13 @@ from sibyl.config.settings import (
 )
 from sibyl.forecasting.bot import SibylBot
 from sibyl.platform.fetch_hardening import apply_fetch_hardening
+from sibyl.platform.funding import (
+    DEFAULT_GRANT_RESERVE_PER_CALL_USD,
+    apply_funding_seam,
+    configure_funding,
+    log_spend_summary,
+    open_run_funding,
+)
 from sibyl.platform.key_fallback import (
     check_deprecation_alerts_and_exit,
     get_credit_key_fallback_count,
@@ -182,6 +191,17 @@ def main() -> None:
         default=None,
         help="Cap questions per run (default: 3 on the free tier, 10 otherwise)",
     )
+    parser.add_argument(
+        "--grant-budget-usd",
+        default=None,
+        help="Let the OpenRouter grant key pay for up to this much of the run, before the ordinary keys "
+        "(prod tier only; needs SIBYL_EXPERIMENT_OPENROUTER_API_KEY)",
+    )
+    parser.add_argument(
+        "--grant-reserve-per-call-usd",
+        default=str(DEFAULT_GRANT_RESERVE_PER_CALL_USD),
+        help="Amount held against the grant budget for each call until its charge is known",
+    )
     args = parser.parse_args()
 
     if args.mode is not None and args.mode_flag is not None and args.mode != args.mode_flag:
@@ -202,6 +222,27 @@ def main() -> None:
         check_tournament_dates(logging.getLogger(__name__))
     _log_tier_banner(tier)
     max_questions = args.max_questions if args.max_questions is not None else _default_max_questions(tier)
+
+    # Funding chooses which key pays for each call and records it; it never changes the
+    # method. The grant is refused on the free tier for the same reason as scored
+    # tournaments: a free run must not be able to spend.
+    try:
+        grant_budget = Decimal(args.grant_budget_usd) if args.grant_budget_usd is not None else None
+        grant_reserve = Decimal(args.grant_reserve_per_call_usd)
+    except InvalidOperation:
+        parser.error("grant amounts must be decimal dollar figures")
+    if grant_budget is not None and tier is not ModelTier.PROD:
+        parser.error("--grant-budget-usd applies to the prod tier only")
+    apply_funding_seam()
+    try:
+        funding = open_run_funding(
+            f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid4().hex[:8]}",
+            grant_budget_usd=grant_budget,
+            grant_reserve_per_call_usd=grant_reserve,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    configure_funding(funding)
 
     # Wire research persistence if enabled (production GHA runs set this env var)
     research_writer = None
@@ -299,6 +340,8 @@ def main() -> None:
             raise ValueError(f"Invalid run mode: {run_mode}")
     finally:
         primary_below_floor = credit_telemetry.log_end_and_check_floor()
+        if funding is not None:
+            log_spend_summary(funding)
         # Flush inside the finally: records accumulate in memory for the whole run,
         # so an exception escaping asyncio.run (an OSError, the invalid-run-mode
         # ValueError above, a KeyboardInterrupt, the 300-minute timeout-minutes

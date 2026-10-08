@@ -39,6 +39,7 @@ from sibyl.config.settings import (
     RESEARCH_PROVIDER_ENV,
 )
 from sibyl.forecasting.prompts import web_research_prompt
+from sibyl.platform.funding import record_direct_call
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 from sibyl.platform.llm_retry import invoke_with_transient_retry
 from sibyl.research.raw_log import record_raw_research
@@ -192,11 +193,15 @@ def _asknews_provider() -> ResearchCallable:
                     try:
                         logger.info(f"AskNews HOT attempt {hot_attempt}/{tries}: Calling latest news...")
                         await _asknews_rate_gate()
-                        hot_response = await sdk.news.search_news(
-                            query=question_text,
-                            n_articles=6,
-                            return_type="both",
-                            strategy="latest news",
+                        hot_response = await record_direct_call(
+                            "asknews/search_news",
+                            "asknews",
+                            lambda: sdk.news.search_news(
+                                query=question_text,
+                                n_articles=6,
+                                return_type="both",
+                                strategy="latest news",
+                            ),
                         )
                         hot_articles = hot_response.as_dicts
                         record_raw_research(qid=qid, provider="asknews", phase="hot", payload=hot_articles)
@@ -230,11 +235,15 @@ def _asknews_provider() -> ResearchCallable:
                         logger.info(
                             f"AskNews HIST attempt {hist_attempt}/{remaining_hist_tries}: Calling historical news..."
                         )
-                        historical_response = await sdk.news.search_news(
-                            query=question_text,
-                            n_articles=10,
-                            return_type="both",
-                            strategy="news knowledge",
+                        historical_response = await record_direct_call(
+                            "asknews/search_news",
+                            "asknews",
+                            lambda: sdk.news.search_news(
+                                query=question_text,
+                                n_articles=10,
+                                return_type="both",
+                                strategy="news knowledge",
+                            ),
                         )
                         historical_articles = historical_response.as_dicts
                         record_raw_research(
@@ -347,7 +356,9 @@ def _exa_provider(default_llm: GeneralLlm) -> ResearchCallable:
             " would resolve Yes or No based on current information. You do not produce forecasts yourself."
             f"\n\nThe question is: {question.question_text}"
         )
-        return await searcher.invoke(prompt)
+        # The searcher's LLM calls are recorded at the model seam; its Exa searches
+        # happen inside forecasting-tools, so they are recorded as one attempt here.
+        return await record_direct_call("exa/smart_searcher", "exa_research", lambda: searcher.invoke(prompt))
 
     return _fetch
 
