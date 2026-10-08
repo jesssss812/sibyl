@@ -108,9 +108,11 @@ routing that trips people up is the two OpenRouter keys.
   operator's is exhausted. Gap-fill v2's reads are a different quota and still
   work, but this key is not a dependable capability right now. The billing
   mechanics are under [Google grounded-search billing](#google-grounded-search-billing-upstream-project).
-- **`ANTHROPIC_API_KEY` — fallback. Now a PRIMARY credential, not an optional
-  bypass.** Since 2026-08-31 it serves the Anthropic forecaster slot, the stacker,
-  and the Claude web-search research provider. An API key from
+- **`ANTHROPIC_API_KEY` — the Claude web-search research provider.** From
+  2026-08-31 until this change merged it also served the Anthropic forecaster slot
+  and the stacker. Those now route via OpenRouter on the ordinary keys, the Metaculus
+  key first and `OPENROUTER_API_KEY` after it, and whichever pays must cover a
+  64k-token Opus reservation. An API key from
   console.anthropic.com — **a Claude.ai Pro/Max subscription is not one**; they are
   separate products, billed separately.
 

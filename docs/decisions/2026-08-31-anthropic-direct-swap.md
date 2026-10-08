@@ -54,7 +54,7 @@ Two kwargs do **not** survive the swap, and neither one errors:
 are **silently discarded**. Left unchanged, the flagship forecaster would have run
 at default effort with nothing in any log to say so. They are converted to
 `reasoning_effort="xhigh"` and dropped, respectively, and
-`tests/unit/test_anthropic_direct_routing.py` plus the updated
+`tests/unit/test_anthropic_routing.py` plus the updated
 `test_ft_llm_seams.py` pin both shapes so the regression cannot return quietly.
 
 Also note the id shape: Anthropic uses dashes (`claude-opus-4-8`), OpenRouter uses

@@ -243,20 +243,11 @@ class TestProductionKwargShapesReachAcompletion:
 
         * ``reasoning={"effort": ...}`` — the OpenRouter passthrough dict, used by the
           OpenRouter-routed slots.
-        * ``reasoning_effort=...`` — the scalar litellm param, required by the
-          Anthropic-direct slot. The dict form is NOT in litellm's supported-param
-          list for Anthropic, and ``forecasting_tools`` sets ``drop_params = True``
-          globally, so sending the dict there would be silently discarded and the slot
-          would run at default effort. Pinning the scalar shape here is what makes that
-          regression visible.
-
-        ``extra_body={"verbosity": "high"}`` is no longer asserted to be present: it is
-        an OpenRouter-only knob and the slot that carried it moved to the Anthropic API.
-        Where a slot still declares it, the funnel is still checked below.
+        All paid forecasters now use OpenRouter, including Claude, so the
+        OpenRouter reasoning dict must survive the funnel for every reasoning slot.
         """
         assert FORECASTER_LLMS, "roster must be non-empty for this pin to mean anything"
         saw_openrouter_reasoning_dict = False
-        saw_scalar_reasoning_effort = False
 
         for llm in FORECASTER_LLMS:
             declared = llm.litellm_kwargs
@@ -275,9 +266,7 @@ class TestProductionKwargShapesReachAcompletion:
                     f"{llm.model} routes direct to Anthropic but declares the OpenRouter "
                     "reasoning dict, which litellm drops silently — use reasoning_effort"
                 )
-            if "reasoning_effort" in declared:
-                assert sent["reasoning_effort"] == declared["reasoning_effort"]
-                saw_scalar_reasoning_effort = True
+            assert "reasoning_effort" not in declared
             if "extra_body" in declared:
                 assert sent["extra_body"] == declared["extra_body"]
                 assert "verbosity" not in declared["extra_body"] or not llm.model.startswith("anthropic/"), (
@@ -286,10 +275,6 @@ class TestProductionKwargShapesReachAcompletion:
 
         assert saw_openrouter_reasoning_dict, (
             "expected at least one OpenRouter-routed forecaster declaring reasoning={'effort': ...}"
-        )
-        assert saw_scalar_reasoning_effort, (
-            "expected at least one forecaster declaring the scalar reasoning_effort "
-            "(the Anthropic-direct slot); without it this pin cannot catch the silent-drop regression"
         )
 
 

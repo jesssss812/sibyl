@@ -17,7 +17,7 @@ def test_reservations_are_atomic_across_ledger_instances(tmp_path: Path) -> None
     first.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.60"))
     with pytest.raises(BudgetExceeded):
         second.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.50"))
-    first.settle("a", Decimal("0.40"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
+    first.settle("a", Decimal("0.40"), 10, 5, certainty="confirmed", evidence_source="provider_response")
     second.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.50"))
     assert second.summary("run-a")["charged_usd"] == "0.40"
     assert second.summary("run-a")["reserved_usd"] == "0.50"
@@ -30,8 +30,8 @@ def test_uncertain_attempt_retains_liability_and_settlement_is_idempotent(tmp_pa
     ledger.mark_uncertain("a")
     with pytest.raises(BudgetExceeded):
         ledger.reserve("b", "run-a", "openrouter/test", "parser", Decimal("0.3"))
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
+    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_response")
+    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_response")
     assert ledger.summary("run-a")["charged_usd"] == "0.4"
     assert ledger.summary("run-a")["uncertain_usd"] == "0"
 
@@ -57,7 +57,7 @@ def test_failed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
     ledger.reserve("c", "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="102")
     ledger.mark_uncertain("a")
     ledger.mark_rejected("b", evidence_source="provider_rejected status=429")
-    ledger.settle("c", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
+    ledger.settle("c", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_response")
     assert ledger.failed_attempts("run-a", "101") == 2
     assert ledger.failed_attempts("run-a", "102") == 0
 
@@ -70,7 +70,7 @@ def test_estimated_unknown_and_over_reserve_answers_are_not_failures(tmp_path: P
         ledger.reserve(attempt, "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="101")
     ledger.settle("est", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
     ledger.mark_cost_unknown("unknown", 10, 5, provider_request_id=None, evidence_source="unknown")
-    ledger.settle("over", Decimal("1.5"), 10, 5, certainty="confirmed", evidence_source="provider_generation")
+    ledger.settle("over", Decimal("1.5"), 10, 5, certainty="confirmed", evidence_source="provider_response")
     assert ledger.failed_attempts("run-a", "101") == 0
     summary = ledger.summary("run-a")
     assert summary["uncertain_usd"] == "0.8", "the unknown cost holds its reservation"
@@ -156,7 +156,7 @@ class TestByokCostComponents:
             2014,
             "gen-byok",
             certainty="confirmed",
-            evidence_source="provider_generation",
+            evidence_source="provider_response",
             openrouter_charge_usd=Decimal("0"),
             upstream_cost_usd=Decimal("0.1873175"),
             is_byok=True,
@@ -273,7 +273,7 @@ class TestWriteOff:
         ledger.reserve("g", "old", "openrouter/test", "forecaster", Decimal("1"))
         ledger.settle("g", Decimal("0.1"), 1, 1, "gen-g", certainty="estimated", evidence_source="framework_estimate")
         ledger.reserve("c", "old", "openrouter/test", "forecaster", Decimal("1"))
-        ledger.settle("c", Decimal("0.1"), 1, 1, certainty="confirmed", evidence_source="provider_generation")
+        ledger.settle("c", Decimal("0.1"), 1, 1, certainty="confirmed", evidence_source="provider_response")
         assert ledger.write_off("trueup-1", Decimal("0.5"), "note", expected_count=8) == 8
         assert ledger.unreconciled("old") == [("g", "gen-g")]
 

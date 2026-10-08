@@ -16,9 +16,9 @@
 > * **The primary OpenRouter key is spent** for this season and unset, so the
 >   "primary key covers OpenAI/Anthropic/Google" routing below is inactive — every
 >   OpenRouter call bills the fallback key.
-> * **The Anthropic slots bill Anthropic directly** since 2026-08-31, and
->   `CREDIT_SPEND` does not see that spend at all, so every per-question figure in this
->   document is now a **lower bound**.
+> * **The Anthropic slots billed Anthropic directly** from 2026-08-31 until they moved
+>   back to OpenRouter, where `CREDIT_SPEND` did not see that spend, so per-question
+>   figures from that window are a **lower bound**.
 >
 > The comparative reasoning — redundancy/overlap analysis, which providers earn their
 > keep, where leverage sits — still stands. Only the price of the second search index
