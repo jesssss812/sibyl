@@ -23,6 +23,10 @@ argument behind each.
 - Summarizer effort and prompt were changed together and neither was measured. Measure
   them together or not at all. `bottega:FUTURE.md`
 - Promote the core pipeline to strict type checking. `bottega:FUTURE.md`
+- Validate the 2026-10-08 model refresh on one paid, unscored run before a scored
+  one, and decide whether the ablation `prod` lineup (`eval/ablation/run_stacker.py`,
+  `eval/ablation/forecaster_lineup.py`) should follow it or stay frozen.
+  [decision](decisions/2026-10-08-model-refresh.md)
 
 ## Deferred by the clean fork
 

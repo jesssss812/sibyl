@@ -69,7 +69,8 @@ __all__ = [
 PROD_FORECASTER_SPECS: list[tuple[str, dict]] = [
     ("openrouter/anthropic/claude-opus-4.6", {"reasoning": {"effort": "medium"}}),
     ("openrouter/anthropic/claude-opus-4.8", {"reasoning": {"effort": "medium"}}),
-    # Mirrors prod forecaster slot 1 post the 2026-07-09 gpt-5.6 migration (identity, not effort).
+    # Prod forecaster slot 1 from the 2026-07-09 gpt-5.6 migration to the 2026-10-08
+    # refresh (identity, not effort); frozen here, see the roadmap.
     ("openrouter/openai/gpt-5.6-sol", {"reasoning": {"effort": "medium"}}),
 ]
 PROD_FORECASTER_MODELS: list[str] = [m for m, _ in PROD_FORECASTER_SPECS]

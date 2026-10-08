@@ -57,8 +57,8 @@ def test_every_roster_slot_uses_grant_key(tmp_path: Path) -> None:
     ]
     assert all(isinstance(llm, FundedGeneralLlm) for llm in slots)
     assert all(llm.litellm_kwargs["api_key"] == "dummy-grant-key" for llm in slots)
-    assert roster.forecasters[1].model == "openrouter/anthropic/claude-opus-5"
-    assert roster.stacker.model == "openrouter/anthropic/claude-opus-4.8"
+    assert roster.forecasters[1].model == "openrouter/anthropic/claude-opus-5.5"
+    assert roster.stacker.model == "openrouter/anthropic/claude-opus-5.5"
 
 
 @pytest.mark.asyncio

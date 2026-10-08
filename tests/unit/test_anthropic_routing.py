@@ -12,8 +12,8 @@ import pytest
 from sibyl.config.models import FORECASTER_LLMS, FORECASTER_MODEL_NAMES, STACKER_LLM
 
 _ANTHROPIC_SLOTS = [
-    ("forecaster", FORECASTER_LLMS[1], "openrouter/anthropic/claude-opus-5"),
-    ("stacker", STACKER_LLM, "openrouter/anthropic/claude-opus-4.8"),
+    ("forecaster", FORECASTER_LLMS[1], "openrouter/anthropic/claude-opus-5.5"),
+    ("stacker", STACKER_LLM, "openrouter/anthropic/claude-opus-5.5"),
 ]
 
 
@@ -26,5 +26,5 @@ def test_anthropic_slots_use_openrouter_and_its_effort_shape(label: str, llm: ob
 
 
 def test_forecaster_display_names_strip_the_route() -> None:
-    assert "claude-opus-5" in FORECASTER_MODEL_NAMES
+    assert "claude-opus-5.5" in FORECASTER_MODEL_NAMES
     assert all("/" not in name for name in FORECASTER_MODEL_NAMES)

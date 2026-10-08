@@ -73,6 +73,7 @@ point-in-time audits and design arguments from before the fork.
 | [decisions/2026-08-27-leverage-not-cost-share.md](decisions/2026-08-27-leverage-not-cost-share.md) | *2026-08-27.* Where to spend model capability: leverage over cost share, why the summarizer is the highest-leverage slot, and what was deliberately not changed. |
 | [decisions/2026-08-27-cost-tiered-plan.md](decisions/2026-08-27-cost-tiered-plan.md) | *Plan, 2026-08-27.* Cost-tiered escalation, MC shuffling and extremization — sequenced so the assumption each rests on is tested before it is built on. |
 | [decisions/2026-08-31-anthropic-direct-swap.md](decisions/2026-08-31-anthropic-direct-swap.md) | *2026-08-31.* Moving Anthropic off OpenRouter and Gemini search off Google: why the Anthropic slots route direct, and what silently breaks if the OpenRouter kwargs come along. |
+| [decisions/2026-10-08-model-refresh.md](decisions/2026-10-08-model-refresh.md) | *2026-10-08.* Production model refresh: GPT-6 Sol, GPT-6 Luna and Opus 5.5, and what was deliberately left alone. |
 
 ## Plans
 
