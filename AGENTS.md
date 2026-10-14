@@ -123,6 +123,10 @@ Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_ques
   alertable in the free tier (shared upstream `:free` quotas 429 constantly), so
   `make e2e_free` exits 0 with models missing. Read `SYSTEMATIC_FORECASTER_FAILURE` and
   `forecasters_dropped=` in the log, not the exit code. Prod alerts on drops as before.
+- **`GeneralLlm._mockable_direct_call_to_model` is patched** by `apply_funding_seam` in
+  `sibyl/platform/funding.py`. That is where each OpenRouter attempt gets its paying key
+  and its spend-ledger record; with no funding configured it is a pass-through. Tests that
+  patch the same method replace the seam for their duration, which is intended.
 - **`bottega:` in a comment or doc** points at the [bottega](https://github.com/jesssss812/bottega)
   repo, which holds the design log and study notes this fork deliberately does not carry.
 

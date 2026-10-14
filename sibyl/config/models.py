@@ -15,6 +15,7 @@ from forecasting_tools import GeneralLlm
 
 from sibyl.config.settings import FINANCIAL_CLASSIFIER_MODEL, MODEL_TIER_ENV
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
+from sibyl.platform.llm_stage import label_stage
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +178,10 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # 2026-10-08: Opus 5 -> Opus 5.5, the current Opus route on OpenRouter.
     # 2026-10-08: back on OpenRouter after five weeks on the Anthropic API direct. The
     # 2026-08-31 move was a credit workaround (the OpenRouter keys could not cover a 64k
-    # max_tokens reservation); the OpenRouter grant now funds these calls, and every
-    # OpenRouter key can carry them, so the slot no longer needs its own transport.
+    # max_tokens reservation). One transport lets any OpenRouter key pay: the grant on a
+    # run with --grant-budget-usd, otherwise the ordinary keys. With the Metaculus key
+    # spent, that means OPENROUTER_API_KEY, which must hold enough credit for a 64k
+    # reservation or this slot drops with a 402.
     # The effort goes back to the OpenRouter dict form: `reasoning_effort` is the
     # Anthropic-direct spelling, and litellm's drop_params would discard the wrong one.
     build_llm_with_openrouter_fallback(
@@ -491,7 +494,25 @@ def _prod_roster() -> Roster:
     )
 
 
+def _label_stages(roster: Roster) -> Roster:
+    """Name each client's stage for the spend ledger. A client shared by slots gets all their names."""
+    slots: dict[int, tuple[GeneralLlm, set[str]]] = {}
+    named = [("forecaster", llm) for llm in roster.forecasters] + [
+        ("summarizer", roster.summarizer),
+        ("parser", roster.parser),
+        ("researcher", roster.researcher),
+        ("stacker", roster.stacker),
+        ("stacker_fallback", roster.stacker_fallback),
+        ("analyzer", roster.analyzer),
+    ]
+    for stage, llm in named:
+        slots.setdefault(id(llm), (llm, set()))[1].add(stage)
+    for llm, stages in slots.values():
+        label_stage(llm, "/".join(sorted(stages)))
+    return roster
+
+
 @cache
 def get_roster(tier: ModelTier) -> Roster:
     """The roster for ``tier``. Cached, because a roster is immutable per process."""
-    return _prod_roster() if tier is ModelTier.PROD else _free_roster()
+    return _label_stages(_prod_roster() if tier is ModelTier.PROD else _free_roster())

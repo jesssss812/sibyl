@@ -23,6 +23,14 @@ argument behind each.
 - Summarizer effort and prompt were changed together and neither was measured. Measure
   them together or not at all. `bottega:FUTURE.md`
 - Promote the core pipeline to strict type checking. `bottega:FUTURE.md`
+- Fund `OPENROUTER_API_KEY` for a 64k-token Opus reservation before the next scheduled
+  prod run: without a grant budget the Opus forecaster and stacker bill it.
+  [decision](decisions/2026-10-14-one-forecast-route.md)
+- First paid, unscored grant run: confirm the grant pays first, that responses carry the
+  full charge (otherwise each grant call holds $2 until reconciled), and that
+  `reconcile` closes the rest. [experiment-funding](runbooks/experiment-funding.md)
+- Price direct-service attempts (AskNews, Exa, Google, Anthropic) from invoices; the
+  ledger counts them at an estimated $0. [experiment-funding](runbooks/experiment-funding.md)
 - Validate the 2026-10-08 model refresh on one paid, unscored run before a scored
   one, and decide whether the ablation `prod` lineup (`eval/ablation/run_stacker.py`,
   `eval/ablation/forecaster_lineup.py`) should follow it or stay frozen.

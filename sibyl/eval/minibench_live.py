@@ -30,6 +30,7 @@ from sibyl.eval.artifacts import fingerprint
 from sibyl.eval.backtest.question_prep import _extract_ground_truth
 from sibyl.eval.backtest.scoring import score_report
 from sibyl.eval.performance.parsing import parse_forecasters_used_marker
+from sibyl.eval.run_archive import FORECASTS_DIR, MANIFEST_FILE, SCHEDULE_FILE, SCHEMA_VERSION
 
 _REPORT_TYPES = {
     "binary": BinaryReport,
@@ -46,9 +47,9 @@ _QUESTION_TYPES = {
 
 
 def _read_run(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    manifest = json.loads((run_dir / "manifest.json").read_text())
-    schedule = json.loads((run_dir / "scheduled_questions.json").read_text())
-    if manifest.get("schema_version") != 1 or schedule.get("schema_version") != 1:
+    manifest = json.loads((run_dir / MANIFEST_FILE).read_text())
+    schedule = json.loads((run_dir / SCHEDULE_FILE).read_text())
+    if manifest.get("schema_version") != SCHEMA_VERSION or schedule.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("Unknown MiniBench archive version")
     if manifest.get("run_id") != schedule.get("run_id") or manifest.get("run_id") != run_dir.name:
         raise ValueError("Run manifest and selected-question snapshot disagree")
@@ -110,7 +111,7 @@ def collect_resolutions(run_dir: Path, output: Path) -> dict[str, Any]:
 
 def _load_reports(run_dir: Path, scheduled_ids: set[int]) -> dict[int, Any]:
     reports: dict[int, Any] = {}
-    for path in sorted((run_dir / "forecasts").glob("*.json")):
+    for path in sorted((run_dir / FORECASTS_DIR).glob("*.json")):
         raw_reports = json.loads(path.read_text())
         if not isinstance(raw_reports, list):
             raise ValueError(f"{path}: forecast archive must contain a list")

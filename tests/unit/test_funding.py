@@ -19,6 +19,7 @@ from forecasting_tools.ai_models.ai_utils.response_types import TextTokenCostRes
 from sibyl.platform import experiment_usage, funding
 from sibyl.platform.experiment_funding import FundingSource, SpendLedger
 from sibyl.platform.key_fallback import FallbackOpenRouterLlm
+from sibyl.platform.llm_stage import label_stage
 
 MODEL = "openrouter/openai/test"
 
@@ -93,7 +94,7 @@ async def test_the_grant_pays_first_and_the_shared_client_keeps_its_key(
     tmp_path: Path, provider: _FakeProvider
 ) -> None:
     configured = _funding(tmp_path)
-    llm = funding.label_stage(GeneralLlm(model=MODEL, api_key="own-key"), "forecaster")
+    llm = label_stage(GeneralLlm(model=MODEL, api_key="own-key"), "forecaster")
     await funding._funded_direct_call(llm, "prompt")
     assert provider.keys == ["grant-key"]
     assert llm.litellm_kwargs["api_key"] == "own-key", "a shared roster client must never be rekeyed in place"

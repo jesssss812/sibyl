@@ -25,7 +25,6 @@ import copy
 import logging
 import os
 import sqlite3
-import weakref
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -50,6 +49,7 @@ from sibyl.platform.experiment_funding import (
 from sibyl.platform.experiment_usage import CostResolution, capture_grant_usage, resolve_grant_cost
 from sibyl.platform.key_fallback import is_credit_caused_error, is_key_scoped_failure
 from sibyl.platform.llm_retry import llm_status_code
+from sibyl.platform.llm_stage import stage_of
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -89,7 +89,6 @@ class Funding:
 
 _FUNDING: Funding | None = None
 _QUESTION: ContextVar[str | None] = ContextVar("sibyl_spend_question", default=None)
-_STAGES: weakref.WeakKeyDictionary[GeneralLlm, str] = weakref.WeakKeyDictionary()
 
 
 def configure_funding(funding: Funding | None) -> None:
@@ -110,16 +109,6 @@ def spend_question(question_id: int | None) -> Iterator[None]:
         yield
     finally:
         _QUESTION.reset(token)
-
-
-def label_stage(llm: GeneralLlm, stage: str) -> GeneralLlm:
-    """Name the pipeline stage an LLM client serves, for the ledger breakdown."""
-    _STAGES[llm] = stage
-    return llm
-
-
-def stage_of(llm: GeneralLlm) -> str:
-    return _STAGES.get(llm, "llm")
 
 
 def _env_key(name: str) -> str:

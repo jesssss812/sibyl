@@ -1,6 +1,6 @@
 # Moving Anthropic off OpenRouter, and Gemini search off Google
 
-**Date:** 2026-08-31 · **Status:** shipped · **Trigger:** a failed live smoke test
+**Date:** 2026-08-31 · **Status:** shipped; the model-slot move superseded by [one forecast route](2026-10-14-one-forecast-route.md) · **Trigger:** a failed live smoke test
 
 ## What broke
 

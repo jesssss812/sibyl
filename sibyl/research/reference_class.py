@@ -587,11 +587,12 @@ async def _rank_with_llm(prompt: str) -> str:
     from sibyl.platform.llm_retry import (  # noqa: PLC0415
         invoke_with_transient_retry,
     )
+    from sibyl.platform.llm_stage import label_stage  # noqa: PLC0415
 
     # Reuses the market ranker's slot rather than adding a roster entry: identical job
     # (rank a candidate pool, emit a small JSON array) and identical output budget, so a
     # separate config would be a duplicate that could silently drift.
-    llm = build_llm_with_openrouter_fallback(**MARKET_RANKER_LLM_CONFIG)
+    llm = label_stage(build_llm_with_openrouter_fallback(**MARKET_RANKER_LLM_CONFIG), "reference_class_ranker")
     return await invoke_with_transient_retry(
         lambda: llm.invoke(prompt),
         wall_timeout=REFERENCE_CLASS_RANKER_WALL_TIMEOUT,

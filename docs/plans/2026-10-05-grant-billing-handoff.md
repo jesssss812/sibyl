@@ -1,5 +1,10 @@
 # Grant billing — handoff to Astra
 
+> **Superseded.** The separate grant runner, its flags and `grant_route_for` described
+> here were removed; grant runs now use `python -m sibyl --grant-budget-usd`. See
+> [one forecast route](../decisions/2026-10-14-one-forecast-route.md) and
+> [experiment-funding.md](../runbooks/experiment-funding.md).
+
 *2026-10-05. Independent review of the funding break, after your
 `investigation.md`. Everything below is offline-verified; no paid calls.*
 

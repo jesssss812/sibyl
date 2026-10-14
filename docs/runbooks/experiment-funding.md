@@ -1,93 +1,112 @@
-# OpenRouter experiment grant
+# Funding and spend accounting
 
-This isolated entry point spends from a separately provisioned OpenRouter key and writes local request accounting. It supports reviewed MiniBench runs and single-question runs in the unscored bot-testing area. The ordinary bot CLI is unchanged. The grant path runs the production model identities through explicit OpenRouter routes, including the two Anthropic slots that normally call Anthropic directly.
+There is one forecasting pipeline. Who pays for a call changes which credential carries
+it, never the models, research, retries or publication rules. Every run records each
+paid call in a local spend ledger, and a run can let the OpenRouter grant pay before the
+ordinary keys.
 
-Rotate the key previously shared in conversation. Put the replacement in the local secret store as `SIBYL_EXPERIMENT_OPENROUTER_API_KEY`; never commit it or paste it into a task. Keep it distinct from `OPENROUTER_API_KEY` and `OAI_ANTH_OPENROUTER_KEY`. A configured key alone starts no run.
-
-## Inspect before use
-
-```bash
-python -m sibyl.ops.experiment_grant preview
-python -m sibyl.ops.experiment_grant report --ledger backtests/experiment_grant_spend.sqlite3
+```mermaid
+flowchart TD
+    A[A model call, from any stage] --> B{Run has a grant budget<br/>and the grant can reserve this call?}
+    B -->|yes| C[Send on the grant key]
+    B -->|no| E[Send on the client's own key<br/>Metaculus key, then personal key]
+    C -->|refused: credit, credential,<br/>rate limit, key-scoped route| E
+    C -->|served| R[Record attempt: source = grant]
+    C -->|other failure| X[Raised as usual]
+    E --> S[Record attempt: source = Metaculus key or personal key]
+    D[AskNews, Exa, Gemini, Claude search,<br/>document reader] --> T[Record attempt: source = direct service]
 ```
 
-`preview` requires no grant key and makes no paid provider call. The package's existing import path may try to refresh LiteLLM's public model price metadata; it falls back to the installed map when offline. The preview prints the funding route and selected research path. Compare it with the desired experiment manifest before authorizing execution.
-
-The grant MiniBench runner selects OpenRouter native web search as its sole research provider. It refuses enabled native-search add-ons, Gemini/Anthropic search, gap-fill, financial data, time-series anchors, prediction markets, resolution sources, and reference-class enrichers until each path has been audited for grant-only billing. This changes the research fan-out from a normal production run; treat it as a distinct configuration era and do not combine its accuracy results with earlier runs without accounting for that change. The three-slot grant roster retains the OpenRouter OpenAI and Google slots and explicitly maps the direct Anthropic slot to OpenRouter. Inspect the public model catalogue and supported reasoning parameters before approving a live run; offline tests prove routing, not current provider availability.
-
-## Run only after approval for that specific run
-
-For a single unscored test, select the exact post and question IDs from the open `bot-testing-area` tournament. The command refuses an ID outside that tournament or a question that is not open, then publishes the forecast and comment to the selected test question:
+## Running with the grant
 
 ```bash
-python -m sibyl.ops.experiment_grant run-test \
-  --run-id reviewed-test-001 \
-  --post-id 43323 --question-id 43325 \
-  --max-cost-usd 15 --reserve-per-call-usd 3 \
-  --ledger backtests/experiment_grant_spend.sqlite3
+python -m sibyl test --tier prod --grant-budget-usd 10
 ```
 
-This is a command template, not standing authorization. Each live test needs operator approval for that specific run. Its manifest, question snapshot, and reports are written under `backtests/grant_test_runs/<run-id>/` by default. It uses the same grant-only routes, research preflight, per-call reservations, and publication gate as MiniBench.
+`--grant-budget-usd` is the most this run may hold against the grant. It is refused on
+the free tier, and it needs `SIBYL_EXPERIMENT_OPENROUTER_API_KEY` set to a key distinct
+from `OPENROUTER_API_KEY` and `OAI_ANTH_OPENROUTER_KEY`. Before the first question, the
+run reads the grant key's OpenRouter settings (no model request) and refuses to start
+unless the key has a finite cap of at most $100 that includes BYOK spending, does not
+reset periodically, and has enough left for the budget plus a $5 reserve.
 
-For publishing runs, open a visible terminal and use `python -u` with `2>&1 | tee <private-log-path>` so the operator can watch progress. Enable `set -o pipefail` in the shell so `tee` cannot hide a failed run. The runner emits question starts and completions, model call starts and settlements, and sanitized failure status codes at INFO level. It never logs credentials or upstream error bodies. Gates are about missing answers, not costs, because every unconfirmed cost already holds its reservation. A question stops before its forecasters start when its research is empty or a research call returned no answer. Publication has no cost gate: a dropped forecaster publishes and alerts, as in prod, and the run exits non-zero. An estimated charge is logged as `GRANT_RECONCILE_NEEDED` and stays owed a reconciliation. Grant accounting errors are not retried by the outer LLM retry loop.
+Add `--run-id <name>` and `--archive-dir backtests/minibench_runs` to keep the run's
+manifest, selected questions and reports in the layout `python -m sibyl.eval
+minibench-live` scores. The same command shape works for every mode. A publishing or paid run still needs the
+operator's approval for that specific run (AGENTS.md cost rules).
 
-Each kind of failed call has its own consequence:
+**How the grant complements the ordinary keys.** Each OpenRouter attempt is offered to
+the grant first. The grant holds `--grant-reserve-per-call-usd` (default $2) for the
+attempt until its charge is known, and stops being offered for the rest of the run when:
 
-| Call outcome | Billed? | Ledger | Run |
-| --- | --- | --- | --- |
-| 401 invalid key, 402 no credit | No | `rejected`, $0 | Halts: no further call is made |
-| 400, 403 moderation, 404, 413, 422, 429 | No | `rejected`, $0, reservation released | Continues without that answer |
-| Lost after sending: 5xx, timeout, connection, cancellation | Maybe | `uncertain`, full reservation held | Continues without that answer |
-| Answered, no cost evidence | Yes | answer kept, full reservation held | Halts after 3 in a row |
-| Answered, charge above the reservation | Yes | answer kept, charge recorded | Halts: the reservation size cannot be trusted |
+- the run budget or the local $100 allocation (less its $5 reserve) cannot cover the hold;
+- OpenRouter refuses the grant key for credit or credentials;
+- a single charge exceeds the per-call hold.
 
-A halted run makes no further model call and exits non-zero with the reason, even when the halt came on its last call.
+A rate limit or key-scoped route refusal moves only that request. Any other failure is
+raised exactly as it would be without a grant, so the payer never adds a retry.
 
-The following is a command template, **not authorization to execute it**. It publishes to scored MiniBench and spends credits. Set a unique run ID and a per-call reservation large enough for the chosen model's maximum output and research charges.
+## What is recorded
+
+Every run, with or without a grant, writes to `SIBYL_SPEND_LEDGER` (default
+`backtests/experiment_grant_spend.sqlite3`, private and outside Git). Each attempt has a
+run ID, question, stage, model or service, the source that paid (`experiment-grant`,
+`metaculus-key`, `personal-key`, `direct-service`), its status and its charge. The run
+log ends with one `SPEND_SUMMARY` line per source, which the telemetry archive harvests
+from CI logs (the per-attempt `SPEND_ATTEMPT` lines are not archived).
+If the ledger cannot be opened, an ordinary run continues unaccounted and says so; a
+grant run refuses to start.
+
+**Charges.** A charge is *confirmed* only when OpenRouter reported every part of it: the
+fee, and on a BYOK route the upstream cost as well. The response usually carries both.
+Anything less is an *estimate*, and a grant estimate keeps its whole hold until it is
+reconciled. Direct services return no per-call charge, so their attempts are recorded at
+an estimated $0 and are priced from the service's own invoice. A request OpenRouter
+turned away before the model ran (a 4xx: bad request, key or credit problem, moderation,
+missing model, rate limit) costs nothing and releases its hold. A grant attempt that
+timed out, was cancelled or failed upstream may have been billed and has no billing
+record to look up, so it keeps its hold until it is written off (below).
+
+## Inspecting and reconciling
 
 ```bash
-python -m sibyl.ops.experiment_grant run-minibench \
-  --run-id reviewed-run-001 \
-  --max-questions 3 \
-  --max-cost-usd 20 \
-  --reserve-per-call-usd 2 \
-  --ledger backtests/experiment_grant_spend.sqlite3
+python -m sibyl.ops.experiment_grant report --run-id <run-id>
+python -m sibyl.ops.experiment_grant reconcile --run-id <run-id>
 ```
 
-The run fails before calling a model if the grant key is missing or matches either existing key. Every supported model call receives the grant credential explicitly and has no personal-key fallback. The grant ledger reserves funds before each request. Calls with missing reported cost, failures, and interrupted calls keep their reservation as uncertain liability; review those before another run. The local allocation is $100 with $5 held back. A per-run budget is required.
+`report` shows totals per source and calls grouped by source, model and stage, without
+prompts or credentials. It also shows the totals of the separate fallback table older
+versions wrote, when the ledger has one.
 
-The runner writes `backtests/minibench_runs/<run-id>/manifest.json` before its first request, recording the code identity, routed models, research profile, budget, and start time without credentials. It records the exact selected question IDs and snapshots in `scheduled_questions.json` before forecasting. The forecasting framework saves successful reports in that run's `forecasts/` directory when the batch returns. These paths are private and excluded from Git. An interrupted batch can leave a manifest and ledger entries without a report file; reconcile those against Metaculus before scoring. A run ID with an existing manifest is refused so a second execution cannot overwrite its provenance. Use `--reports-dir` only when the alternate directory is private.
+`reconcile` reads OpenRouter's billing record for each estimated attempt, using the key
+that made the request (so it needs that source's key in the environment). It is
+read-only, retries a record that is not visible yet, and exits 1 while anything can still
+be confirmed or written off, and 2 when a source's key is missing. An ordinary-key
+attempt with no generation ID holds no budget and nothing can price it, so it stays in
+the report without failing `reconcile`. Every command refuses a ledger path that does not
+exist rather than creating one.
 
-The reservation is a local stop-loss, **not a provider-enforced hard cap**. A single provider charge can exceed its reservation, and spending from other machines or applications is invisible to the local ledger until recorded. Before any model call, the runner therefore reads the grant key's own `limit_remaining` from OpenRouter (free, read-only); it refuses the run when that cannot cover the run budget plus the $5 reserve, when the key reports no limit, or when the lookup fails. A charge above its reservation is recorded and halts the run. Use OpenRouter's own account/key controls where available, and reconcile against provider billing. The pinned framework does not report a reliable cost for every route or every web-search surcharge. Cost evidence is ranked rather than demanded from one source:
-
-1. the completion response's usage accounting, when it states `is_byok` — OpenRouter's `usage.cost` plus, under BYOK, `cost_details.upstream_inference_cost`. Already in hand, no extra request; it confirms;
-2. the [generation billing record](https://openrouter.ai/docs/api/api-reference/generations/get-generation), looked up when the response lacks the split. It is eventually consistent, so it is often not available yet;
-3. `usage.cost` alone — recorded, never confirming. Without `is_byok` it may be only OpenRouter's BYOK fee, and a zero may be a free route or an unseen upstream expense;
-4. the LiteLLM framework estimate — recorded, never confirming.
-
-An unconfirmed call settles as an estimate and keeps its whole reservation until reconciled, so an unseen BYOK expense cannot make a run read as free. It does not block publication.
-
-**Billable vs. components.** `charged_usd` is the figure the budget holds. Under BYOK that is the upstream provider's charge plus OpenRouter's BYOK fee, since the grant key's limit meters both; OpenRouter's own charge alone is often `0`. The components (`openrouter_charge_usd`, `upstream_cost_usd`, `is_byok`) are stored separately, because collapsing them is what let a run report `$0` spent while `$0.1873175` moved upstream.
-
-**Reconciliation.** `python -m sibyl.ops.experiment_grant reconcile --run-id <id>` confirms outstanding estimates from the provider's records. Read-only, concurrent lookups with a short bounded retry, and it never repeats a paid request to learn what one cost. The generation record is eventually consistent and has been observed resolving minutes after the call, so re-run it later for anything still outstanding. It exits non-zero while anything is unaccounted, and refuses a ledger path or run ID that does not exist.
-
-If grant credits were used elsewhere, record the prior amount with a stable unique ID:
+If grant credits were spent outside the ledger, count them against the allocation:
 
 ```bash
 python -m sibyl.ops.experiment_grant record-prior-spend \
   --id outside-001 --amount-usd 4.25 --note 'previous grant use'
 ```
 
-Attempts that failed without a generation ID can never be reconciled and hold their full reservation indefinitely. When OpenRouter's key metadata gives the total those attempts actually cost, `write-off` closes them at `$0` (`operator_write_off`) and records that total as one adjustment, in a single transaction. It refuses unless exactly `--expect-count` attempts match, so a wrong ledger or a repeat changes nothing:
+Grant attempts that can never be reconciled (no generation ID, for example a call lost
+after sending) can be replaced by what OpenRouter metered for them. The command refuses
+unless exactly the expected number of attempts match:
 
 ```bash
 python -m sibyl.ops.experiment_grant write-off \
-  --id trueup-2026-10-05 --provider-total-usd 0.796028 --expect-count 8 \
-  --note 'OpenRouter byok_usage for the 2026-10-05 grant attempts'
+  --provider-total-usd 0.80 --expect-count 8 \
+  --note 'OpenRouter activity, 2026-10-05' --id trueup-2026-10-05
 ```
 
-`report` separates confirmed charges, local estimates, reserved calls, uncertain calls, and prior-spend adjustments. A charge is confirmed by response usage accounting that states the BYOK split, a provider generation record, or later reconciliation. LiteLLM/framework estimates and a bare `usage.cost` never confirm; their full pre-call reservation remains budget liability until reconciled. The model/stage breakdown never contains prompts or credentials. Use one shared ledger path for every local process using the grant. Keep the ledger as a private artifact; it is excluded from Git under `backtests/`.
+## Limits
 
-Ordinary production routing is unchanged. To record *actual primary-to-personal fallback invocations* in the same report, set `SIBYL_PERSONAL_FALLBACK_LEDGER=backtests/experiment_grant_spend.sqlite3` for that process. Optionally set `SIBYL_PERSONAL_SPEND_RUN_ID` to a non-secret run label; otherwise a process-local ID is generated. The observer writes a separate `personal` table only when the secondary call is reached. A callback cost is an estimate, and a failed call or missing cost stays unknown. SDK-internal retries may create additional charges the observer cannot distinguish. Direct calls that use `OPENROUTER_API_KEY` without entering the primary-to-personal fallback wrapper are outside this table; do not interpret its total as all personal spending. Ledger failures are logged but never block the fallback call or change its route. This accounting is a separate change from the grant-only route and does not rewrite historical spend.
-
-This first implementation does not route the legacy backtest and ablation CLIs through the grant. Their frozen input and provenance checks are separate from grant funding. They continue to use their existing credentials until an explicit integration is implemented and tested. The ordinary MiniBench and tournament commands likewise keep their existing behavior.
+- The local hold is accounting, not a provider cap. The grant key's own OpenRouter cap is
+  what OpenRouter enforces; a request past it is refused and moves to the ordinary keys.
+- If responses stop carrying the full charge, every grant attempt keeps its $2 hold until
+  `reconcile` runs, and the grant budget runs out far sooner than the money spent.
+- The backtest and ablation CLIs do not open a ledger and do not use the grant.
