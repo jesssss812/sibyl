@@ -34,6 +34,7 @@ from sibyl.forecasting.prompts import (
 )
 from sibyl.forecasting.structured_output_schema import extract_first_balanced_braces, extract_json_block
 from sibyl.platform.llm_retry import invoke_with_broad_retry, invoke_with_transient_retry
+from sibyl.platform.llm_stage import label_stage
 from sibyl.research.providers import build_native_search_llm
 from sibyl.research.raw_log import record_raw_research
 
@@ -206,6 +207,7 @@ async def _run_analyzer(
         timeout=GAP_FILL_ANALYZER_TIMEOUT,
         allowed_tries=1,
     )
+    label_stage(llm, "gap_fill_analyzer")
     prompt = gap_fill_analyzer_prompt(
         question_text=question.question_text,
         resolution_criteria=getattr(question, "resolution_criteria", None),
@@ -254,6 +256,7 @@ async def _resolve_single_gap(
         is_benchmarking=is_benchmarking,
     )
     llm = build_native_search_llm(GAP_FILL_RESOLVER_MODEL, reasoning_effort=GAP_FILL_RESOLVER_REASONING_EFFORT)
+    label_stage(llm, "gap_fill_resolver")
     # Wall-clock backstop (now owned by invoke_with_transient_retry) shared with
     # the native_search provider / targeted search (same build_native_search_llm
     # config); the wall_timeout is the hard cap regardless of upstream

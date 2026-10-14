@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -192,6 +193,17 @@ def main() -> None:
         help="Cap questions per run (default: 3 on the free tier, 10 otherwise)",
     )
     parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Name for this run in the spend ledger and archive (default: generated)",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        default=None,
+        help="Archive the run's manifest, selected questions and reports under DIR/<run-id>, "
+        "the layout `python -m sibyl.eval minibench-live` scores",
+    )
+    parser.add_argument(
         "--grant-budget-usd",
         default=None,
         help="Let the OpenRouter grant key pay for up to this much of the run, before the ordinary keys "
@@ -233,15 +245,29 @@ def main() -> None:
         parser.error("grant amounts must be decimal dollar figures")
     if grant_budget is not None and tier is not ModelTier.PROD:
         parser.error("--grant-budget-usd applies to the prod tier only")
+    run_id = args.run_id or f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid4().hex[:8]}"
     apply_funding_seam()
     try:
-        funding = open_run_funding(
-            f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid4().hex[:8]}",
-            grant_budget_usd=grant_budget,
-            grant_reserve_per_call_usd=grant_reserve,
-        )
+        funding = open_run_funding(run_id, grant_budget_usd=grant_budget, grant_reserve_per_call_usd=grant_reserve)
     except ValueError as exc:
         parser.error(str(exc))
+    archive = None
+    if args.archive_dir is not None:
+        from sibyl.eval.run_archive import RunArchive  # noqa: PLC0415
+
+        try:
+            archive = RunArchive(
+                Path(args.archive_dir),
+                run_id,
+                {
+                    "mode": run_mode,
+                    "tier": tier.value,
+                    "max_questions": max_questions,
+                    "grant_budget_usd": str(grant_budget) if grant_budget is not None else None,
+                },
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
     configure_funding(funding)
 
     # Wire research persistence if enabled (production GHA runs set this env var)
@@ -276,11 +302,12 @@ def main() -> None:
         research_reports_per_question=1,
         predictions_per_research_report=1,  # Ignored when 'forecasters' present
         publish_reports_to_metaculus=True,
-        folder_to_save_reports_to=None,
+        folder_to_save_reports_to=str(archive.forecasts_dir) if archive is not None else None,
         skip_previously_forecasted_questions=True,
         max_questions_per_run=max_questions,
         aggregation_strategy=AggregationStrategy.CONDITIONAL_STACKING,
         research_sink=research_sink,
+        selection_sink=archive.record_selection if archive is not None else None,
         llms=llms,
     )
 

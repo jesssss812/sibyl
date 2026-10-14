@@ -9,6 +9,7 @@ built, and it has to fire on every scored mode rather than on a list someone mai
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -135,3 +136,9 @@ class TestTierResolutionThroughArgv:
     ) -> None:
         monkeypatch.delenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", raising=False)
         assert self._run(["test", "--tier", "prod", "--grant-budget-usd", "5"], None, monkeypatch) == 2
+
+    def test_a_refused_grant_leaves_no_archive_behind(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.delenv("SIBYL_EXPERIMENT_OPENROUTER_API_KEY", raising=False)
+        argv = ["test", "--tier", "prod", "--grant-budget-usd", "5", "--run-id", "r1", "--archive-dir", str(tmp_path)]
+        assert self._run(argv, None, monkeypatch) == 2
+        assert not (tmp_path / "r1").exists(), "a rerun with the same run ID must not be blocked"

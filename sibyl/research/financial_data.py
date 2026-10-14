@@ -29,6 +29,7 @@ from sibyl.config.settings import (
 )
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 from sibyl.platform.llm_retry import invoke_with_transient_retry
+from sibyl.platform.llm_stage import label_stage
 from sibyl.research.provider_diagnostics import record_provider_detail
 from sibyl.research.providers import ResearchCallable
 from sibyl.research.ts_fetch import FRED_NON_REVISING_SERIES, FetchError, SeriesSpec, fetch_series
@@ -599,6 +600,7 @@ def financial_data_provider(is_benchmarking: bool = False) -> ResearchCallable:
         # retry a slow stall — the exact failure mode the elapsed gate prevents.
         allowed_tries=1,
     )
+    label_stage(classifier_llm, "financial_classifier")
 
     async def _fetch(question: MetaculusQuestion) -> str:
         # Ceiling every fetch to open_time under benchmarking (leakage-safe, mirrors

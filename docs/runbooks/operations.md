@@ -109,10 +109,11 @@ routing that trips people up is the two OpenRouter keys.
   work, but this key is not a dependable capability right now. The billing
   mechanics are under [Google grounded-search billing](#google-grounded-search-billing-upstream-project).
 - **`ANTHROPIC_API_KEY` — the Claude web-search research provider.** From
-  2026-08-31 until this change merged it also served the Anthropic forecaster slot
-  and the stacker. Those now route via OpenRouter on the ordinary keys, the Metaculus
-  key first and `OPENROUTER_API_KEY` after it, and whichever pays must cover a
-  64k-token Opus reservation. An API key from
+  2026-08-31 until the one-forecast-route change merged it also served the Anthropic
+  forecaster slot and the stacker. Those now route via OpenRouter: the grant pays on a
+  grant run; otherwise the ordinary keys do, the Metaculus key first and
+  `OPENROUTER_API_KEY` after it, and whichever pays must cover a 64k-token Opus
+  reservation. An API key from
   console.anthropic.com — **a Claude.ai Pro/Max subscription is not one**; they are
   separate products, billed separately.
 
@@ -156,6 +157,8 @@ this provider" on that BYOK key), then re-verify with one live call. See
 
 ### Diagnosing auth and credit errors
 
+- **On a grant run, read `GRANT_KEY_FALLBACK` and `GRANT_STOPPED` first** — a grant
+  refusal moves the request to the ordinary keys, so an error there is about them.
 - **OpenRouter 401/402 on an OpenAI or Anthropic call** — suspect the primary key
   first (it's always tried first for those providers), then `OPENROUTER_API_KEY` if
   the wrapper doesn't fall back.
@@ -577,6 +580,13 @@ stderr), so per-run spend is durably grep-able:
 - `CREDIT_FLOOR_BREACH: key=primary remaining=... floor=...` when the primary
   key's remaining balance drops below `OPENROUTER_CREDIT_FLOOR_USD`
   (`constants.py`).
+- `SPEND_SUMMARY: run=... source=... attempts=... unconfirmed=... confirmed_usd=...
+  estimated_usd=... uncertain_usd=...` at end of run, one line per source that paid
+  (`experiment-grant`, `metaculus-key`, `personal-key`, `direct-service`), from the
+  spend ledger ([experiment-funding.md](experiment-funding.md)). `unconfirmed` attempts
+  still need `reconcile`.
+- `GRANT_STOPPED: run=... reason=...` when a run stops offering calls to the
+  OpenRouter grant; later calls use the ordinary keys.
 
 A floor breach does not abort the run. Forecasting and publishing complete
 normally, and outside the suppression window below `cli.py` then exits non-zero

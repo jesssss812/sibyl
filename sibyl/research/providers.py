@@ -42,6 +42,7 @@ from sibyl.forecasting.prompts import web_research_prompt
 from sibyl.platform.funding import record_direct_call
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 from sibyl.platform.llm_retry import invoke_with_transient_retry
+from sibyl.platform.llm_stage import label_stage
 from sibyl.research.raw_log import record_raw_research
 
 ResearchCallable = Callable[[MetaculusQuestion], Awaitable[str]]
@@ -383,7 +384,7 @@ def _perplexity_provider(use_open_router: bool = False, is_benchmarking: bool = 
         # the fallback key while the orchestrator's switches. The real fix is to
         # collapse the two builders (forge flagged the duplication); until then, don't
         # "clean up" this asymmetry by deleting the orchestrator's api_key argument.
-        model = GeneralLlm(model=model_name, temperature=None, allowed_tries=1)
+        model = label_stage(GeneralLlm(model=model_name, temperature=None, allowed_tries=1), "perplexity_research")
         # Exclude prediction markets research when benchmarking to avoid data leakage
         prediction_markets_instruction = (
             "" if is_benchmarking else "In addition to news, consider all relevant prediction markets.\n"
@@ -487,7 +488,7 @@ def build_native_search_llm(
     # OPENROUTER_API_KEY on credential/credit/guardrail errors. Non-primary
     # providers (x-ai, etc.) get a plain GeneralLlm — same as before.
 
-    return build_llm_with_openrouter_fallback(**kwargs)
+    return label_stage(build_llm_with_openrouter_fallback(**kwargs), "native_search")
 
 
 def _native_search_provider(

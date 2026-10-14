@@ -1,5 +1,10 @@
 # MiniBench kickoff assessment, 2026-10-04
 
+> **Superseded.** The separate grant runner, its flags and `grant_route_for` described
+> here were removed; grant runs now use `python -m sibyl --grant-budget-usd`. See
+> [one forecast route](../decisions/2026-10-14-one-forecast-route.md) and
+> [experiment-funding.md](../runbooks/experiment-funding.md).
+
 The current **Forecast on new Minibench questions** workflow is not ready for the
 requested grant-only launch. Manual GitHub Actions execution is a reasonable
 eventual operating method, but the checked-in workflow still runs the older

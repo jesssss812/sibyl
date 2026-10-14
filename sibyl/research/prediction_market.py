@@ -77,6 +77,7 @@ from sibyl.config.settings import (
 )
 from sibyl.platform.key_fallback import build_llm_with_openrouter_fallback
 from sibyl.platform.llm_retry import invoke_with_transient_retry
+from sibyl.platform.llm_stage import label_stage
 from sibyl.research.http_fetch import build_session
 from sibyl.research.market_retrieval import generation, ranking, rendering, venues
 from sibyl.research.market_retrieval.http import HTTP_RETRY_BACKOFF_SECS, PLATFORM_HTTP_TIMEOUT
@@ -301,7 +302,7 @@ async def _invoke_market_llm(
     """
     # Constructor errors are config bugs (bad model slug, missing API key wiring) and should
     # crash loudly. Only `.invoke` is expected to face transient LLM errors.
-    llm = build_llm_with_openrouter_fallback(**config)
+    llm = label_stage(build_llm_with_openrouter_fallback(**config), label)
     try:
         return await invoke_with_transient_retry(
             lambda: llm.invoke(prompt),

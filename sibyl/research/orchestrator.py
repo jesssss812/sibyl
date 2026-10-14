@@ -52,6 +52,7 @@ from sibyl.forecasting.prompts import (
 )
 from sibyl.platform.keys import get_openrouter_api_key
 from sibyl.platform.llm_retry import invoke_with_broad_retry, invoke_with_transient_retry
+from sibyl.platform.llm_stage import label_stage
 from sibyl.research.provider_diagnostics import (
     SUCCEEDED_STATUSES,
     ProviderResult,
@@ -895,6 +896,7 @@ class ResearchOrchestrator:
             # random.uniform(5, 10) tenacity sleep.
             allowed_tries=1,
         )
+        label_stage(model, "perplexity_research")
         return await invoke_with_transient_retry(
             lambda: model.invoke(prompt),
             wall_timeout=PERPLEXITY_WALL_TIMEOUT,

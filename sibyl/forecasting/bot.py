@@ -92,11 +92,15 @@ class SibylBot(CompactLoggingForecastBot):
         stacking_spread_thresholds: dict[str, float] | None = None,
         min_forecasters_to_publish: int | None = None,
         research_sink: Any | None = None,
+        selection_sink: Callable[[Sequence[MetaculusQuestion]], None] | None = None,
     ) -> None:
         if not isinstance(aggregation_strategy, AggregationStrategy):
             raise ValueError(f"aggregation_strategy must be an AggregationStrategy enum, got {aggregation_strategy}")
         self.stacking_spread_thresholds = stacking_spread_thresholds
         self.research_sink = research_sink
+        # Called with the exact questions a batch will forecast, after every filter and
+        # the cap, before the first is started (the CLI's run archive freezes them).
+        self.selection_sink = selection_sink
         self.aggregation_strategy: AggregationStrategy = aggregation_strategy
 
         setup = prepare_llm_config(
@@ -379,6 +383,13 @@ class SibylBot(CompactLoggingForecastBot):
         if self.max_questions_per_run is not None and len(questions) > self.max_questions_per_run:
             logger.info(f"Limiting to first {self.max_questions_per_run} questions out of {len(questions)}")
             questions = list(questions)[: self.max_questions_per_run]
+
+        if self.selection_sink is not None:
+            # Bookkeeping: a sink that cannot record the selection must not stop the forecasts.
+            try:
+                self.selection_sink(list(questions))
+            except Exception:
+                logger.exception("RUN_ARCHIVE_SELECTION_FAILED; forecasting continues without the snapshot")
 
         # Log question processing info with progress
         if questions:

@@ -37,7 +37,7 @@ when one is not.
 | Doc | What it covers |
 | --- | --- |
 | [runbooks/operations.md](runbooks/operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
-| [runbooks/experiment-funding.md](runbooks/experiment-funding.md) | The isolated grant-funded MiniBench runner, local spending ledger, and private forecast archive. |
+| [runbooks/experiment-funding.md](runbooks/experiment-funding.md) | Which key pays for each call, using the OpenRouter grant, and the spend ledger every run writes. |
 | [runbooks/minibench-readiness.md](runbooks/minibench-readiness.md) | October 2026 launch checks and the statistical limits of the first MiniBench round. |
 | [runbooks/performance-analysis.md](runbooks/performance-analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
 
@@ -72,8 +72,9 @@ point-in-time audits and design arguments from before the fork.
 | [decisions/2026-08-24-eval-strategy-gaps.md](decisions/2026-08-24-eval-strategy-gaps.md) | *Audit, 2026-08-24.* `design-principles.md` and `eval-strategy.md` checked rule by rule against the code. |
 | [decisions/2026-08-27-leverage-not-cost-share.md](decisions/2026-08-27-leverage-not-cost-share.md) | *2026-08-27.* Where to spend model capability: leverage over cost share, why the summarizer is the highest-leverage slot, and what was deliberately not changed. |
 | [decisions/2026-08-27-cost-tiered-plan.md](decisions/2026-08-27-cost-tiered-plan.md) | *Plan, 2026-08-27.* Cost-tiered escalation, MC shuffling and extremization — sequenced so the assumption each rests on is tested before it is built on. |
-| [decisions/2026-08-31-anthropic-direct-swap.md](decisions/2026-08-31-anthropic-direct-swap.md) | *2026-08-31.* Moving Anthropic off OpenRouter and Gemini search off Google: why the Anthropic slots route direct, and what silently breaks if the OpenRouter kwargs come along. |
+| [decisions/2026-08-31-anthropic-direct-swap.md](decisions/2026-08-31-anthropic-direct-swap.md) | *2026-08-31.* Moving Anthropic off OpenRouter and Gemini search off Google: why the Anthropic slots routed direct, and what silently breaks if the OpenRouter kwargs come along. *Superseded for the model slots by the one-forecast-route change.* |
 | [decisions/2026-10-08-model-refresh.md](decisions/2026-10-08-model-refresh.md) | *2026-10-08.* Production model refresh: GPT-6 Sol, GPT-6 Luna and Opus 5.5, and what was deliberately left alone. |
+| [decisions/2026-10-14-one-forecast-route.md](decisions/2026-10-14-one-forecast-route.md) | *2026-10-14.* One forecast route: grant-funded runs use the ordinary pipeline, and funding only picks which key pays. |
 
 ## Plans
 
