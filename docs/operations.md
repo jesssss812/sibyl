@@ -5,7 +5,7 @@ reference for a human operating the bot: local setup, API keys, the environment
 flags, the GitHub Actions workflows, cost discipline, and the telemetry you can
 grep after a run.
 
-For a code-level map of the pipeline, read `AGENTS.md` at the repo root. This
+For a code-level map of the pipeline, read [architecture.md](architecture.md). This
 doc points at code by file and symbol name, so `rg <symbol>` takes you there.
 
 ## Setup
@@ -75,8 +75,9 @@ Two things can block or stale the install on a checkout that predates the uv mig
 ## API keys and the shared-vs-fallback key model
 
 The bot needs several credentials. `.env.template` lists them with inline
-notes; copy it and fill in real values. The one piece of routing that trips
-people up is the two OpenRouter keys.
+notes; copy it and fill in real values. They fall into two buckets, shared and
+fallback, and the names don't always make clear which is which. The one piece of
+routing that trips people up is the two OpenRouter keys.
 
 - **`OAI_ANTH_OPENROUTER_KEY` — primary / shared. EXHAUSTED as of 2026-08-31.**
   Metaculus provides credits on this key for OpenAI, Anthropic, and Google models
@@ -84,14 +85,14 @@ people up is the two OpenRouter keys.
   variable is currently unset. Every primary-key path below therefore no-ops
   straight to the fallback key; runs log
   `CREDIT_BALANCE: key=primary ... skipped (env var OAI_ANTH_OPENROUTER_KEY not set)`.
-  Its server-side allowed-providers list is locked to those three, so anything
-  else (Grok via x-ai, Qwen, Perplexity) returns 404 on this key. This is the
-  only shared credential in the bot; despite the name it covers all three
+  Its server-side allowed-providers list is locked to `{openai, anthropic, google}`,
+  so anything else (Grok via x-ai, Qwen, Perplexity) returns 404 on this key. This is
+  the only shared credential in the bot; despite the name it covers all three
   providers, not just OpenAI and Anthropic.
 - **`OPENROUTER_API_KEY` — fallback.** Pays for what the primary key can't
   (Grok, Qwen, Perplexity-via-OpenRouter) and serves as the fallback when the
   primary key hits a credential, credit, or allowed-providers error. The
-  fallback wrapper is `sibyl/platform/key_fallback.py`.
+  fallback wrapper is `FallbackOpenRouterLlm` in `sibyl/platform/key_fallback.py`.
 - **`GOOGLE_API_KEY` — fallback.** The operator's Google AI Studio key. Since
   2026-08-31 its ONLY remaining use is gap-fill v2's document reads
   (`read_document` via url_context); the Gemini grounded-search provider it also
@@ -100,53 +101,119 @@ people up is the two OpenRouter keys.
   `GOOGLE_API_KEY` so the `google-genai` SDK picks it up.
   **Caveat:** Google meters grounded search on a MONTHLY free bucket, and the
   operator's is exhausted. Gap-fill v2's reads are a different quota and still
-  work, but this key is not a dependable capability right now.
+  work, but this key is not a dependable capability right now. The billing
+  mechanics are under [Google grounded-search billing](#google-grounded-search-billing-upstream-project).
 - **`ANTHROPIC_API_KEY` — fallback. Now a PRIMARY credential, not an optional
   bypass.** Since 2026-08-31 it serves the Anthropic forecaster slot, the stacker,
   and the Claude web-search research provider. An API key from
   console.anthropic.com — **a Claude.ai Pro/Max subscription is not one**; they are
   separate products, billed separately.
 
-Gemini has two separate routes, which is the other easy thing to confuse:
+Other keys, all fallback, no shared variants: `METACULUS_TOKEN`, `ASKNEWS_CLIENT_ID`
++ `ASKNEWS_SECRET`, `EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`.
+(`OPENAI_API_KEY` was listed here historically but is read nowhere in the codebase —
+OpenAI models all route through OpenRouter.)
+
+### Gemini's two routes
+
+Gemini has two separate routes, with separate keys and separate billing. This is the
+other easy thing to confuse.
 
 - **OpenRouter Gemini** (forecaster / stacker / summarizer slots) routes
   primary-key-first with fallback-key fallback, controlled by
-  `GEMINI_USE_DONATED_OPENROUTER_KEY` (default `true`). The Gemini Pro
-  forecaster slot is pinned to the fallback key by the
-  `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` blocklist in `fallback_openrouter.py` (no
-  primary attempt), so a credit error on a Pro call is always a fallback-key
-  issue.
+  `GEMINI_USE_DONATED_OPENROUTER_KEY` (default `true` since 2026-06-16, when
+  Metaculus raised the Google rate limits; `gemini-3.5-flash` and
+  `gemini-3.1-flash-lite` were verified by live call on the primary key). Set it to a
+  false-y value (`false`/`0`/`no`) to force fallback-key-only routing for all Gemini.
+  The bot workflows (`.github/workflows/run_bot_on_*.yaml`, `test_bot_basic.yaml`)
+  pin it to `'true'` explicitly.
 - **Gemini grounded search** (`research/gemini_search.py`) always used the
   fallback `GOOGLE_API_KEY`; the primary toggle never touched it. **Default-off
   since 2026-08-31** — replaced by `research/anthropic_search.py`, which uses
   `ANTHROPIC_API_KEY` and Anthropic's server-side `web_search` tool. The module is
   retained and re-enables with one flag.
 
-Other keys, all fallback, no shared variants: `METACULUS_TOKEN`, `ASKNEWS_CLIENT_ID`
-+ `ASKNEWS_SECRET`, `EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`.
-(`OPENAI_API_KEY` was listed here historically but is read nowhere in the codebase —
-OpenAI models all route through OpenRouter.)
+**The Gemini Pro forecaster slot is pinned to the fallback key**, not merely allowed to
+fall back. It is on the `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` blocklist in
+`sibyl/platform/key_fallback.py` (read the blocklist for which models it currently
+covers), so `should_route_via_primary_key` returns `False` for it even with the toggle
+on: no primary attempt, no 429, and no fallback-counter bump, which would otherwise
+redden CI on every question. That model routes through a free-tier Google AI Studio
+BYOK key on the primary account with no Pro free tier (quota 0 → `is_byok:true` +
+`FreeTier limit: 0`). It is a temporary workaround, kept as a documented setting
+rather than a code TODO: drop the entry once Metaculus fixes the BYOK routing (enable
+Cloud billing on the BYOK key's GCP project, remove the Google AI Studio BYOK
+integration so native OpenRouter Google credits are used, or disable "Always use for
+this provider" on that BYOK key), then re-verify with one live call. See
+`bottega:FUTURE.md` "Gemini on the primary OpenRouter key".
 
-Diagnosing auth errors: an OpenRouter 401/402 on an OpenAI or Anthropic call
-means suspect the primary key first (it's always tried first for those
-providers). A 401/402 on Grok, Qwen, or Perplexity is always the fallback key
-(the primary key 404s on those). A `google-genai` 401 or quota error is always
-`GOOGLE_API_KEY`. A `403` splits three ways:
+### Diagnosing auth and credit errors
 
-- Body says `Key limit exceeded` — a drained spend cap. Falls back to the
-  fallback key and is credit-classified, whatever status came with it.
-- Body says `no allowed providers`, `guardrail`, or `data policy` — scoped to
-  the primary key's routing, so the fallback key genuinely can serve the call.
-  Falls back, but is NOT credit-classified.
-- Anything else — a moderation or permission refusal. Does not fall back, since
-  both keys would refuse the same prompt. Those two phrasings are the only ways
-  out of this branch, so it holds even when the body happens to contain ordinary
-  credit English like "insufficient funds": on a reported 403 the body is the
-  least trustworthy input we have (see the `flagged_input` prompt replay below),
-  and credit wording there classifies as neither credit nor a key issue.
+- **OpenRouter 401/402 on an OpenAI or Anthropic call** — suspect the primary key
+  first (it's always tried first for those providers), then `OPENROUTER_API_KEY` if
+  the wrapper doesn't fall back.
+- **OpenRouter 401/402 on a Gemini call** — Gemini routes primary-first by default,
+  so suspect `OAI_ANTH_OPENROUTER_KEY` first; if the toggle has been forced off,
+  suspect `OPENROUTER_API_KEY`. A model on the blocklist is pinned to the fallback
+  key, so a credit error on one of those is always a fallback-key issue.
+- **OpenRouter 401/402 on Grok, Qwen, or Perplexity** — always the fallback key
+  (the primary key 404s on those).
+- **`google-genai` 401, quota or invalid-key error** — always `GOOGLE_API_KEY`.
+- **A `403` splits three ways.** The reported status decides the branch, and the
+  spend-cap phrase outranks it:
+  - Body says `Key limit exceeded` — a drained spend cap, which is how OpenRouter
+    reports a breached per-key cap (not the 402 its docs promise). Falls back to the
+    fallback key and is credit-classified, whatever status came with it or none.
+  - Body says `no allowed providers`, `guardrail`, or `data policy` — scoped to
+    the primary key's routing, so the fallback key genuinely can serve the call.
+    Falls back, but is NOT credit-classified.
+  - Anything else — a moderation or permission refusal. Does not fall back, since
+    both keys would refuse the same prompt. Those two phrasings are the only ways
+    out of this branch, so it holds even when the body happens to contain ordinary
+    credit English like "insufficient funds": on a reported 403 the body is the
+    least trustworthy input we have (see the `flagged_input` prompt replay below),
+    and credit wording there classifies as neither credit nor a key issue.
 
-A `429 rate limit` is not a key defect but does fall back, since BYOK quotas are
-per-key. See "What a dry primary key actually returns" below.
+  The code is `should_retry_with_fallback_key` and `_is_credit_failure`. Whether a
+  spend-cap 403 is *suppressed* from CI alerting is a separate question, answered by
+  the `/auth/key` probe (`classify_primary_key_state` in
+  `sibyl/telemetry/credits.py`): only a genuinely `drained` key is suppressed;
+  `zeroed`, `revoked`, `funded`, and `unknown` all stay red.
+- **A `429 rate limit`** is not a key defect but does fall back, since BYOK quotas are
+  per-key, and the event stays fully alertable. See "What a dry primary key actually
+  returns" below.
+
+### Google grounded-search billing (upstream project)
+
+> **This describes the upstream author's billing-enabled project, not this
+> deployment.** That project ran a paid tier with prepaid credit at ~3% of the monthly
+> grounding allowance. This one has no billing attached, its monthly grounded-search
+> bucket is EXHAUSTED, and grounded search returns `429 RESOURCE_EXHAUSTED` on every
+> call — which is why the Gemini search provider was turned off on 2026-08-31. The
+> mechanics are accurate and apply again the moment billing is enabled: read this as
+> a spec, not as a description of today.
+
+Billing mechanics were verified against the ai.google.dev pricing, billing and
+google-search docs on 2026-07-17; don't re-litigate them without fetching those pages.
+Gemini 3.x grounding is paid-tier-only (free-tier column: "Not available") and
+includes **5,000 free grounded prompts/month shared across all Gemini 3 models per
+project, then $14/1k individual search queries** (multi-query prompts bill per QUERY on
+overage — deep-research prompts fire several). Upstream usage was ≈ 100-200 grounded
+prompts/month.
+
+The spring-2026 billing arc: gap-fill's 5x grounded-call multiplier plus backtest
+volume (`backtest_large` = 600 grounded prompts/run) blew past 5,000/month → per-query
+overage → prepaid-credit top-up debits. The 2026-06-25 resolver migration (`a51617e`)
+cut the multiplier and new charges stopped, with residual ~$1/month token spend
+drawing down the prepaid balance. **Prepaid-balance exhaustion produces 429s, not
+surprise charges** — which is exactly how this deployment's key fails today. Any
+future feature that multiplies grounded-call counts (or Gemini-grounded backtests at
+scale) re-eats the same monthly pool.
+
+`gemini-3.5-flash` shares the same grounding pool (grounding = $0 to switch) but its
+tokens cost 3x `gemini-3-flash-preview`'s ($1.50/$9 vs $0.50/$3 per M). Gap-fill v2's
+`read_document` (url_context) uses the same key with no per-request fee; retrieved
+documents bill as input tokens.
 
 ## Environment flags
 
@@ -877,50 +944,3 @@ exit is the CI red-check signal to investigate; it does not mean publishing
 failed. Credit-caused shortfalls are exempt until 2026-09-10 (see the suppression
 section above); every other cause still alerts. See the alert block near the end
 of `cli.py` for the exact conditions.
-
-
----
-
-## Agent-facing detail (relocated from `AGENTS.md`, 2026-08-26)
-
-The sections below were inline in `AGENTS.md`, which is loaded on every coding-agent
-invocation. They are reference material rather than always-true rules, so they live here
-now and are read on demand.
-
-Some of this overlaps the prose above — it was written for a different audience and is
-kept verbatim rather than merged, so nothing is silently lost. Reconciling the two is
-worthwhile follow-up, but it is an editorial pass, not a mechanical one.
-### API keys & secrets — what's shared vs. fallback
-
-The bot uses several API keys; they fall into two buckets and the names don't always make this obvious. Be explicit when reasoning about routing:
-
-- **`OAI_ANTH_OPENROUTER_KEY` — Metaculus-primary OpenRouter key (SHARED).** Despite the name, this is the *only* shared/primary credential in the bot. Metaculus provides credits to bot operators on this key for OpenAI, Anthropic, and Google models routed via OpenRouter. It has server-side allowed-providers preferences locked to `{openai, anthropic, google}`; non-listed providers (e.g. `x-ai` for Grok) 404 on it. Wrapped by `FallbackOpenRouterLlm` (`sibyl/platform/key_fallback.py`) which falls back to `OPENROUTER_API_KEY` on credential / credit / allowed-providers errors.
-- **`OPENROUTER_API_KEY` — operator's fallback OpenRouter key.** Pays for everything the primary key can't (Grok via x-ai, Qwen, Perplexity-via-OpenRouter) plus serves as the fallback when the primary key fails.
-- **`GOOGLE_API_KEY` — fallback Google AI Studio key.**
-  > ⚠ **Corrected 2026-08-31.** Everything below describes the UPSTREAM author's
-  > billing-enabled project — a paid tier with prepaid credit running at ~3% of the
-  > monthly grounding allowance. **That is not this deployment.** This project has no
-  > billing attached, its monthly grounded-search bucket is EXHAUSTED, and grounded
-  > search returns `429 RESOURCE_EXHAUSTED` on every call — which is why the Gemini
-  > search provider was turned off on 2026-08-31 and replaced by Anthropic
-  > `web_search`. The key still works for gap-fill v2's `read_document` reads (a
-  > different quota). Note the paragraph below called this failure exactly:
-  > *"prepaid-balance exhaustion produces 429s, not surprise charges."* It was right.
-  >
-  > Retained because the billing MECHANICS are accurate and become relevant again the
-  > moment billing is enabled. Read it as a spec, not as a description of today.
-
-  Historical (upstream project): In CI it's stored as `secrets.GEMINI_API_KEY` and surfaced as `GOOGLE_API_KEY` in the workflow env so the `google-genai` SDK picks it up. **There is NO Metaculus-primary Google AI Studio key.** Billing mechanics (verified against ai.google.dev pricing/billing/google-search docs 2026-07-17 — don't re-litigate without fetching them): Gemini 3.x grounding is paid-tier-ONLY (free-tier column: "Not available") and includes **5,000 free grounded prompts/month shared across all Gemini 3 models per project, then $14/1k individual search queries** (multi-query prompts bill per QUERY on overage — deep-research prompts fire several). Current usage ≈ 100-200 grounded prompts/month ≈ 3% of the allowance. The spring-2026 billing arc, explained: gap-fill's 5x grounded-call multiplier + backtest volume (backtest_large = 600 grounded prompts/run) blew past 5,000/month → per-query overage → prepaid-credit top-up debits ("started getting billed"); the 2026-06-25 resolver migration (`a51617e`) cut the multiplier and new charges stopped, with residual ~$1/month token spend silently drawing down the prepaid balance. **Watch item: prepaid-balance exhaustion produces 429s, not surprise charges** — if Gemini grounded search starts soft-failing across a run, check the AI Studio credit balance FIRST. Also: any future feature multiplying grounded-call counts (or Gemini-grounded backtests at scale) re-eats the same monthly pool. Model note: `gemini-3.5-flash` shares the same grounding pool (grounding = $0 to switch) but its tokens are 3x 3-flash-preview ($1.50/$9 vs $0.50/$3 per M) — a few dollars/month, from prepaid credits. The grounded-search side (`research/gemini_search.py`) and v2's `read_document`/url_context both use this fallback key (url_context: no per-request fee; retrieved documents bill as input tokens). Don't confuse the OpenRouter Gemini path (primary route via `OAI_ANTH_OPENROUTER_KEY`, minus whatever `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` excepts) with this google-genai path — separate keys, separate billing.
-- **`METACULUS_TOKEN`, `ASKNEWS_*`, `EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — all fallback.** No shared variants. The two direct provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) are only used if you bypass OpenRouter; most flows route through OpenRouter and don't need them.
-
-**Toggle: `GEMINI_USE_DONATED_OPENROUTER_KEY`** (default `true`, since 2026-06-16). Only affects OpenRouter Gemini routing; does NOT touch grounded search. On by default because Metaculus raised the Google rate limits — the primary OpenRouter key now serves most Gemini models (verified by live call: `gemini-3.5-flash` and `gemini-3.1-flash-lite` both succeed on the primary key). **Known exception:** the Gemini Pro forecaster slot is **PINNED to the fallback key** via the `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` blocklist in `fallback_openrouter.py` (read the blocklist for which models it currently covers) — `should_route_via_primary_key` returns `False` for anything on it even with the toggle ON, so there's no primary attempt, no 429, and no fallback-key-fallback-counter bump (which would otherwise redden CI on every question). It's pinned (not "falls back") because that model routes through a free-tier Google AI Studio BYOK key on the primary account with no Pro free tier (quota 0 → `is_byok:true` + `FreeTier limit: 0`). This is a **temporary workaround**, now a documented setting rather than a code TODO — drop the entry from `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` once Metaculus fixes the BYOK routing (enable Cloud billing on the BYOK key's GCP project, remove the Google AI Studio BYOK integration so native OpenRouter Google credits are used, or disable "Always use for this provider" on that BYOK key), then re-verify with one live call. Set this toggle to a false-y value (`false`/`0`/`no`) to force fallback-key-only routing for ALL Gemini. The prod workflow yamls (`.github/workflows/run_bot_on_*.yaml`, `test_bot.yaml`) pin it to `'true'` explicitly. See `sibyl/platform/key_fallback.py:should_route_via_primary_key` and `bottega:FUTURE.md` "Gemini on the primary OpenRouter key".
-
-**Diagnosing auth / credit errors**:
-
-- OpenRouter 401/402/credit error on a Gemini call → OpenRouter Gemini routes primary-first by default (with fallback fallback), so suspect `OAI_ANTH_OPENROUTER_KEY` first; if the toggle has been forced OFF, suspect `OPENROUTER_API_KEY`. (Note: anything on `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` is pinned to the fallback `OPENROUTER_API_KEY` with no primary attempt, so a credit error on one of those models is always a fallback-key issue.)
-- OpenRouter 401/402 on an OpenAI or Anthropic call → suspect `OAI_ANTH_OPENROUTER_KEY` first (primary key is always tried first for those providers), then `OPENROUTER_API_KEY` if the wrapper doesn't fall back.
-- OpenRouter 401/402 on Grok / Qwen / Perplexity → always `OPENROUTER_API_KEY` (primary key 404s on these providers).
-- `google-genai` 401 / quota / API-key-invalid error → always `GOOGLE_API_KEY` (no primary path).
-- **403 splits three ways — the reported status decides the branch, and the spend-cap phrase outranks it.** (1) A `403` whose body says **`Key limit exceeded`** IS a key issue: that is how OpenRouter reports a breached per-key SPEND CAP (not the 402 its docs promise), so the wrapper falls back to the fallback key and classifies it as credit-caused. That phrase fires on any reported status or none. (2) A `403` carrying `no allowed providers` / `guardrail` / `data policy` is scoped to the primary key's ROUTING, so it falls back too, but it is NOT credit-caused. (3) Every other `403 forbidden / moderation` is not a key issue and deliberately does not fall back — both keys would refuse the same prompt. Where a status is reported it is the only numeric evidence consulted, so credit wording on a non-402 reported status (a 403 body saying "insufficient credit") no longer classifies as credit or falls back. See `should_retry_with_fallback_key` / `_is_credit_failure`, and `docs/operations.md` "What a dry primary key actually returns". Whether a spend-cap 403 is SUPPRESSED from CI alerting is a separate question answered by the `/auth/key` probe (`credit_telemetry.classify_primary_key_state`): only a genuinely `drained` key is suppressed; `zeroed`, `revoked`, `funded`, and `unknown` all stay red.
-- `429 rate limit` → not a key-scoped defect, but the wrapper DOES fall back (BYOK quotas are per-key, so a throttled primary key doesn't imply a throttled fallback one) and the event stays fully alertable.
-
