@@ -64,6 +64,17 @@ report, but it must not be merged into `main` or `clean-fork` until the check ha
 passed on its final commit. This standing authorization applies only to this
 nonpublishing check.
 
+## Keeping docs true
+
+A change that makes a doc in `docs/architecture/` or `docs/runbooks/` wrong fixes that
+doc in the same change. Those two folders describe the code as it is; the other folders
+under `docs/` are dated intent and records, and are not rewritten to match it. Each fact
+has one home: link to it rather than copying it. A new doc gets a row in
+`docs/README.md`, and `make test` fails on a missing row or a broken link.
+
+Rules for one area of the code live in `.claude/rules/` and load when an agent works on
+those paths. This file holds only what is true everywhere.
+
 ## Layout
 
 | Package | Holds |
@@ -76,7 +87,7 @@ nonpublishing check.
 | `sibyl/aggregation/` | Combining several forecasters into one published forecast. |
 | `sibyl/publishing/` | Rendering and posting the comment that accompanies a forecast. |
 | `sibyl/telemetry/` | Counters, markers, and the archive that harvests them from run logs. |
-| `sibyl/eval/` | Offline measurement: backtest, ablation, ensemble, performance. |
+| `sibyl/eval/` | Offline measurement: backtest, ablation, ensemble, performance, paired comparison, power checks, MiniBench scoring. |
 | `sibyl/ops/` | Operator scripts. Not imported by the bot. |
 
 Tests are laned: `tests/unit/`, `tests/integration/`, `tests/e2e/`, `tests/live/`, with
@@ -120,4 +131,5 @@ Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_ques
 - [docs/runbooks/operations.md](docs/runbooks/operations.md) — running it; what the telemetry means.
 - [docs/strategy/eval-strategy.md](docs/strategy/eval-strategy.md) — the rules every comparison follows.
 - [docs/decisions/](docs/decisions/) — why things are the way they are.
+- [.claude/rules/](.claude/rules/) — rules for one area of the code: telemetry, tests, workflows, grant funding, docs.
 - [docs/roadmap.md](docs/roadmap.md) — what is not done.
