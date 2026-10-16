@@ -9,17 +9,19 @@ repos:
   # fails on any error; locally, `make typecheck` runs before every commit
   # (AGENTS.md). Whether to add it here is in docs/roadmap.md.
 
-  # The full suite, gated on push rather than commit: ~105s is too much friction
-  # per commit (agents commit often) but is the right price per push, which is
+  # The full suite, gated on push rather than commit: minutes are too much friction
+  # per commit (agents commit often) but are the right price per push, which is
   # where a red run first becomes a reviewer's problem. Same command CI runs, so
-  # a local pass and a CI pass cannot diverge on invocation. Needs
+  # a local pass and a CI pass cannot diverge on invocation. It is skipped when the
+  # checkout is clean and that exact tree already passed, under `make test` or an
+  # earlier push; see scripts/hooks/tested_tree.sh. Needs
   # `pre-commit install --hook-type pre-push` (done by `make precommit_install`).
   - repo: local
     hooks:
       - id: pytest-full-suite
-        name: pytest (full suite, same command as CI)
-        entry: uv run --frozen pytest --cov=sibyl
-        language: system
+        name: pytest (full suite, same command as CI, unless this tree passed)
+        entry: scripts/hooks/tested_tree.sh pre-push
+        language: script
         stages: [pre-push]
         pass_filenames: false
         always_run: true
