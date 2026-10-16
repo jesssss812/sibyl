@@ -74,8 +74,9 @@ something is measured updates it in the same change. Each fact has one home: lin
 rather than copying it. A new doc gets a row in `docs/README.md`, and `make test` fails
 on a missing row or a broken link.
 
-Rules for one area of the code live in `.claude/rules/` and load when an agent works on
-those paths. This file holds only what is true everywhere.
+Rules for one area of the code live in `.claude/rules/`. Claude Code loads each one when
+it works on the paths in the rule's front matter; any other agent reads the rule for an
+area before changing it. This file holds only what is true everywhere.
 
 ## Layout
 
