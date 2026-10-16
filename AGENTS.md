@@ -39,8 +39,8 @@ These are the only rules that can cost real money if broken.
 9. **Leave what looks wrong.** If a module seems wrong but fixing it is not the task, add
    a line to `docs/roadmap.md` instead. A restructure whose diff also contains behaviour
    changes cannot be checked against a parity record.
-10. **Never commit on `main`.** Work on a feature branch; `clean-fork` is the integration
-    branch.
+10. **Never commit on `main`.** Work on a feature branch and open a pull request into
+    `main`.
 11. **Show publishing runs live.** For an authorized test or forecast that publishes,
     open a visible terminal or live log view before starting, use unbuffered output,
     and stream progress while retaining a local log. Do not hide the run until it ends.
@@ -60,7 +60,7 @@ It requires `OPENROUTER_API_KEY`, makes live free-model calls, and must never
 publish. If the key, network, or a free provider is unavailable, do not substitute
 `make e2e_free` or claim the check passed; report the blocker. A feature branch may
 still be pushed so the work is not lost, with the skipped check stated in the
-report, but it must not be merged into `main` or `clean-fork` until the check has
+report, but it must not be merged into `main` until the check has
 passed on its final commit. This standing authorization applies only to this
 nonpublishing check.
 
