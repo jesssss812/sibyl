@@ -529,7 +529,6 @@ The paid run is the operator's last step.
   monitor, `make score_ghosts`, and `make close_margin_watch`.
 - `make ablation_score` — `--stages score` hydrates every artifact off disk
   (`_hydrate_working_set_from_cache`) and makes no provider call.
-- `make benchmark_display` — views saved benchmark results, no forecasting.
 - `make check_credits` — reads the `/auth/key` balance for both OpenRouter keys.
 - `make backtest_fixture` / `make backtest_fixture_aa` — the full backtest pipeline with
   deterministic fixture forecasters. **The only backtest target that cannot spend**: every
