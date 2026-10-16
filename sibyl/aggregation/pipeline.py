@@ -50,16 +50,6 @@ from sibyl.forecasting.post_processing import (
 logger = logging.getLogger(__name__)
 
 
-def _funding_aware_stacker_fallback() -> GeneralLlm:
-    from sibyl.platform.experiment_funding import active_grant
-
-    if active_grant() is None:
-        return STACKER_FALLBACK_LLM
-    from sibyl.platform.experiment_llm import clone_for_grant
-
-    return clone_for_grant(STACKER_FALLBACK_LLM, stage="stacker_fallback")
-
-
 @dataclass
 class AggregationCounters:
     stacking_expected_combine_count: int = 0
@@ -362,7 +352,7 @@ class AggregationPipeline:
                         question,
                         research,
                         reasoned_predictions,
-                        stacker_llm_override=_funding_aware_stacker_fallback(),
+                        stacker_llm_override=STACKER_FALLBACK_LLM,
                         aggregated_tool_output=aggregated_tool_output,
                         stacker_wall_timeout=STACKER_FALLBACK_SOFT_DEADLINE,
                     ),

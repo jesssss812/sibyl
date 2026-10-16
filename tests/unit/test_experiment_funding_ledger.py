@@ -76,52 +76,6 @@ def test_estimate_keeps_reservation_until_provider_reconciliation(tmp_path: Path
     assert ledger.summary("run-a")["confirmed_usd"] == "0.4"
 
 
-def test_failed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
-    ledger = SpendLedger(tmp_path / "spend.sqlite3")
-    ledger.start_run("run-a", Decimal("5"))
-    ledger.reserve("a", "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="101")
-    ledger.reserve("b", "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="101")
-    ledger.reserve("c", "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="102")
-    ledger.mark_uncertain("a")
-    ledger.mark_rejected("b", evidence_source="provider_rejected status=429")
-    ledger.settle(
-        "c",
-        Decimal("0.4"),
-        10,
-        5,
-        certainty="confirmed",
-        evidence_source="provider_response",
-        openrouter_charge_usd=Decimal("0.4"),
-        is_byok=False,
-    )
-    assert ledger.failed_attempts("run-a", "101") == 2
-    assert ledger.failed_attempts("run-a", "102") == 0
-
-
-def test_estimated_unknown_and_over_reserve_answers_are_not_failures(tmp_path: Path) -> None:
-    # Each returned an answer; their costs are handled by the reservation, not the gate.
-    ledger = SpendLedger(tmp_path / "spend.sqlite3")
-    ledger.start_run("run-a", Decimal("5"))
-    for attempt in ("est", "unknown", "over"):
-        ledger.reserve(attempt, "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="101")
-    ledger.settle("est", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
-    ledger.mark_cost_unknown("unknown", 10, 5, provider_request_id=None, evidence_source="unknown")
-    ledger.settle(
-        "over",
-        Decimal("1.5"),
-        10,
-        5,
-        certainty="confirmed",
-        evidence_source="provider_response",
-        openrouter_charge_usd=Decimal("1.5"),
-        is_byok=False,
-    )
-    assert ledger.failed_attempts("run-a", "101") == 0
-    summary = ledger.summary("run-a")
-    assert summary["uncertain_usd"] == "0.8", "the unknown cost holds its reservation"
-    assert summary["estimated_usd"] == "0.4"
-
-
 def test_local_estimate_cannot_be_called_confirmed(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "spend.sqlite3")
     ledger.start_run("run-a", Decimal("1"))

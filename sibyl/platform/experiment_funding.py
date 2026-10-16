@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from contextvars import ContextVar, Token
-from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
@@ -46,11 +44,7 @@ class FundingSource(StrEnum):
     EXISTING = "existing"
 
 
-class GrantExecutionError(RuntimeError):
-    """Grant accounting requires a stop; another paid attempt cannot repair it."""
-
-
-class BudgetExceeded(GrantExecutionError):
+class BudgetExceeded(RuntimeError):
     """A local spend limit has insufficient unreserved capacity.
 
     ``in_flight`` is True when the limit would hold if the requests still in flight
@@ -383,24 +377,6 @@ class SpendLedger:
                 (evidence_source, attempt_id),
             )
 
-    def mark_cost_unknown(
-        self,
-        attempt_id: str,
-        prompt_tokens: int | None,
-        completion_tokens: int | None,
-        *,
-        provider_request_id: str | None,
-        evidence_source: str,
-    ) -> None:
-        """Record a call that answered but carried no cost; its full reservation stays held."""
-        with self._connect() as db:
-            db.execute(
-                """UPDATE attempts SET status = 'succeeded', prompt_tokens = ?, completion_tokens = ?,
-                provider_request_id = ?, evidence_source = ?, completed_at = CURRENT_TIMESTAMP
-                WHERE attempt_id = ? AND charged_usd IS NULL""",
-                (prompt_tokens, completion_tokens, provider_request_id, evidence_source, attempt_id),
-            )
-
     def reconcile(
         self,
         attempt_id: str,
@@ -415,7 +391,7 @@ class SpendLedger:
 
         Separate from ``settle`` because reconciliation happens AFTER the run, off the
         hot path, and reads the provider's record without a second paid request. Until
-        then the estimate holds its reservation and blocks its question's publication.
+        then the estimate holds its reservation.
         """
         charge = _cost(billable_usd)
         if charge != provider_billable_cost(openrouter_charge_usd, upstream_cost_usd, is_byok):
@@ -466,20 +442,6 @@ class SpendLedger:
                     (run_id, source),
                 )
             ]
-
-    def failed_attempts(self, run_id: str, question_id: str) -> int:
-        """Calls on a question that returned no answer: rejected, or lost after sending.
-
-        Costs are not the question here -- every unconfirmed cost holds its reservation.
-        This counts missing answers, which is what makes a question's research unusable.
-        """
-        with self._connect() as db:
-            (count,) = db.execute(
-                """SELECT COUNT(*) FROM attempts WHERE run_id = ? AND question_id = ? AND source = ?
-                AND status IN ('uncertain', 'rejected')""",
-                (run_id, question_id, FundingSource.EXPERIMENT_GRANT),
-            ).fetchone()
-            return int(count)
 
     def write_off(self, adjustment_id: str, provider_total_usd: Decimal, note: str, *, expected_count: int) -> int:
         """Replace attempts that can never be reconciled with the provider's own total.
@@ -616,57 +578,3 @@ class SpendLedger:
                 if charged is not None and certainty in {"confirmed", "estimated"}:
                     group[certainty + "_usd"] = str(Decimal(str(group[certainty + "_usd"])) + Decimal(charged))
             return [groups[key] for key in sorted(groups)]
-
-
-@dataclass
-class RunHalt:
-    """Shared, mutable stop state for one grant run."""
-
-    reason: str | None = None
-    consecutive_unknown_cost: int = 0
-
-    def stop(self, reason: str) -> None:
-        if self.reason is None:
-            self.reason = reason
-
-
-@dataclass(frozen=True)
-class GrantSession:
-    run_id: str
-    ledger: SpendLedger
-    per_call_reserve_usd: Decimal
-    key: str
-    halt: RunHalt = field(default_factory=RunHalt, compare=False)
-
-    def __repr__(self) -> str:
-        return f"GrantSession(run_id={self.run_id!r}, key=<redacted>)"
-
-
-_ACTIVE_GRANT: ContextVar[GrantSession | None] = ContextVar("sibyl_active_grant", default=None)
-_ACTIVE_QUESTION: ContextVar[str | None] = ContextVar("sibyl_grant_question", default=None)
-
-
-def active_grant() -> GrantSession | None:
-    return _ACTIVE_GRANT.get()
-
-
-def active_grant_question() -> str | None:
-    return _ACTIVE_QUESTION.get()
-
-
-@contextmanager
-def grant_question(question_id: int | None) -> Iterator[None]:
-    token = _ACTIVE_QUESTION.set(str(question_id) if question_id is not None else None)
-    try:
-        yield
-    finally:
-        _ACTIVE_QUESTION.reset(token)
-
-
-@contextmanager
-def grant_context(session: GrantSession) -> Iterator[None]:
-    token: Token[GrantSession | None] = _ACTIVE_GRANT.set(session)
-    try:
-        yield
-    finally:
-        _ACTIVE_GRANT.reset(token)

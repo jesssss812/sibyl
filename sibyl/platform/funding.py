@@ -126,13 +126,22 @@ def _env_key(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+# The OpenRouter sources and the env var holding each one's key. A billing record is only
+# visible to the key that made the request, so reconciliation reads it through this too.
+OPENROUTER_KEY_ENVS: dict[FundingSource, str] = {
+    FundingSource.EXPERIMENT_GRANT: GRANT_KEY_ENV,
+    FundingSource.METACULUS_KEY: OAI_ANTH_OPENROUTER_KEY_ENV,
+    FundingSource.PERSONAL_KEY: OPENROUTER_API_KEY_ENV,
+}
+
+
 def source_for_key(key: str | None) -> FundingSource:
     """The ledger source for an OpenRouter credential. No key means litellm's env default."""
     funding = _FUNDING
     key = (key or "").strip()
     if key and funding is not None and key == funding.grant_key:
         return FundingSource.EXPERIMENT_GRANT
-    if key and key == _env_key(OAI_ANTH_OPENROUTER_KEY_ENV):
+    if key and key == _env_key(OPENROUTER_KEY_ENVS[FundingSource.METACULUS_KEY]):
         return FundingSource.METACULUS_KEY
     return FundingSource.PERSONAL_KEY
 
