@@ -396,7 +396,7 @@ MARKER_SPECS: list[MarkerSpec] = [
     ),
     MarkerSpec(
         "paid_personal_key_fallback",
-        # Per-CALL primary->fallback key fallback WARN (fallback_openrouter.py
+        # Per-CALL primary->fallback key fallback WARN (key_fallback.py
         # _log_fallback). The counters it feeds are already in degradation_counters /
         # the cli summary, but only this line names WHICH MODEL fell back and with
         # what error, which is what separates "one flaky Gemini call" from "every

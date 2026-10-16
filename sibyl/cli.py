@@ -319,7 +319,7 @@ def main() -> None:
     # usage, research provider failures, etc. — see
     # `forecaster.py` `alertable_count`).
     bot_alertable = template_bot.alertable_count
-    # Primary->fallback key fallback: counted in fallback_openrouter at the
+    # Primary->fallback key fallback: counted in key_fallback at the
     # wrapper level (process-global, since the wrapper has no link back to the
     # bot). Each fallback was successful — the run completed using the paid
     # fallback key — but a call that should have hit the free primary key
@@ -340,7 +340,7 @@ def main() -> None:
     # ``credit_fallback`` counts only the SUPPRESSIBLE credit subset — the
     # primary key genuinely drained. A key that was revoked or re-capped to zero
     # returns the same "Key limit exceeded" text but is classified separately by
-    # ``fallback_openrouter.is_suppressible_credit_error`` (which probes
+    # ``key_fallback.is_suppressible_credit_error`` (which probes
     # /auth/key), so it stays inside the generic total and keeps this run red.
     alerts_active = credit_alerts_active()
     fallback_count = get_fallback_key_count()

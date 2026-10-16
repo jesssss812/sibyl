@@ -74,7 +74,7 @@ def build_default_llm_call(config: LoopConfig) -> LlmCall:
                 return await _call_once(messages, tools_json, fallback_key)
 
         api_key = primary_key if should_route_via_primary_key(model) and primary_key else fallback_key
-        # The counted/logged fallback DECISION is now shared with fallback_openrouter
+        # The counted/logged fallback DECISION is now shared with key_fallback
         # (record_primary_key_fallback). Only the transport differs: this path calls
         # raw litellm.acompletion for tool-loop support, where the wrapper goes
         # through GeneralLlm. Share the transport too if this grows a retry ladder.

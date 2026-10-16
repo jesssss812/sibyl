@@ -418,7 +418,7 @@ Afterward, the log is in the `research-<run_id>` artifact (90-day retention),
 tee'd from `run_logs/` during the run, alongside the run's
 `research_outputs/` JSONL. Worth grepping in the downloaded log:
 
-- `PAID PERSONAL-KEY FALLBACK` (`fallback_openrouter.py`) — a call fell off the
+- `PAID PERSONAL-KEY FALLBACK` (`sibyl/platform/key_fallback.py`) — a call fell off the
   primary key onto the operator's fallback one.
 - `PRIMARY_KEY_STATE:` (`credit_telemetry.py`) — the `/auth/key` probe's verdict
   on why a credit-shaped failure happened (`drained`, `zeroed`, `revoked`,
@@ -688,7 +688,7 @@ dry key — that is the exact failure this change exists to fix.
 Two related hardenings ride along, both about how little the body can be trusted.
 
 First, "was this about money?" has exactly one arbiter, `_is_credit_failure`
-(in `fallback_openrouter.py`, whose docstring is the canonical version of this),
+(in `sibyl/platform/key_fallback.py`, whose docstring is the canonical version of this),
 which both the routing decision and the alerting counter reach through. It reads
 three tiers in a fixed order:
 

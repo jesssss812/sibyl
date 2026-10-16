@@ -61,7 +61,7 @@ run's start usage against its successor's — the only place the lag is actually
 observable.
 
 This module also owns the DRAINED-vs-REVOKED discriminator
-(``classify_primary_key_state``) that ``fallback_openrouter`` consults when a
+(``classify_primary_key_state``) that ``key_fallback`` consults when a
 primary-key call fails with OpenRouter's spend-cap 403. Same endpoint, same
 parser, so the "how much is left on the primary key" question has one
 implementation.
@@ -292,7 +292,7 @@ class CreditTelemetry:
 # expected state while they self-fund the season (green), a zeroed or revoked
 # one is real breakage (red). No amount of text matching can separate them, so
 # we ask the free, read-only /auth/key endpoint what the cap actually looks
-# like. See ``fallback_openrouter.is_suppressible_credit_error``.
+# like. See ``key_fallback.is_suppressible_credit_error``.
 
 
 class PrimaryKeyState(StrEnum):
@@ -321,7 +321,7 @@ class PrimaryKeyState(StrEnum):
 # than the read timeout resets the clock on every chunk and the call can run many multiples
 # of this budget (measured against a local trickling server, a one-second timeout took ten
 # seconds to return twenty bytes). The hard total cap lives at the latency-sensitive call
-# site (``fallback_openrouter.record_primary_key_fallback`` wraps the probe in
+# site (``key_fallback.record_primary_key_fallback`` wraps the probe in
 # ``asyncio.wait_for``), because that is the only hop where the promise has to hold.
 PRIMARY_KEY_PROBE_TIMEOUT_S: float = 5.0
 
@@ -332,7 +332,7 @@ PRIMARY_KEY_PROBE_TIMEOUT_S: float = 5.0
 # differently from any verdict.
 #
 # ``threading``, not ``asyncio``: every production caller arrives on an
-# ``asyncio.to_thread`` worker (see ``fallback_openrouter.record_primary_key_fallback``),
+# ``asyncio.to_thread`` worker (see ``key_fallback.record_primary_key_fallback``),
 # so the contention is between real OS threads. The lock is what makes the ONE VERDICT
 # part true, which matters more than the one-request part — without it each caller keeps
 # its own probe result, so an intermittently failing ``/auth/key`` splits a single
@@ -358,7 +358,7 @@ def _probe_primary_key_state() -> PrimaryKeyState:
 
     Returns UNKNOWN on any failure and logs the exception. UNKNOWN is the fail-safe
     direction: it keeps the run alertable, so a probe that cannot answer never greens a red
-    run. ``fallback_openrouter`` guards its own call site too (an escape there would abort
+    run. ``key_fallback`` guards its own call site too (an escape there would abort
     the fallback it is annotating), but the contract has to hold here for the next caller.
     """
     env_var, _ = KEY_SPECS["primary"]

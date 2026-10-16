@@ -509,7 +509,7 @@ OpenAI native search + Claude web search + financial data (when classified
 financial) + prediction-market snapshot + resolution-source fetcher + time-series
 anchor + both gap-fill passes. Env flags, models, and timeouts live in
 `sibyl/config/settings.py`; provider models route through the shared
-primary-then-fallback OpenRouter fallback (`fallback_openrouter.py`), except
+primary-then-fallback OpenRouter fallback (`sibyl/platform/key_fallback.py`), except
 Claude web search, which uses `ANTHROPIC_API_KEY` directly (and, while it was active, Gemini grounded search, which used the fallback Google key).
 
 ## Cost note

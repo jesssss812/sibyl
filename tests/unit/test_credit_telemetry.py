@@ -572,7 +572,7 @@ class TestPrimaryKeyStateProbe:
     def test_probe_returns_unknown_for_any_exception_type(self, monkeypatch, boom) -> None:
         """``_probe_primary_key_state`` promises "never raises", so it must catch anything.
 
-        The narrow tuple missed all three of these, and ``fallback_openrouter`` guards only
+        The narrow tuple missed all three of these, and ``key_fallback`` guards only
         its own call site — the next caller would inherit the false contract. UNKNOWN is
         also the right fail-safe: it keeps the run alertable.
         """
