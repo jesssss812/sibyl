@@ -68,9 +68,11 @@ nonpublishing check.
 
 A change that makes a doc in `docs/architecture/` or `docs/runbooks/` wrong fixes that
 doc in the same change. Those two folders describe the code as it is; the other folders
-under `docs/` are dated intent and records, and are not rewritten to match it. Each fact
-has one home: link to it rather than copying it. A new doc gets a row in
-`docs/README.md`, and `make test` fails on a missing row or a broken link.
+under `docs/` are dated intent and records, and are not rewritten to match it. The
+exception is `docs/strategy/eval-strategy.md`, the measurement spec: a change to how
+something is measured updates it in the same change. Each fact has one home: link to it
+rather than copying it. A new doc gets a row in `docs/README.md`, and `make test` fails
+on a missing row or a broken link.
 
 Rules for one area of the code live in `.claude/rules/` and load when an agent works on
 those paths. This file holds only what is true everywhere.
