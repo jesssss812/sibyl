@@ -23,6 +23,7 @@ regression rather than catch it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from datetime import date, datetime, timezone
@@ -270,6 +271,28 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the real 1s/10s/30s backoff between retries of a failing LLM call.
+
+    A forecaster that always raises waits out every backoff before it is dropped, which
+    cost the guard scenario 41s. Like ``frozen_clock``, the patch is narrow: only
+    ``llm_retry``'s ``asyncio`` is replaced, its ``sleep`` yields without waiting, and
+    the attempts, their order and the recorded drop are unchanged.
+    """
+    from sibyl.platform import llm_retry
+
+    class _NoBackoff:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(asyncio, name)
+
+        @staticmethod
+        async def sleep(_seconds: float, *_args: Any) -> None:
+            await asyncio.sleep(0)
+
+    monkeypatch.setattr(llm_retry, "asyncio", _NoBackoff())
+
+
+@pytest.fixture
 def all_providers_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every research/provider flag off, including the three stacking gates.
 
@@ -438,7 +461,7 @@ async def test_golden_pipeline_conditional_stacking(
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_golden_min_forecasters_guard(
-    request: pytest.FixtureRequest, all_providers_off: None, frozen_clock: None
+    request: pytest.FixtureRequest, all_providers_off: None, frozen_clock: None, no_retry_backoff: None
 ) -> None:
     """Scenario 3: a raising forecaster drops the question, and the drop is attributed.
 
