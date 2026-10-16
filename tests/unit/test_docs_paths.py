@@ -31,6 +31,7 @@ DOC_FILES = sorted(
         REPO / "README.md",
         REPO / "AGENTS.md",
         *(p for p in (REPO / "docs").rglob("*.md") if "plans" not in p.parts),
+        *(REPO / ".claude" / "rules").glob("*.md"),
     ]
 )
 
@@ -40,7 +41,7 @@ RUNTIME_DIRS = ("backtests/", "run_logs/", "research_outputs/", "benchmarks/", "
 # A backticked token that looks like a repo path: starts with a tracked top-level dir.
 _BACKTICKED = re.compile(r"`([^`\s]+)`")
 _LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
-_PATH_ROOTS = ("sibyl/", "tests/", "scripts/", "docs/", ".github/")
+_PATH_ROOTS = ("sibyl/", "tests/", "scripts/", "docs/", ".github/", ".claude/")
 
 
 def _is_checkable_path(token: str) -> bool:

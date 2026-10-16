@@ -207,4 +207,6 @@ GEMINI.md.OLD
 gha-creds-*.json
 scratch/*
 scorecard.png
-.claude
+# Local Claude Code state stays out; the path-scoped agent rules are shared.
+.claude/*
+!.claude/rules/
