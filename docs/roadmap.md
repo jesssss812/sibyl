@@ -138,8 +138,6 @@ No router is enabled. Pooled scoring remains pending a versioned definition.
   into the body of their docs, as was done for `docs/runbooks/operations.md`'s key routing. Each
   overlaps the prose above it. `docs/architecture/overview.md`, `docs/architecture/numeric-pipeline.md`,
   `docs/runbooks/performance-analysis.md`, `docs/architecture/probabilistic-tools.md`, `docs/architecture/research.md`
-- `docs/strategy/study-notes.md` says it belongs in bottega and was due to move there at the
-  split. Move it, or drop the note. `docs/strategy/study-notes.md`
 - The reference docs still name files from the pre-fork layout: `forecaster.py`,
   `forecaster_runners.py`, `constants.py`, `llm_configs.py`, `aggregation_pipeline.py`,
   `credit_telemetry.py` and about ten more, mostly in `docs/architecture/overview.md`. Map

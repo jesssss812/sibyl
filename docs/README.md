@@ -54,7 +54,6 @@ when one is not.
 | [strategy/eval-strategy.md](strategy/eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
 | [strategy/calibration-primer.md](strategy/calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
 | [strategy/budget-strategy.md](strategy/budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
-| [strategy/study-notes.md](strategy/study-notes.md) | *Raw log, pre-fork.* Numbered notes from reading the reference implementation. Its header says it belongs in bottega; see the roadmap. |
 | `bottega:docs/planning/nostreambot-reading-guide.md` | Reading order for this codebase, written when it was still an external reference. Not carried into this repo; *partly superseded* — see its header, in bottega. |
 
 ## Decisions
