@@ -7,7 +7,7 @@ reorders an aggregation, or drops a counter, in a way no existing unit test happ
 assert. Those tests were written to pin *intent*; this file exists to pin *output*.
 
 So every scenario below runs real production code end to end and writes its result to
-``tests/golden/<name>.json``. The fork re-runs the same scenarios and compares. Floats
+``tests/e2e/golden/<name>.json``. The fork re-runs the same scenarios and compares. Floats
 match to an absolute 1e-9; strings match exactly.
 
 **Zero API calls, by construction, not by convention.** Every LLM slot is a
@@ -110,7 +110,7 @@ def _compare(expected: Any, actual: Any, path: str) -> None:
 
 
 def assert_golden(request: pytest.FixtureRequest, name: str, actual: Any) -> None:
-    """Compare ``actual`` against ``tests/golden/<name>.json``, or record it."""
+    """Compare ``actual`` against ``tests/e2e/golden/<name>.json``, or record it."""
     path = GOLDEN_DIR / f"{name}.json"
     # Round-trip through JSON so the comparison sees exactly what a fork will load,
     # rather than Python objects that serialise lossily (tuples, NamedTuples, Decimal).

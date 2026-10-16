@@ -179,10 +179,10 @@ cython_debug/
 !tests/data/*.json
 
 # Golden parity records, un-ignored for the same reason. These ARE the assertion for
-# tests/test_golden.py: absent from a fresh checkout, every golden test fails on the
+# tests/e2e/test_golden.py: absent from a fresh checkout, every golden test fails on the
 # missing-file guard rather than silently passing, but CI would then be red for a
 # packaging reason instead of a behaviour one. They must be committed.
-!tests/golden/*.json
+!tests/e2e/golden/*.json
 
 # Benchmark and ablation outputs — never committed; per-operator local state
 backtests/
