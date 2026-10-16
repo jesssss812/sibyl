@@ -2,7 +2,7 @@
 
 > Written 2026-08-24, after reading the nostreambot author docs (`architecture`,
 > `research`, `agentic_gap_fill`, `numeric_pipeline`, `operations`), the five Sibyl
-> planning docs, `docs/study-notes.md`, and three of the owner's prior-project
+> planning docs, `docs/strategy/study-notes.md`, and three of the owner's prior-project
 > learning docs.
 >
 > **No code changes proposed here.** This is the conceptual layer: what the fork

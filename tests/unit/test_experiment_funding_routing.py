@@ -207,7 +207,7 @@ def _row(session: GrantSession) -> tuple:
 
 
 class TestFailureKinds:
-    """Each kind of failed call gets its own consequence; see docs/experiment-funding.md."""
+    """Each kind of failed call gets its own consequence; see docs/runbooks/experiment-funding.md."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("status", [401, 402])

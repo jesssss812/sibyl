@@ -13,7 +13,9 @@ for work that is partly or wholly unbuilt. These describe what *should* be true,
 was true when they were written, so a mismatch with the code is expected rather than a
 bug. Check the date before treating any of it as current.
 
-What is not done yet is in [roadmap.md](roadmap.md), one line per item.
+The folders follow the families: `architecture/` and `runbooks/` are reference;
+`strategy/`, `decisions/` and `plans/` are intent. What is not done yet is in
+[roadmap.md](roadmap.md), one line per item.
 
 Every document under `docs/` is listed below; `tests/unit/test_docs_index.py` fails
 when one is not.
@@ -24,20 +26,20 @@ when one is not.
 
 | Doc | What it covers |
 | --- | --- |
-| [architecture.md](architecture.md) | How a question flows end to end: research fan-out, the forecaster ensemble, the min-forecasters guard, aggregation (MEDIAN in prod, stacking disabled), and the two post-aggregation rails (Platt, open-vs-resolved guard). |
-| [research.md](research.md) | The providers that build each question's briefing: AskNews (primary), OpenAI native search, Claude web search, financial data, prediction markets, resolution-source fetcher, time-series anchor, reference-class retrieval, plus both gap-fill passes. All fan out in parallel, each independently env-gated. |
-| [agentic_gap_fill.md](agentic_gap_fill.md) | Gap-fill v2: the bounded agentic research loop — dry-run, target selection, tool iteration, citation-only findings artifact. |
-| [numeric_pipeline.md](numeric_pipeline.md) | Percentiles to PCHIP CDF: extraction, sanitizing, tail widening, step enforcement, bound pinning, discrete snapping, the unit-mismatch guard. |
-| [probabilistic_tools.md](probabilistic_tools.md) | The `probabilistic_tools/` package and the tool-runner that exposes it to forecaster models. |
+| [architecture/overview.md](architecture/overview.md) | How a question flows end to end: research fan-out, the forecaster ensemble, the min-forecasters guard, aggregation (MEDIAN in prod, stacking disabled), and the two post-aggregation rails (Platt, open-vs-resolved guard). |
+| [architecture/research.md](architecture/research.md) | The providers that build each question's briefing: AskNews (primary), OpenAI native search, Claude web search, financial data, prediction markets, resolution-source fetcher, time-series anchor, reference-class retrieval, plus both gap-fill passes. All fan out in parallel, each independently env-gated. |
+| [architecture/agentic-gap-fill.md](architecture/agentic-gap-fill.md) | Gap-fill v2: the bounded agentic research loop — dry-run, target selection, tool iteration, citation-only findings artifact. |
+| [architecture/numeric-pipeline.md](architecture/numeric-pipeline.md) | Percentiles to PCHIP CDF: extraction, sanitizing, tail widening, step enforcement, bound pinning, discrete snapping, the unit-mismatch guard. |
+| [architecture/probabilistic-tools.md](architecture/probabilistic-tools.md) | The `probabilistic_tools/` package and the tool-runner that exposes it to forecaster models. |
 
 ## Running it
 
 | Doc | What it covers |
 | --- | --- |
-| [operations.md](operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
-| [experiment-funding.md](experiment-funding.md) | The isolated grant-funded MiniBench runner, local spending ledger, and private forecast archive. |
-| [minibench-readiness.md](minibench-readiness.md) | October 2026 launch checks and the statistical limits of the first MiniBench round. |
-| [performance_analysis.md](performance_analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
+| [runbooks/operations.md](runbooks/operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
+| [runbooks/experiment-funding.md](runbooks/experiment-funding.md) | The isolated grant-funded MiniBench runner, local spending ledger, and private forecast archive. |
+| [runbooks/minibench-readiness.md](runbooks/minibench-readiness.md) | October 2026 launch checks and the statistical limits of the first MiniBench round. |
+| [runbooks/performance-analysis.md](runbooks/performance-analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
 
 ## Planning and evaluation strategy
 
@@ -47,12 +49,12 @@ when one is not.
 
 | Doc | What it covers |
 | --- | --- |
-| [vision.md](vision.md) | The ranked purpose and what wins when goals conflict. The tie-breaker when other docs don't settle a question. |
-| [design-principles.md](design-principles.md) | Evidence-graded architecture decisions (Strong / Moderate / Suggestive) drawn from the Metaculus analyses and the Fall-2025 bot-maker survey. |
-| [eval-strategy.md](eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
-| [calibration-primer.md](calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
-| [budget-strategy.md](budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
-| [study-notes.md](study-notes.md) | *Raw log, pre-fork.* Numbered notes from reading the reference implementation. Its header says it belongs in bottega; see the roadmap. |
+| [strategy/vision.md](strategy/vision.md) | The ranked purpose and what wins when goals conflict. The tie-breaker when other docs don't settle a question. |
+| [strategy/design-principles.md](strategy/design-principles.md) | Evidence-graded architecture decisions (Strong / Moderate / Suggestive) drawn from the Metaculus analyses and the Fall-2025 bot-maker survey. |
+| [strategy/eval-strategy.md](strategy/eval-strategy.md) | The spec for how anything is measured: paired comparison, power checks, leakage handling, cohort slicing, holdout, no-silent-degradation. |
+| [strategy/calibration-primer.md](strategy/calibration-primer.md) | Brier vs log score, reliability diagrams, capping, Platt scaling, extremizing — and why Metaculus grades on log. |
+| [strategy/budget-strategy.md](strategy/budget-strategy.md) | Measured per-question costs and which providers and model tiers fit a fixed budget. |
+| [strategy/study-notes.md](strategy/study-notes.md) | *Raw log, pre-fork.* Numbered notes from reading the reference implementation. Its header says it belongs in bottega; see the roadmap. |
 | `bottega:docs/planning/nostreambot-reading-guide.md` | Reading order for this codebase, written when it was still an external reference. Not carried into this repo; *partly superseded* — see its header, in bottega. |
 
 ## Decisions

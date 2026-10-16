@@ -51,7 +51,7 @@ plan does not name" rule.
   known-and-left-alone.
 - **The eval `compare` command reads only backtest data.** Ablation and performance runs
   write different shapes and cannot be compared with it yet.
-- **docs/architecture-notes.md was never written.** [vision.md](vision.md) makes it the
+- **docs/architecture-notes.md was never written.** [vision.md](strategy/vision.md) makes it the
   comprehension checkpoint gating repo surgery; the surgery happened first.
 - **A golden scenario relies on the network guard.** `pipeline_conditional_stacking`
   does not stub `run_targeted_search`; its record (`search_failures=5`) holds only
@@ -137,8 +137,8 @@ No router is enabled. Pooled scoring remains pending a versioned definition.
 - Add `basedpyright` as a pre-push hook. The codebase is type-clean and CI enforces it, so
   only the hook's run time stands in the way. `.pre-commit-config.yaml`
 - Fold the five remaining "Agent-facing detail (relocated from `AGENTS.md`)" sections
-  into the body of their docs, as was done for `docs/operations.md`'s key routing. Each
-  overlaps the prose above it. `docs/architecture.md`, `docs/numeric_pipeline.md`,
-  `docs/performance_analysis.md`, `docs/probabilistic_tools.md`, `docs/research.md`
-- `docs/study-notes.md` says it belongs in bottega and was due to move there at the
-  split. Move it, or drop the note. `docs/study-notes.md`
+  into the body of their docs, as was done for `docs/runbooks/operations.md`'s key routing. Each
+  overlaps the prose above it. `docs/architecture/overview.md`, `docs/architecture/numeric-pipeline.md`,
+  `docs/runbooks/performance-analysis.md`, `docs/architecture/probabilistic-tools.md`, `docs/architecture/research.md`
+- `docs/strategy/study-notes.md` says it belongs in bottega and was due to move there at the
+  split. Move it, or drop the note. `docs/strategy/study-notes.md`

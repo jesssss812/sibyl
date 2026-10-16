@@ -62,7 +62,7 @@ class TestModeAliases:
         ],
     )
     def test_old_spellings_still_resolve(self, spelling: str, canonical: str) -> None:
-        # The old names are in the workflow yamls, in docs/operations.md and in the
+        # The old names are in the workflow yamls, in docs/runbooks/operations.md and in the
         # operator's shell history. Breaking a dispatch someone types from memory buys
         # nothing.
         assert _MODE_ALIASES[spelling] == canonical

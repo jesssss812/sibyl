@@ -5,7 +5,7 @@ reference for a human operating the bot: local setup, API keys, the environment
 flags, the GitHub Actions workflows, cost discipline, and the telemetry you can
 grep after a run.
 
-For a code-level map of the pipeline, read [architecture.md](architecture.md). This
+For a code-level map of the pipeline, read the [architecture overview](../architecture/overview.md). This
 doc points at code by file and symbol name, so `rg <symbol>` takes you there.
 
 ## Setup
@@ -256,7 +256,7 @@ driver model and reasoning effort come from `GAP_FILL_V2_DRIVER_MODEL` /
 `GAP_FILL_V2_DRIVER_EFFORT`; its wall deadline is `GAP_FILL_V2_WALL_DEADLINE` and
 its tool-call budget is `GAP_FILL_V2_MAX_TOOL_CALLS`. Every `GAP_FILL_V2_*`
 setting is defined in `constants.py`, which is the only place their values are
-worth reading; `docs/agentic_gap_fill.md` has the full env-var table.
+worth reading; `docs/architecture/agentic-gap-fill.md` has the full env-var table.
 
 ### Stacking
 
@@ -898,7 +898,7 @@ the telemetry markers:
   emit `steps=0 tool_calls=0 findings=0`. Companion `GHOST_PRE` /
   `GHOST_PRE_JSON` and `GHOST_FORECAST` / `GHOST_FORECAST_JSON` lines log the
   loop's pre- and post-research private forecasts for telemetry only; neither is
-  ever published. `docs/agentic_gap_fill.md` reads the fields in full.
+  ever published. `docs/architecture/agentic-gap-fill.md` reads the fields in full.
 - `CREDIT_BALANCE` / `CREDIT_SPEND` / `CREDIT_FLOOR_BREACH` — credit telemetry,
   described above. `CREDIT_FLOOR_BREACH` keeps firing during the credit-alert
   suppression window, so seeing one on a green run is expected until 2026-09-10;

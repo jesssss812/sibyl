@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 # Canonical mode names, plus every spelling that has ever reached this CLI. The old
 # names are kept as aliases rather than removed: they are in the workflow yamls, in
-# docs/operations.md and in the operator's shell history, and a rename that breaks a
+# docs/runbooks/operations.md and in the operator's shell history, and a rename that breaks a
 # dispatch someone types from memory buys nothing.
 _MODE_ALIASES: dict[str, str] = {
     "tournament": "tournament",

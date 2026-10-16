@@ -22,7 +22,7 @@ The four paired primitives move to `sibyl/eval/stats.py` as a byte-for-byte move
 `ablation/scoring.py` re-exporting them so ablation's recorded numbers cannot shift.
 `minimum_detectable_effect` and `paired_summary` are added there rather than back-ported.
 
-`eval compare A.json B.json` implements [eval-strategy.md](../eval-strategy.md):
+`eval compare A.json B.json` implements [eval-strategy.md](../strategy/eval-strategy.md):
 
 - **Rule 1, paired.** Questions matched by id and metric; per-question differences
   bootstrapped. Never two standalone summaries side by side — question difficulty is a

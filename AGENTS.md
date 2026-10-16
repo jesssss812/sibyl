@@ -116,8 +116,8 @@ Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_ques
 
 - [README.md](README.md) — what sibyl is, and the quickstart.
 - [docs/README.md](docs/README.md) — the documentation index.
-- [docs/architecture.md](docs/architecture.md) — how a forecast is produced.
-- [docs/operations.md](docs/operations.md) — running it; what the telemetry means.
-- [docs/eval-strategy.md](docs/eval-strategy.md) — the rules every comparison follows.
+- [docs/architecture/overview.md](docs/architecture/overview.md) — how a forecast is produced.
+- [docs/runbooks/operations.md](docs/runbooks/operations.md) — running it; what the telemetry means.
+- [docs/strategy/eval-strategy.md](docs/strategy/eval-strategy.md) — the rules every comparison follows.
 - [docs/decisions/](docs/decisions/) — why things are the way they are.
 - [docs/roadmap.md](docs/roadmap.md) — what is not done.

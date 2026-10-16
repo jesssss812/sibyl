@@ -1,7 +1,7 @@
 """``python -m sibyl.eval compare A.json B.json`` — the paired comparison, done properly.
 
 Reads two ``backtest_data_*.json`` files written by ``eval/backtest/analysis.py``
-:func:`save_backtest_data` and reports what changed, following ``docs/eval-strategy.md``:
+:func:`save_backtest_data` and reports what changed, following ``docs/strategy/eval-strategy.md``:
 
 * **Rule 1 — every comparison is paired.** Questions are matched by id and the
   per-question difference is bootstrapped. Never two standalone score summaries placed
