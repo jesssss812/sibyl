@@ -153,8 +153,8 @@ TEST_QUESTIONS_OVERRIDE_ENV: str = "TEST_QUESTIONS_OVERRIDE"
 # convention used for GOOGLE_API_KEY_ENV / FRED_API_KEY_ENV) so the literal
 # strings aren't duplicated across api_key_utils / key_fallback /
 # research_providers / research_orchestrator — that duplication is exactly the
-# typo risk the convention exists to prevent. See AGENTS.md "API keys & secrets"
-# for which of these are shared (primary) vs. fallback.
+# typo risk the convention exists to prevent. See docs/runbooks/operations.md, "API keys
+# and the shared-vs-fallback key model", for which are shared (primary) vs. fallback.
 OPENROUTER_API_KEY_ENV: str = "OPENROUTER_API_KEY"
 OAI_ANTH_OPENROUTER_KEY_ENV: str = "OAI_ANTH_OPENROUTER_KEY"
 # Which OpenRouter providers the PRIMARY key is preferred for, and which models are
