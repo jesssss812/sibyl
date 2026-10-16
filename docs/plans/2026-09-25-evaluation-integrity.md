@@ -12,8 +12,8 @@ checks, and enough provenance to compare historical and forward-looking experime
 Fix the fixture-mode spend escape first. Preserve production forecasting behavior
 unless a task below explicitly calls for a change.
 
-Read [AGENTS.md](../../AGENTS.md), [evaluation strategy](../eval-strategy.md),
-[architecture](../architecture.md), and the
+Read [AGENTS.md](../../AGENTS.md), [evaluation strategy](../strategy/eval-strategy.md),
+[architecture](../architecture/overview.md), and the
 [cost-tiered study plan](../decisions/2026-08-27-cost-tiered-plan.md) before implementation.
 The strategy contains intended behavior that is not all implemented. Do not describe
 completion of this plan as completion of either scientific study.
@@ -289,7 +289,7 @@ nonzero deltas. Verify the ensemble is actually aggregating multiple predictions
 ## 8. Add a prospective power plan and define score semantics
 
 Primary files: `sibyl/eval/stats.py`, evaluation CLI/manifest code,
-`sibyl/eval/backtest/scoring.py`, `docs/eval-strategy.md`.
+`sibyl/eval/backtest/scoring.py`, `docs/strategy/eval-strategy.md`.
 
 - Correct the documentation's distinction between CI half-width and MDE. Under the
   existing normal approximation, 95% half-width is `1.96 * sd / sqrt(n)`; two-sided

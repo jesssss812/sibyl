@@ -1,6 +1,6 @@
 # Calibration Primer
 
-> Reference for the scoring and recalibration concepts Sibyl depends on. Read alongside [`eval-strategy.md`](./eval-strategy.md) (how we measure) and [`design-principles.md`](./design-principles.md) (what we build).
+> Reference for the scoring and recalibration concepts Sibyl depends on. Read alongside [`eval-strategy.md`](eval-strategy.md) (how we measure) and [`design-principles.md`](design-principles.md) (what we build).
 
 ---
 

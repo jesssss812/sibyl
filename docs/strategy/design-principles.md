@@ -2,7 +2,7 @@
 
 > **For coding agents:** These are the architecture decisions for Sibyl, each tied to published evidence and graded by strength. Prefer a **Strong** finding over your own intuition. If you propose something contradicting a Strong finding, say so explicitly and give your reasoning — don't just do it.
 >
-> Companion doc: [`eval-strategy.md`](./eval-strategy.md) governs how anything here gets measured. This doc is *what to build*; that doc is *how to know if it worked*.
+> Companion doc: [`eval-strategy.md`](eval-strategy.md) governs how anything here gets measured. This doc is *what to build*; that doc is *how to know if it worked*.
 
 Source: [AI Forecasting in 2026: What 11 Analyses Say](https://www.greaterwrong.com/posts/a82q6yd8zKpYk56cF/ai-forecasting-in-2026-what-11-analyses-say) (Metaculus, Jul 2026) — a synthesis of 11 Metaculus analyses plus ~80 external papers, spanning 4 quarterly Pro-vs-bot tournaments and the Fall 2025 bot-maker survey (n=39).
 

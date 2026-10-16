@@ -39,8 +39,8 @@ These are the only rules that can cost real money if broken.
 9. **Leave what looks wrong.** If a module seems wrong but fixing it is not the task, add
    a line to `docs/roadmap.md` instead. A restructure whose diff also contains behaviour
    changes cannot be checked against a parity record.
-10. **Never commit on `main`.** Work on a feature branch; `clean-fork` is the integration
-    branch.
+10. **Never commit on `main`.** Work on a feature branch and open a pull request into
+    `main`.
 11. **Show publishing runs live.** For an authorized test or forecast that publishes,
     open a visible terminal or live log view before starting, use unbuffered output,
     and stream progress while retaining a local log. Do not hide the run until it ends.
@@ -60,9 +60,23 @@ It requires `OPENROUTER_API_KEY`, makes live free-model calls, and must never
 publish. If the key, network, or a free provider is unavailable, do not substitute
 `make e2e_free` or claim the check passed; report the blocker. A feature branch may
 still be pushed so the work is not lost, with the skipped check stated in the
-report, but it must not be merged into `main` or `clean-fork` until the check has
+report, but it must not be merged into `main` until the check has
 passed on its final commit. This standing authorization applies only to this
 nonpublishing check.
+
+## Keeping docs true
+
+A change that makes a doc in `docs/architecture/` or `docs/runbooks/` wrong fixes that
+doc in the same change. Those two folders describe the code as it is; the other folders
+under `docs/` are dated intent and records, and are not rewritten to match it. The
+exception is `docs/strategy/eval-strategy.md`, the measurement spec: a change to how
+something is measured updates it in the same change. Each fact has one home: link to it
+rather than copying it. A new doc gets a row in `docs/README.md`, and `make test` fails
+on a missing row or a broken link.
+
+Rules for one area of the code live in `.claude/rules/`. Claude Code loads each one when
+it works on the paths in the rule's front matter; any other agent reads the rule for an
+area before changing it. This file holds only what is true everywhere.
 
 ## Layout
 
@@ -76,7 +90,7 @@ nonpublishing check.
 | `sibyl/aggregation/` | Combining several forecasters into one published forecast. |
 | `sibyl/publishing/` | Rendering and posting the comment that accompanies a forecast. |
 | `sibyl/telemetry/` | Counters, markers, and the archive that harvests them from run logs. |
-| `sibyl/eval/` | Offline measurement: backtest, ablation, ensemble, performance. |
+| `sibyl/eval/` | Offline measurement: backtest, ablation, ensemble, performance, paired comparison, power checks, MiniBench scoring. |
 | `sibyl/ops/` | Operator scripts. Not imported by the bot. |
 
 Tests are laned: `tests/unit/`, `tests/integration/`, `tests/e2e/`, `tests/live/`, with
@@ -86,7 +100,7 @@ shared fakes in `tests/helpers/` and fixtures in `tests/data/`.
 
 ```bash
 python -m sibyl <tournament|minibench|cup|test> [--tier free|prod] [--max-questions N]
-python -m sibyl.eval <backtest|ablation|ensemble|performance|fit-platt|compare> [args]
+python -m sibyl.eval <backtest|ablation|ensemble|performance|fit-platt|preflight|compare|minibench-live> [args]
 ```
 
 Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_questions`,
@@ -116,8 +130,9 @@ Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_ques
 
 - [README.md](README.md) — what sibyl is, and the quickstart.
 - [docs/README.md](docs/README.md) — the documentation index.
-- [docs/architecture.md](docs/architecture.md) — how a forecast is produced.
-- [docs/operations.md](docs/operations.md) — running it; what the telemetry means.
-- [docs/eval-strategy.md](docs/eval-strategy.md) — the rules every comparison follows.
+- [docs/architecture/overview.md](docs/architecture/overview.md) — how a forecast is produced.
+- [docs/runbooks/operations.md](docs/runbooks/operations.md) — running it; what the telemetry means.
+- [docs/strategy/eval-strategy.md](docs/strategy/eval-strategy.md) — the rules every comparison follows.
 - [docs/decisions/](docs/decisions/) — why things are the way they are.
+- [.claude/rules/](.claude/rules/) — rules for one area of the code: telemetry, tests, workflows, grant funding, docs.
 - [docs/roadmap.md](docs/roadmap.md) — what is not done.

@@ -7,8 +7,10 @@ flags, must not leave sys.argv rewritten, and must not become the only way in.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -74,3 +76,13 @@ class TestOldEntryPointsStillWork:
         result = subprocess.run([sys.executable, "-m", module, "--help"], capture_output=True, text=True, timeout=180)
         assert result.returncode == 0, result.stderr
         assert "usage:" in result.stdout
+
+
+class TestAgentsMdListsEveryCommand:
+    """AGENTS.md is the first thing an agent reads; a command missing there goes unused."""
+
+    def test_entry_point_line_names_exactly_the_dispatched_commands(self) -> None:
+        agents_md = (Path(__file__).parents[3] / "AGENTS.md").read_text()
+        match = re.search(r"python -m sibyl\.eval <([^>]+)>", agents_md)
+        assert match, "AGENTS.md no longer shows the `python -m sibyl.eval <command>` line"
+        assert set(match.group(1).split("|")) == set(COMMANDS)

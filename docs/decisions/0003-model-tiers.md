@@ -49,7 +49,7 @@ said nothing about the code — and a signal that is always red stops being read
 costs more than the signal was worth.
 
 **The caveat, stated plainly, because this is a real trade and it cuts against
-[eval-strategy.md](../eval-strategy.md) Rule 6 ("degraded runs fail loud"):** a free-tier
+[eval-strategy.md](../strategy/eval-strategy.md) Rule 6 ("degraded runs fail loud"):** a free-tier
 run now exits 0 with forecasters missing. If a free model breaks systematically — a
 withdrawal like the qwen 404, a refusal class, a routing change — the exit status will not
 tell you. It will look like a clean run.

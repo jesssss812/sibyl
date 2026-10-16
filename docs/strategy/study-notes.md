@@ -63,4 +63,4 @@ Note.
 
 - Reading order and the 8 comprehension questions: `bottega:docs/planning/nostreambot-reading-guide.md`
 - What's already built vs. mine: same file, "What's already built vs. what's actually yours"
-- Why any of this exists: [`vision.md`](./vision.md)
+- Why any of this exists: [`vision.md`](vision.md)

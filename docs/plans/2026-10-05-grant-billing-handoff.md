@@ -71,7 +71,7 @@ correctly.
 
 1. **Preflight against `limit_remaining`**, not the local ledger. It is
    authoritative and includes spend from other machines — which
-   `docs/experiment-funding.md` currently calls out as invisible.
+   `docs/runbooks/experiment-funding.md` currently calls out as invisible.
 2. **True up the ledger** against `byok_usage` (clears the phantom $24 to
    $0.796028). Needs an operator decision on the 8 stale rows: write off against
    OpenRouter's figure, or leave held.
@@ -100,7 +100,7 @@ A review of this branch before merge changed three points above:
   `reconcile` confirms it later. Failed calls and over-reserve charges still block.
 - **Remaining work item 1 is done:** a run preflights against the key's
   `limit_remaining` and refuses when it cannot cover the budget plus the reserve.
-- **Failed calls are handled by kind** (table in `docs/experiment-funding.md`):
+- **Failed calls are handled by kind** (table in `docs/runbooks/experiment-funding.md`):
   rejected requests are released, a rejected key or a charge above the reservation
   halts the run, and an answered call with no cost keeps its answer.
 - **Remaining work item 2 is done:** `write-off` replaces the 8 stale rows with

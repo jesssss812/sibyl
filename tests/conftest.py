@@ -513,10 +513,10 @@ def _pin_model_tier(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """``--record-golden`` rewrites ``tests/golden/*.json`` instead of asserting.
+    """``--record-golden`` rewrites ``tests/e2e/golden/*.json`` instead of asserting.
 
     The golden files pin what the unmodified pipeline does so the sibyl clean fork
-    can prove it still does it (see ``tests/test_golden.py``). Recording is an
+    can prove it still does it (see ``tests/e2e/test_golden.py``). Recording is an
     explicit, separate action rather than an auto-heal on mismatch: a harness that
     silently rewrites its own expectations records the regression instead of
     catching it.
@@ -525,5 +525,5 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--record-golden",
         action="store_true",
         default=False,
-        help="Rewrite tests/golden/*.json from the current behaviour instead of comparing.",
+        help="Rewrite tests/e2e/golden/*.json from the current behaviour instead of comparing.",
     )

@@ -103,7 +103,7 @@ def asyncio_run_stub(side_effect):
 @pytest.fixture(autouse=True)
 def _reset_fallback_counters() -> None:
     """The fallback counters are process-global (module state in
-    fallback_openrouter). Reset all three between tests so cross-test pollution
+    key_fallback). Reset all three between tests so cross-test pollution
     can't silently turn an "alertable=0" path into "alertable=1" because a
     prior test bumped a counter.
 

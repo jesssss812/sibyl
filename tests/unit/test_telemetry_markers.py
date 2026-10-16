@@ -870,7 +870,7 @@ class TestProviderDegradation:
         assert "qid" not in rec
 
 
-# The per-CALL primary->fallback key fallback WARN (fallback_openrouter.py
+# The per-CALL primary->fallback key fallback WARN (key_fallback.py
 # _log_fallback). Its counters already ride degradation_counters and the cli
 # summary, but only this line names WHICH model fell back — the difference between
 # one flaky Gemini call and every forecaster running on the operator's paid key.

@@ -9,7 +9,7 @@ from sibyl.platform.key_fallback import should_route_via_primary_key
 def get_openrouter_api_key(model: str) -> str | None:
     """Return the primary key for providers it covers (openai/anthropic/google), else the general key.
 
-    See ``OPENROUTER_PRIMARY_KEY_PROVIDERS`` in ``fallback_openrouter`` for the primary-key provider set.
+    See ``OPENROUTER_PRIMARY_KEY_PROVIDERS`` in ``key_fallback`` for the primary-key provider set.
     """
     from sibyl.platform.experiment_funding import active_grant
 

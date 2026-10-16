@@ -52,7 +52,7 @@ def gemini_use_primary_openrouter_key() -> bool:
 
     KNOWN EXCEPTION: ``gemini-3.1-pro-preview`` (our forecaster slot) is PINNED to
     the fallback key — not merely "falls back". It's on the
-    ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`` blocklist in ``fallback_openrouter``, so
+    ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`` blocklist in ``key_fallback``, so
     ``should_route_via_primary_key`` returns False for it even when this toggle is
     True: no primary attempt, no 429, no fallback-key-fallback-counter bump (which
     would otherwise redden CI on every question). That model 429s on the primary
@@ -63,7 +63,7 @@ def gemini_use_primary_openrouter_key() -> bool:
     Read at call time (not import) so workflow env changes take effect without
     re-importing.
 
-    Scope: this toggle only affects OpenRouter routing (``fallback_openrouter``).
+    Scope: this toggle only affects OpenRouter routing (``key_fallback``).
     The google-genai grounded-search provider has no primary path — it always
     reads the operator's fallback GOOGLE_API_KEY.
     """
@@ -151,10 +151,10 @@ TEST_QUESTIONS_OVERRIDE_ENV: str = "TEST_QUESTIONS_OVERRIDE"
 
 # Credential env-var names. Named constants (matching the existing *_ENV
 # convention used for GOOGLE_API_KEY_ENV / FRED_API_KEY_ENV) so the literal
-# strings aren't duplicated across api_key_utils / fallback_openrouter /
+# strings aren't duplicated across api_key_utils / key_fallback /
 # research_providers / research_orchestrator — that duplication is exactly the
-# typo risk the convention exists to prevent. See AGENTS.md "API keys & secrets"
-# for which of these are shared (primary) vs. fallback.
+# typo risk the convention exists to prevent. See docs/runbooks/operations.md, "API keys
+# and the shared-vs-fallback key model", for which are shared (primary) vs. fallback.
 OPENROUTER_API_KEY_ENV: str = "OPENROUTER_API_KEY"
 OAI_ANTH_OPENROUTER_KEY_ENV: str = "OAI_ANTH_OPENROUTER_KEY"
 # Which OpenRouter providers the PRIMARY key is preferred for, and which models are

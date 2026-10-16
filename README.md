@@ -73,8 +73,8 @@ status. Production runs still go red on a dropped forecaster.
 
 - [docs/README.md](docs/README.md) — the documentation index.
 - [AGENTS.md](AGENTS.md) — the always-true rules, for humans and coding agents alike.
-- [docs/architecture.md](docs/architecture.md) — how a forecast is actually produced.
-- [docs/operations.md](docs/operations.md) — running it, and what the telemetry means.
+- [docs/architecture/overview.md](docs/architecture/overview.md) — how a forecast is actually produced.
+- [docs/runbooks/operations.md](docs/runbooks/operations.md) — running it, and what the telemetry means.
 - [docs/decisions/](docs/decisions/) — why things are the way they are.
 - [docs/roadmap.md](docs/roadmap.md) — what is not done.
 

@@ -27,7 +27,7 @@ Three files form the startup chain:
   v2 errors, and prediction-market degradation) or the primary OpenRouter key
   dropped below the refill floor. Credit-caused alerts are suppressed until
   2026-09-10 while the operator self-funds the season — see "Credit alerting is
-  suppressed" in `docs/operations.md`. See `main` in `cli.py`.
+  suppressed" in `docs/runbooks/operations.md`. See `main` in `cli.py`.
 - `sibyl/forecasting/bot.py` — the bot itself. `SibylBot` subclasses the
   framework's `ForecastBot` and owns the per-question pipeline. The method to read
   first is `_research_and_make_predictions`.
@@ -124,7 +124,7 @@ in wall-clock, not the sum:
   `## Agentic Research Findings` section, led by a corrections block.
 
 Both are wrapped so a failure in one never zeroes the other or kills the forecast.
-Both are on in prod. See [agentic_gap_fill.md](agentic_gap_fill.md) for the v2 loop,
+Both are on in prod. See [agentic-gap-fill.md](agentic-gap-fill.md) for the v2 loop,
 tools, and telemetry.
 
 The orchestrator also builds a provider-diagnostics block that is deliberately
@@ -152,7 +152,7 @@ Each forecaster emits its answer inside a fenced ```json STRUCTURED FORECAST blo
 which is parsed by a deterministic extraction ladder (`value_extraction.py`). Numeric
 questions produce the canonical percentile set (`STANDARD_PERCENTILES` in
 `numeric/config.py`), turned into a PCHIP CDF on the `PCHIP_CDF_POINTS` grid. See
-[numeric_pipeline.md](numeric_pipeline.md) for the percentile-to-CDF machinery and its
+[numeric-pipeline.md](numeric-pipeline.md) for the percentile-to-CDF machinery and its
 bound/step constraints.
 
 ### 4. Min-forecasters guard
@@ -255,9 +255,9 @@ record the performance-analysis tooling later parses.
 ## Related docs
 
 - [research.md](research.md) — research providers, gating, API-key routing.
-- [numeric_pipeline.md](numeric_pipeline.md) — percentiles to PCHIP CDF, bounds, steps.
-- [agentic_gap_fill.md](agentic_gap_fill.md) — the v2 agentic research loop.
-- [operations.md](operations.md) — running the bot, workflows, cost discipline, credits.
+- [numeric-pipeline.md](numeric-pipeline.md) — percentiles to PCHIP CDF, bounds, steps.
+- [agentic-gap-fill.md](agentic-gap-fill.md) — the v2 agentic research loop.
+- [operations.md](../runbooks/operations.md) — running the bot, workflows, cost discipline, credits.
 
 ## A note on cost
 
@@ -265,7 +265,7 @@ Any command that hits live LLM or research APIs spends real money and, in live m
 publishes comments to Metaculus. Do not launch one without the operator's approval.
 The free, self-contained paths (`make test`, `make lint`, `make format`,
 `make check_credits`) are safe to run anytime. Details in
-[operations.md](operations.md) and the repo's `AGENTS.md`.
+[operations.md](../runbooks/operations.md) and the repo's `AGENTS.md`.
 
 
 ---

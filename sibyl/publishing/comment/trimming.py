@@ -102,7 +102,7 @@ _RATIONALE_HEADER_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^##\s+R\d+:\s+Fo
 
 # The bot-injected "Model: openrouter/<provider>/<name>" attribution line that
 # opens each rationale body. Kept byte-stable because
-# performance_analysis/parsing.py (_R1_MODEL_RE, _REASONING_MODEL_PREFIX_RE)
+# sibyl/eval/performance/parsing.py (_R1_MODEL_RE, _REASONING_MODEL_PREFIX_RE)
 # keys per-model attribution on it — the exact line a naive header+tail trim
 # destroyed (measured: Forecaster 1's Model: line eaten in 29/29 July trims).
 _MODEL_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^Model:[ \t]*[^\n]*$")
