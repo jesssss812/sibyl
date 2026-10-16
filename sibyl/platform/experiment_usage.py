@@ -20,7 +20,7 @@ import httpx
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
 
-from sibyl.platform.experiment_funding import CONFIRMING_EVIDENCE, provider_billable_cost
+from sibyl.platform.experiment_funding import CONFIRMING_EVIDENCE, FundingSource, provider_billable_cost
 
 _GENERATION_URL = "https://openrouter.ai/api/v1/generation"
 logger = logging.getLogger(__name__)
@@ -232,6 +232,7 @@ async def reconcile_pending(
     base_delay: float = 2.0,
     concurrency: int = 8,
     sleep: Any = None,
+    source: FundingSource = FundingSource.EXPERIMENT_GRANT,
 ) -> dict[str, int]:
     """Turn settled estimates into confirmed charges from the provider's own records.
 
@@ -246,7 +247,7 @@ async def reconcile_pending(
     rather than assuming the ledger is complete.
     """
     pause = sleep or asyncio.sleep
-    outstanding = ledger.unreconciled(run_id)
+    outstanding = ledger.unreconciled(run_id, source=source)
     result = {"pending": len(outstanding), "reconciled": 0, "still_unknown": 0, "no_generation_id": 0}
     gate = asyncio.Semaphore(concurrency)
 

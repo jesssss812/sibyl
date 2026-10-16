@@ -178,6 +178,22 @@ async def test_with_the_grant_the_primary_wrapper_never_reaches_the_personal_key
 
 
 @pytest.mark.asyncio
+async def test_a_personal_key_fallback_is_recorded_without_a_grant(
+    tmp_path: Path, provider: _FakeProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(GeneralLlm, "_mockable_direct_call_to_model", funding._funded_direct_call)
+    monkeypatch.setenv("OAI_ANTH_OPENROUTER_KEY", "metaculus-key")
+    configured = _funding(tmp_path, grant=False)
+    provider.failures["metaculus-key"] = _credit_error()
+    llm = FallbackOpenRouterLlm(
+        model=MODEL, primary_api_key="metaculus-key", secondary_api_key="personal-key", allowed_tries=1
+    )
+    assert await llm.invoke("prompt") == "answer"
+    assert provider.keys == ["metaculus-key", "personal-key"]
+    assert _sources(configured) == [("metaculus-key", "rejected"), ("personal-key", "succeeded")]
+
+
+@pytest.mark.asyncio
 async def test_a_service_outside_openrouter_is_recorded_but_never_paid_by_the_grant(
     tmp_path: Path, provider: _FakeProvider
 ) -> None:

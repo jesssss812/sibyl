@@ -1,7 +1,6 @@
 ---
 paths:
   - "sibyl/platform/experiment_*.py"
-  - "sibyl/platform/personal_fallback_spend.py"
   - "sibyl/platform/key_fallback.py"
   - "sibyl/platform/keys.py"
   - "sibyl/platform/llm_retry.py"
@@ -11,7 +10,6 @@ paths:
   - "sibyl/research/providers.py"
   - "sibyl/ops/experiment_grant.py"
   - "tests/unit/test_experiment_*.py"
-  - "tests/unit/test_personal_fallback_spend.py"
   - "tests/integration/test_grant_*.py"
 ---
 
