@@ -135,15 +135,15 @@ class TestGenerationRecord:
 
 class TestResolution:
     @pytest.mark.asyncio
-    async def test_positive_response_cost_confirms_despite_a_404(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_complete_response_usage_confirms_despite_a_404(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """THE regression. This shape previously raised and discarded the forecast.
 
-        The call succeeded, OpenRouter reported the account charge in the response, and
-        the billing record simply was not queryable yet. That is now a confirmed charge.
+        The call succeeded, the response carried the whole charge (the fee, and that the
+        route was not BYOK), and the billing record simply was not queryable yet.
         """
         _stub_http(monkeypatch, _Response({}, status=404))
         capture = _capture("gen-1", Decimal("0.42"), is_byok=False)
-        resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+        resolution = await experiment_usage.resolve_grant_cost(capture, 0)
         assert resolution.billable == Decimal("0.42")
         assert resolution.evidence == "provider_response"
         assert resolution.confirmed is True
@@ -157,7 +157,7 @@ class TestResolution:
 
         monkeypatch.setattr(experiment_usage, "generation_record", no_lookup)
         capture = _capture("gen-1", Decimal("0.0095"), is_byok=True, upstream=Decimal("0.19"))
-        resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+        resolution = await experiment_usage.resolve_grant_cost(capture, 0)
         assert resolution.billable == Decimal("0.1995")
         assert (resolution.openrouter_charge, resolution.upstream_cost) == (Decimal("0.0095"), Decimal("0.19"))
         assert resolution.confirmed is True
@@ -173,7 +173,7 @@ class TestResolution:
             _capture("gen-1", Decimal("0.0095"), is_byok=True),
             _capture("gen-1", Decimal("0.0095")),
         ):
-            resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+            resolution = await experiment_usage.resolve_grant_cost(capture, 0)
             assert resolution.billable == Decimal("0.0095")
             assert resolution.evidence == "provider_response_partial"
             assert resolution.confirmed is False
@@ -187,28 +187,27 @@ class TestResolution:
         reservation and report the run as free -- the under-accounting failure.
         """
         _stub_http(monkeypatch, _Response({}, status=404))
-        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0, "k")
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0)
         assert resolution.billable == Decimal("0")
         assert resolution.confirmed is False
         assert resolution.evidence == "provider_response_partial"
 
     @pytest.mark.asyncio
-    async def test_the_generation_record_outranks_the_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # It is the only source carrying the BYOK split, so it wins when available.
-        _stub_http(
-            monkeypatch,
-            _Response({"data": {"total_cost": 0, "upstream_inference_cost": 0.19, "is_byok": True}}),
-        )
-        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0, "k")
-        assert resolution.billable == Decimal("0.19")
-        assert resolution.evidence == "provider_generation"
-        assert resolution.confirmed is True
-        assert resolution.is_byok is True
+    async def test_the_billing_record_is_never_read_during_the_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reconciliation reads it after the run; the forecast does not wait on it."""
+
+        def _no_http(*args, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("no billing lookup may happen while the call is in flight")
+
+        monkeypatch.setattr(experiment_usage.httpx, "AsyncClient", _no_http)
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1", Decimal("0")), 0)
+        assert resolution.evidence == "provider_response_partial"
+        assert resolution.provider_request_id == "gen-1"
 
     @pytest.mark.asyncio
     async def test_framework_estimate_is_recorded_but_never_confirms(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_http(monkeypatch, _Response({}, status=404))
-        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1"), 0.5, "k")
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1"), 0.5)
         assert resolution.billable == Decimal("0.5")
         assert resolution.evidence == "framework_estimate"
         assert resolution.confirmed is False
@@ -216,7 +215,7 @@ class TestResolution:
     @pytest.mark.asyncio
     async def test_no_evidence_at_all_is_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_http(monkeypatch, _Response({}, status=404))
-        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1"), 0, "k")
+        resolution = await experiment_usage.resolve_grant_cost(_capture("gen-1"), 0)
         assert resolution.billable is None
         assert resolution.evidence == "unknown"
         assert resolution.confirmed is False
@@ -229,13 +228,13 @@ class TestResolution:
             async def delayed() -> None:
                 await asyncio.sleep(0.15)
                 await experiment_usage._GrantUsageObserver().async_log_success_event(
-                    {}, SimpleNamespace(id="gen-delayed", usage=SimpleNamespace(cost=0.18)), None, None
+                    {}, SimpleNamespace(id="gen-delayed", usage=SimpleNamespace(cost=0.18, is_byok=False)), None, None
                 )
 
             task = asyncio.create_task(delayed())
-            resolution = await experiment_usage.resolve_grant_cost(capture, 0, "k")
+            resolution = await experiment_usage.resolve_grant_cost(capture, 0)
             await task
-        assert (resolution.billable, resolution.evidence) == (Decimal("0.18"), "provider_generation")
+        assert (resolution.billable, resolution.evidence) == (Decimal("0.18"), "provider_response")
 
 
 class TestReconciliation:

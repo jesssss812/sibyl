@@ -36,12 +36,16 @@ async def test_real_litellm_response_confirms_grant_cost(tmp_path, monkeypatch, 
                             "finish_reason": "stop",
                         }
                     ],
-                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                        "cost": 0.12,
+                        "is_byok": False,
+                    },
                 },
             )
-        assert request.url.path == "/api/v1/generation"
-        assert request.url.params["id"] == "gen-offline"
-        return httpx.Response(200, request=request, json={"data": {"total_cost": 0.12}})
+        raise AssertionError(f"unexpected request to {request.url.path}")
 
     monkeypatch.setattr(httpx.AsyncClient, "send", send)
     ledger = SpendLedger(tmp_path / "spend.sqlite3")
@@ -51,7 +55,7 @@ async def test_real_litellm_response_confirms_grant_cost(tmp_path, monkeypatch, 
     )
     assert await llm.invoke("offline prompt") == "offline answer"
     assert ledger.summary("offline")["confirmed_usd"] == "0.12"
-    assert len(calls) == 2
+    assert len(calls) == 1, "the billing record is read by reconciliation, not during the call"
     assert "GRANT_CALL_START" in caplog.text
     assert "GRANT_CALL_SETTLED" in caplog.text
     assert "dummy-grant" not in caplog.text

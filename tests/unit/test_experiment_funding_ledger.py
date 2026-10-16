@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sibyl.platform.experiment_funding import BudgetExceeded, SpendLedger
+from sibyl.platform.experiment_funding import RUN_WITHOUT_GRANT, BudgetExceeded, FundingSource, SpendLedger
 
 
 def test_reservations_are_atomic_across_ledger_instances(tmp_path: Path) -> None:
@@ -17,7 +17,16 @@ def test_reservations_are_atomic_across_ledger_instances(tmp_path: Path) -> None
     first.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.60"))
     with pytest.raises(BudgetExceeded):
         second.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.50"))
-    first.settle("a", Decimal("0.40"), 10, 5, certainty="confirmed", evidence_source="provider_response")
+    first.settle(
+        "a",
+        Decimal("0.40"),
+        10,
+        5,
+        certainty="confirmed",
+        evidence_source="provider_response",
+        openrouter_charge_usd=Decimal("0.40"),
+        is_byok=False,
+    )
     second.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.50"))
     assert second.summary("run-a")["charged_usd"] == "0.40"
     assert second.summary("run-a")["reserved_usd"] == "0.50"
@@ -30,8 +39,26 @@ def test_uncertain_attempt_retains_liability_and_settlement_is_idempotent(tmp_pa
     ledger.mark_uncertain("a")
     with pytest.raises(BudgetExceeded):
         ledger.reserve("b", "run-a", "openrouter/test", "parser", Decimal("0.3"))
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_response")
-    ledger.settle("a", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_response")
+    ledger.settle(
+        "a",
+        Decimal("0.4"),
+        10,
+        5,
+        certainty="confirmed",
+        evidence_source="provider_response",
+        openrouter_charge_usd=Decimal("0.4"),
+        is_byok=False,
+    )
+    ledger.settle(
+        "a",
+        Decimal("0.4"),
+        10,
+        5,
+        certainty="confirmed",
+        evidence_source="provider_response",
+        openrouter_charge_usd=Decimal("0.4"),
+        is_byok=False,
+    )
     assert ledger.summary("run-a")["charged_usd"] == "0.4"
     assert ledger.summary("run-a")["uncertain_usd"] == "0"
 
@@ -44,7 +71,7 @@ def test_estimate_keeps_reservation_until_provider_reconciliation(tmp_path: Path
     assert ledger.summary("run-a")["estimated_usd"] == "0.4"
     with pytest.raises(BudgetExceeded):
         ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.3"))
-    ledger.reconcile("a", Decimal("0.4"))
+    ledger.reconcile("a", Decimal("0.4"), openrouter_charge_usd=Decimal("0.4"), is_byok=False)
     ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.3"))
     assert ledger.summary("run-a")["confirmed_usd"] == "0.4"
 
@@ -57,7 +84,16 @@ def test_failed_attempts_are_scoped_to_question(tmp_path: Path) -> None:
     ledger.reserve("c", "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="102")
     ledger.mark_uncertain("a")
     ledger.mark_rejected("b", evidence_source="provider_rejected status=429")
-    ledger.settle("c", Decimal("0.4"), 10, 5, certainty="confirmed", evidence_source="provider_response")
+    ledger.settle(
+        "c",
+        Decimal("0.4"),
+        10,
+        5,
+        certainty="confirmed",
+        evidence_source="provider_response",
+        openrouter_charge_usd=Decimal("0.4"),
+        is_byok=False,
+    )
     assert ledger.failed_attempts("run-a", "101") == 2
     assert ledger.failed_attempts("run-a", "102") == 0
 
@@ -70,7 +106,16 @@ def test_estimated_unknown_and_over_reserve_answers_are_not_failures(tmp_path: P
         ledger.reserve(attempt, "run-a", "openrouter/test", "research", Decimal("0.8"), question_id="101")
     ledger.settle("est", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
     ledger.mark_cost_unknown("unknown", 10, 5, provider_request_id=None, evidence_source="unknown")
-    ledger.settle("over", Decimal("1.5"), 10, 5, certainty="confirmed", evidence_source="provider_response")
+    ledger.settle(
+        "over",
+        Decimal("1.5"),
+        10,
+        5,
+        certainty="confirmed",
+        evidence_source="provider_response",
+        openrouter_charge_usd=Decimal("1.5"),
+        is_byok=False,
+    )
     assert ledger.failed_attempts("run-a", "101") == 0
     summary = ledger.summary("run-a")
     assert summary["uncertain_usd"] == "0.8", "the unknown cost holds its reservation"
@@ -233,12 +278,21 @@ class TestByokCostComponents:
         ledger = self._ledger(tmp_path)
         ledger.settle("a1", Decimal("0.4"), 1, 1, certainty="estimated", evidence_source="framework_estimate")
         with pytest.raises(ValueError, match="already settled"):
-            ledger.settle("a1", Decimal("0.4"), 1, 1, certainty="confirmed", evidence_source="provider_reconciliation")
+            ledger.settle(
+                "a1",
+                Decimal("0.4"),
+                1,
+                1,
+                certainty="confirmed",
+                evidence_source="provider_reconciliation",
+                openrouter_charge_usd=Decimal("0.4"),
+                is_byok=False,
+            )
 
     def test_reconciling_an_unknown_attempt_is_an_error(self, tmp_path: Path) -> None:
         ledger = self._ledger(tmp_path)
         with pytest.raises(ValueError, match="Unknown attempt"):
-            ledger.reconcile("nope", Decimal("1"))
+            ledger.reconcile("nope", Decimal("1"), openrouter_charge_usd=Decimal("1"), is_byok=False)
 
 
 class TestWriteOff:
@@ -273,7 +327,16 @@ class TestWriteOff:
         ledger.reserve("g", "old", "openrouter/test", "forecaster", Decimal("1"))
         ledger.settle("g", Decimal("0.1"), 1, 1, "gen-g", certainty="estimated", evidence_source="framework_estimate")
         ledger.reserve("c", "old", "openrouter/test", "forecaster", Decimal("1"))
-        ledger.settle("c", Decimal("0.1"), 1, 1, certainty="confirmed", evidence_source="provider_response")
+        ledger.settle(
+            "c",
+            Decimal("0.1"),
+            1,
+            1,
+            certainty="confirmed",
+            evidence_source="provider_response",
+            openrouter_charge_usd=Decimal("0.1"),
+            is_byok=False,
+        )
         assert ledger.write_off("trueup-1", Decimal("0.5"), "note", expected_count=8) == 8
         assert ledger.unreconciled("old") == [("g", "gen-g")]
 
@@ -282,3 +345,126 @@ class TestWriteOff:
         ledger.write_off("trueup-1", Decimal("0.796028"), "note", expected_count=8)
         with pytest.raises(ValueError, match="expected 8"):
             ledger.write_off("trueup-2", Decimal("0.796028"), "note", expected_count=8)
+
+
+class TestCompleteBillingEvidence:
+    def test_a_fee_with_the_route_unknown_cannot_confirm(self, tmp_path: Path) -> None:
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run-a", Decimal("1"))
+        ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+        with pytest.raises(ValueError, match="complete, matching"):
+            ledger.settle(
+                "a",
+                Decimal("0.4"),
+                10,
+                5,
+                certainty="confirmed",
+                evidence_source="provider_response",
+                openrouter_charge_usd=Decimal("0.4"),
+            )
+
+    def test_a_byok_total_includes_the_openrouter_fee(self, tmp_path: Path) -> None:
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run-a", Decimal("1"))
+        ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+        with pytest.raises(ValueError, match="complete, matching"):
+            ledger.reconcile(
+                "a",
+                Decimal("0.3"),
+                openrouter_charge_usd=Decimal("0.01"),
+                upstream_cost_usd=Decimal("0.3"),
+                is_byok=True,
+            )
+        ledger.reconcile(
+            "a", Decimal("0.31"), openrouter_charge_usd=Decimal("0.01"), upstream_cost_usd=Decimal("0.3"), is_byok=True
+        )
+        assert ledger.summary("run-a")["confirmed_usd"] == "0.31"
+
+    def test_opening_a_ledger_reopens_rows_confirmed_on_incomplete_evidence(self, tmp_path: Path) -> None:
+        path = tmp_path / "spend.sqlite3"
+        ledger = SpendLedger(path)
+        ledger.start_run("run-a", Decimal("1"))
+        ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+        ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.1"))
+        ledger.settle("a", Decimal("0.4"), 10, 5, certainty="estimated", evidence_source="framework_estimate")
+        ledger.reconcile("b", Decimal("0.05"), openrouter_charge_usd=Decimal("0.05"), is_byok=False)
+        with ledger._connect() as db:  # an older version confirmed a bare response fee
+            db.execute(
+                "UPDATE attempts SET certainty = 'confirmed', evidence_source = 'provider_response', "
+                "openrouter_charge_usd = '0.4' WHERE attempt_id = 'a'"
+            )
+        SpendLedger(path)
+        with ledger._connect() as db:
+            rows = dict(db.execute("SELECT attempt_id, certainty FROM attempts").fetchall())
+        assert rows == {"a": "estimated", "b": "confirmed"}
+        assert ledger.summary("run-a")["remaining_local_usd"] == str(Decimal("95") - Decimal("0.8") - Decimal("0.05"))
+
+
+class TestEverySourceIsRecorded:
+    def test_other_sources_are_recorded_without_a_limit(self, tmp_path: Path) -> None:
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run-a")  # no grant for this run
+        with pytest.raises(BudgetExceeded):
+            ledger.reserve("g", "run-a", "openrouter/test", "forecast", Decimal("0.5"))
+        for index in range(3):
+            ledger.reserve(
+                f"p{index}", "run-a", "openrouter/test", "forecast", Decimal(0), source=FundingSource.PERSONAL_KEY
+            )
+            ledger.settle(
+                f"p{index}", Decimal("40"), 10, 5, certainty="estimated", evidence_source="framework_estimate"
+            )
+        ledger.reserve("d", "run-a", "exa/search", "gap_fill_v2", Decimal(0), source=FundingSource.DIRECT_SERVICE)
+        personal = ledger.summary("run-a", source=FundingSource.PERSONAL_KEY)
+        assert (personal["attempts"], personal["estimated_usd"]) == (3, "120")
+        assert "remaining_local_usd" not in personal
+        assert ledger.sources("run-a") == [FundingSource.PERSONAL_KEY, FundingSource.DIRECT_SERVICE]
+        assert ledger.summary("run-a")["attempts"] == 0, "the grant summary counts grant attempts only"
+
+    def test_breakdown_groups_by_source(self, tmp_path: Path) -> None:
+        ledger = SpendLedger(tmp_path / "spend.sqlite3")
+        ledger.start_run("run-a", Decimal("2"))
+        ledger.reserve("g", "run-a", "openrouter/test", "forecast", Decimal("1"))
+        ledger.reserve("m", "run-a", "openrouter/test", "forecast", Decimal(0), source=FundingSource.METACULUS_KEY)
+        rows = {(row["source"], row["model"]) for row in ledger.breakdown("run-a")}
+        assert rows == {("experiment-grant", "openrouter/test"), ("metaculus-key", "openrouter/test")}
+
+
+def test_a_run_without_a_grant_is_not_recorded_as_a_grant_run(tmp_path: Path) -> None:
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("ordinary")
+    ledger.start_run("granted", Decimal("5"))
+    with ledger._connect() as db:
+        assert dict(db.execute("SELECT run_id, source FROM runs").fetchall()) == {
+            "ordinary": RUN_WITHOUT_GRANT,
+            "granted": "experiment-grant",
+        }
+
+
+def test_a_rejected_attempt_stays_released_when_the_ledger_reopens(tmp_path: Path) -> None:
+    path = tmp_path / "spend.sqlite3"
+    ledger = SpendLedger(path)
+    ledger.start_run("run-a", Decimal("1"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+    with pytest.raises(BudgetExceeded):
+        ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+    ledger.mark_rejected("a", evidence_source="RateLimitError status=429")
+    ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("0.8"))
+    SpendLedger(path)  # reopening must not treat the refusal as an incomplete confirmation
+    with ledger._connect() as db:
+        assert db.execute("SELECT status, certainty FROM attempts WHERE attempt_id = 'a'").fetchone() == (
+            "rejected",
+            "confirmed",
+        )
+
+
+def test_a_write_off_stays_written_off_when_the_ledger_reopens(tmp_path: Path) -> None:
+    path = tmp_path / "spend.sqlite3"
+    ledger = SpendLedger(path)
+    ledger.start_run("run-a", Decimal("5"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("2"))
+    ledger.mark_uncertain("a")
+    ledger.write_off("w1", Decimal("0.5"), "OpenRouter activity", expected_count=1)
+    assert ledger.summary()["remaining_local_usd"] == "94.5"
+    reopened = SpendLedger(path)
+    assert reopened.summary()["remaining_local_usd"] == "94.5", "the hold must not come back"
+    assert reopened.unreconciled("run-a") == []
