@@ -86,7 +86,7 @@ shared fakes in `tests/helpers/` and fixtures in `tests/data/`.
 
 ```bash
 python -m sibyl <tournament|minibench|cup|test> [--tier free|prod] [--max-questions N]
-python -m sibyl.eval <backtest|ablation|ensemble|performance|fit-platt|compare> [args]
+python -m sibyl.eval <backtest|ablation|ensemble|performance|fit-platt|preflight|compare|minibench-live> [args]
 ```
 
 Every pre-fork invocation still works: `--mode metaculus_cup`, `--mode test_questions`,
