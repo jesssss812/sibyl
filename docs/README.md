@@ -58,10 +58,10 @@ bug — check the dates before treating any of it as current.
 - `bottega:FUTURE.md` — the branch design log: shipped, planned, and rejected
   ideas. Read it for the "why", never for the current state. Expect dead paths in it.
 
-Subsystem drivers live inside their packages: `python -m sibyl.eval.backtest`,
-`python -m sibyl.eval.ensemble`, `python -m sibyl.eval.performance`,
-and `sibyl/eval/ablation/cli.py`. The first two moved off the repo root on
-2026-08-26 to match the other three.
+The offline eval tools share one entry point, `python -m sibyl.eval <command>`; run it
+with no command to list them. Each tool lives in its own package under `sibyl/eval/`,
+and the older per-package invocations (`python -m sibyl.eval.backtest` and the rest)
+still work as aliases.
 
 For the authoritative model roster, read `sibyl/config/models.py`. It rotates
 often, so the guides describe it rather than pin names.

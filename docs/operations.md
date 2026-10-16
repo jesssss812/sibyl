@@ -678,9 +678,12 @@ make check_credits ARGS="--key primary"
 
 The primary benchmark scores bot predictions against actual question
 resolutions. It spends API credits (it runs the real ensemble and research), so
-it is gated by the cost rule above.
+it is gated by the cost rule above. The exceptions are the two fixture targets,
+which replace every model slot with a deterministic fixture and so cannot spend:
 
 ```bash
+make backtest_fixture      # free: exercises the eval path; scores the pipeline, not skill
+make backtest_fixture_aa   # free: A/A null test; a non-zero difference means a broken harness
 make backtest_smoke_test   # 4 questions
 make backtest_small        # 12
 make backtest_medium       # 32
@@ -698,14 +701,13 @@ To backtest against cached, non-leaky research from the archive:
 make backtest_with_cache   # uses backtests/research_archive/latest
 ```
 
-The old `community_benchmark.py` path was REMOVED on 2026-08-31: Metaculus removed the
-`aggregations` field from the list API, so baseline scoring is broken.
-`make benchmark_display` still views old results.
+The old `community_benchmark.py` path was REMOVED on 2026-08-31, `make
+benchmark_display` with it: Metaculus removed the `aggregations` field from the list
+API, so baseline scoring is broken.
 
-The backtest driver moved from the repo root to `sibyl/eval/backtest/cli.py` on
-2026-08-26 and now runs as `python -m sibyl.eval.backtest`; the correlation
-analyser likewise as `python -m sibyl.eval.ensemble`. The `make`
-targets are unchanged.
+The backtest driver is `sibyl/eval/backtest/cli.py`, run as `python -m sibyl.eval
+backtest`; the correlation analyser is `python -m sibyl.eval ensemble`. The `make`
+targets wrap both.
 
 ## Performance analysis and the width monitor (read-only, free)
 
@@ -716,14 +718,14 @@ questions plus the bot's own comments, user id 275109, auth via
 it is not subject to the cost gate.
 
 ```bash
-uv run python -m sibyl.eval.performance --tournament <slug> --output <path>
+uv run python -m sibyl.eval performance --tournament <slug> --output <path>
 ```
 
-The `--tournament` default is `DEFAULT_TOURNAMENT` (`performance_analysis/cli.py`)
+The `--tournament` default is `DEFAULT_TOURNAMENT` (`sibyl/eval/performance/cli.py`)
 and lags the live season, so pass the current slug explicitly. Pass
 `--cached <path>` to re-analyze a saved dataset without re-fetching.
 
-The width monitor (`performance_analysis/width_monitor.py`) tracks how wide the
+The width monitor (`sibyl/eval/performance/width_monitor.py`) tracks how wide the
 published numeric distributions are and how well that width is calibrated, split
 by config era. Era-bucketing is mandatory for any calibration claim: the bot's
 roster and pipeline change often enough that pooled calibration numbers are

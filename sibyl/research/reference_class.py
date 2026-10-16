@@ -538,7 +538,7 @@ def candidate_from_post(post: object) -> Candidate | None:
 async def _fetch_from_metaculus(query: str, limit: int) -> list[Candidate]:
     """One bounded search against the Metaculus posts API.
 
-    Read-only and free — the same endpoint ``performance_analysis/collector.py`` already
+    Read-only and free — the same endpoint ``sibyl/eval/performance/collector.py`` already
     uses. No LLM in this path.
     """
     import os  # noqa: PLC0415
@@ -553,7 +553,7 @@ async def _fetch_from_metaculus(query: str, limit: int) -> list[Candidate]:
     payload: object = None
     async with aiohttp.ClientSession(timeout=timeout) as session:
         # Metaculus rate-limits, and this provider issues several queries per question
-        # across a whole tournament run. performance_analysis/collector.py retries 429 on
+        # across a whole tournament run. sibyl/eval/performance/collector.py retries 429 on
         # this same API for exactly that reason. Without it a 429 empties the section,
         # which reads downstream as "no analogue exists" — a false negative that looks
         # like a real finding, which is worse than a visible failure.
