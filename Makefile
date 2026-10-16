@@ -63,8 +63,12 @@ precommit:
 precommit_all:
 	PRE_COMMIT_HOME=.pre-commit-cache uv run pre-commit run -a
 
+# A pass on a clean checkout is remembered, so the pre-push hook does not re-run the
+# suite on the same files (scripts/hooks/tested_tree.sh). The tree is read before the
+# run and recorded only if the files are still the same afterwards.
 test:
-	$(call RUN_UNBUFFERED,-m pytest)
+	@tree="$$(scripts/hooks/tested_tree.sh current)"; \
+	$(call RUN_UNBUFFERED,-m pytest) && scripts/hooks/tested_tree.sh record "$$tree"
 
 # Verbose test run: shows which tests are running/failing and where, with
 # short tracebacks. Useful when debugging a regression.

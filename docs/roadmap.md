@@ -134,8 +134,6 @@ No router is enabled. Pooled scoring remains pending a versioned definition.
 
 ## Repo standardization
 
-- Add `basedpyright` as a pre-push hook. The codebase is type-clean and CI enforces it, so
-  only the hook's run time stands in the way. `.pre-commit-config.yaml`
 - Fold the five remaining "Agent-facing detail (relocated from `AGENTS.md`)" sections
   into the body of their docs, as was done for `docs/runbooks/operations.md`'s key routing. Each
   overlaps the prose above it. `docs/architecture/overview.md`, `docs/architecture/numeric-pipeline.md`,

@@ -7,18 +7,81 @@ flags, must not leave sys.argv rewritten, and must not become the only way in.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 
 from sibyl.eval.__main__ import COMMANDS, main
 
+OLD_ENTRY_POINTS = [
+    "sibyl.eval.backtest",
+    "sibyl.eval.ensemble",
+    "sibyl.eval.ablation.cli",
+    "sibyl.aggregation.calibration.fit_platt_cli",
+]
+_BAD_FLAG = "--definitely-not-a-real-flag"
 
-def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, "-m", "sibyl.eval", *args], capture_output=True, text=True, timeout=180)
+# Runs every case in ONE child process. The tools configure logging and touch module
+# state on import, so they stay out of the test process; but a process per case paid the
+# ~9s forecasting-tools import 24 times. Each case runs the way `python -m` would: the
+# dispatcher's main() for `sibyl.eval <command>`, runpy for an old module entry point.
+_DRIVER = """
+import contextlib, io, json, runpy, sys
+from sibyl.eval.__main__ import main
+
+def run(fn):
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = fn()
+        except SystemExit as exc:
+            code = exc.code
+    code = 0 if code is None else code if isinstance(code, int) else 1
+    return {"returncode": code, "stdout": out.getvalue(), "stderr": err.getvalue()}
+
+def as_module(module, args):
+    def fn():
+        saved = sys.argv
+        sys.argv = [module, *args]
+        try:
+            runpy.run_module(module, run_name="__main__", alter_sys=True)
+        finally:
+            sys.argv = saved
+    return fn
+
+cases = json.loads(sys.argv[1])
+results = {}
+for key, kind, target, args in cases:
+    fn = (lambda t=target, a=args: main([t, *a])) if kind == "dispatch" else as_module(target, args)
+    results[key] = run(fn)
+print("RESULTS:" + json.dumps(results))
+"""
+
+
+class _Result(TypedDict):
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+@pytest.fixture(scope="module")
+def results() -> dict[str, _Result]:
+    cases = [
+        *([f"help:{name}", "dispatch", name, ["--help"]] for name in COMMANDS),
+        *([f"badflag:{name}", "dispatch", name, [_BAD_FLAG]] for name in COMMANDS),
+        *([f"module:{module}", "module", module, ["--help"]] for module in OLD_ENTRY_POINTS),
+    ]
+    proc = subprocess.run(
+        [sys.executable, "-c", _DRIVER, json.dumps(cases)], capture_output=True, text=True, timeout=300
+    )
+    assert proc.returncode == 0, proc.stderr
+    line = next(line for line in reversed(proc.stdout.splitlines()) if line.startswith("RESULTS:"))
+    return json.loads(line.removeprefix("RESULTS:"))
 
 
 class TestDispatch:
@@ -42,40 +105,39 @@ class TestDispatch:
         assert sys.argv == before
 
     @pytest.mark.parametrize("name", sorted(COMMANDS))
-    def test_every_command_reaches_a_real_parser(self, name: str) -> None:
+    def test_every_command_reaches_a_real_parser(self, name: str, results: dict[str, _Result]) -> None:
         """--help must come from the TOOL, not from the dispatcher.
 
-        Run out-of-process: --help exits, and several of these tools configure logging
-        or touch module state on import.
+        Run out-of-process (see ``_DRIVER``): --help exits, and several of these tools
+        configure logging or touch module state on import.
         """
-        result = _run([name, "--help"])
-        assert result.returncode == 0, result.stderr
-        assert "usage:" in result.stdout
+        result = results[f"help:{name}"]
+        assert result["returncode"] == 0, result["stderr"]
+        assert "usage:" in result["stdout"]
+        assert "commands:" not in result["stdout"], "--help printed the dispatcher's usage, not the tool's"
 
     @pytest.mark.parametrize("name", sorted(COMMANDS))
-    def test_the_dispatcher_does_not_claim_the_tools_flags(self, name: str) -> None:
+    def test_the_dispatcher_does_not_claim_the_tools_flags(self, name: str, results: dict[str, _Result]) -> None:
         # If the dispatcher parsed flags itself, an unknown one would be ITS error.
-        result = _run([name, "--definitely-not-a-real-flag"])
-        assert result.returncode != 0
-        assert "unknown command" not in result.stderr
+        result = results[f"badflag:{name}"]
+        assert result["returncode"] != 0
+        assert "unknown command" not in result["stderr"]
 
 
 class TestOldEntryPointsStillWork:
     """This is an additional door, not a replacement. Shell history must keep working."""
 
-    @pytest.mark.parametrize(
-        "module",
-        [
-            "sibyl.eval.backtest",
-            "sibyl.eval.ensemble",
-            "sibyl.eval.ablation.cli",
-            "sibyl.aggregation.calibration.fit_platt_cli",
-        ],
-    )
-    def test_direct_module_invocation_still_parses(self, module: str) -> None:
-        result = subprocess.run([sys.executable, "-m", module, "--help"], capture_output=True, text=True, timeout=180)
+    @pytest.mark.parametrize("module", OLD_ENTRY_POINTS)
+    def test_direct_module_invocation_still_parses(self, module: str, results: dict[str, _Result]) -> None:
+        result = results[f"module:{module}"]
+        assert result["returncode"] == 0, result["stderr"]
+        assert "usage:" in result["stdout"]
+
+    def test_the_package_entry_point_runs_as_a_real_process(self) -> None:
+        """One true `python -m sibyl.eval`, so the driver above cannot hide a broken door."""
+        result = subprocess.run([sys.executable, "-m", "sibyl.eval"], capture_output=True, text=True, timeout=180)
         assert result.returncode == 0, result.stderr
-        assert "usage:" in result.stdout
+        assert "commands:" in result.stdout
 
 
 class TestAgentsMdListsEveryCommand:

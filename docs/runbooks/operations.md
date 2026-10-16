@@ -56,8 +56,13 @@ the first):
   --no-verify` bypass; `scripts/hooks/no_commit_to_main.sh` is a `language: script` hook,
   so it must stay executable in the index (mode `100755` — `tests/unit/test_no_commit_to_main_hook.py`
   asserts that, along with the behavior on a feature branch and on a detached HEAD).
-- **at push** — the full pytest suite, the same command CI runs. ~105s, too much friction
-  per commit but the right price on the thing reviewers see.
+- **at push** — the full pytest suite, the same command CI runs. A few minutes, too much
+  friction per commit but the right price on the thing reviewers see. It is skipped when
+  the checkout is clean and that exact tree already passed, under `make test` or an
+  earlier push: `scripts/hooks/tested_tree.sh` keeps the tree id in the git dir, and a
+  dirty checkout or a failed run always runs the suite. To force a run, delete the stamp
+  at `git rev-parse --git-path sibyl-tested-tree`. `basedpyright` runs at push too, the
+  same command as CI's `lint` job.
 
 Two things can block or stale the install on a checkout that predates the uv migration:
 
