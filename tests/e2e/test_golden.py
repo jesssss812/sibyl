@@ -16,7 +16,7 @@ overriding the one method that would reach the network. Research is the canned f
 provider and every add-on provider flag is off. The suite's autouse egress guard
 (``tests/conftest.py``) is the backstop, not the plan.
 
-Recording is deliberate and separate: ``uv run pytest tests/test_golden.py --record-golden``.
+Recording is deliberate and separate: ``uv run pytest tests/e2e/test_golden.py --record-golden``.
 A mismatch during a normal run is a finding, and auto-healing it would record the
 regression rather than catch it.
 """
