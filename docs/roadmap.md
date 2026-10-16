@@ -131,3 +131,8 @@ The cheap-agreement study still needs a prespecified spread threshold, loss marg
 primary contrast, tail measure, multiplicity rule, and power calculation for the
 bucket endpoint. Cross-tier disagreement alone cannot prove correlated error.
 No router is enabled. Pooled scoring remains pending a versioned definition.
+
+## Repo standardization
+
+- Add `basedpyright` as a pre-push hook. The codebase is type-clean and CI enforces it, so
+  only the hook's run time stands in the way. `.pre-commit-config.yaml`
