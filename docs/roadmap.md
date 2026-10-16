@@ -140,3 +140,5 @@ No router is enabled. Pooled scoring remains pending a versioned definition.
   into the body of their docs, as was done for `docs/operations.md`'s key routing. Each
   overlaps the prose above it. `docs/architecture.md`, `docs/numeric_pipeline.md`,
   `docs/performance_analysis.md`, `docs/probabilistic_tools.md`, `docs/research.md`
+- `docs/study-notes.md` says it belongs in bottega and was due to move there at the
+  split. Move it, or drop the note. `docs/study-notes.md`
