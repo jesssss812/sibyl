@@ -1,11 +1,51 @@
 """Test that AskNews integration properly handles rate limiting."""
 
 import asyncio
+import time
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import sibyl.research.providers as providers
 from sibyl.research.providers import _asknews_provider
+
+
+class _Clock:
+    """Virtual time for the provider: its sleeps advance the clock instead of waiting.
+
+    The provider waits 10s before each AskNews call on purpose, so real time cost these
+    two tests 40s of the suite. Only the provider module's ``asyncio`` and ``time`` are
+    replaced, so the event loop itself keeps real time.
+    """
+
+    def __init__(self) -> None:
+        self.now = 1_000_000.0
+
+    async def sleep(self, seconds: float, *_args: object) -> None:
+        self.now += max(seconds, 0.0)
+        await asyncio.sleep(0)
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+class _Forward:
+    def __init__(self, module: object, **overrides: object) -> None:
+        self._module = module
+        self.__dict__.update(overrides)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._module, name)
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Clock]:
+    fake = _Clock()
+    monkeypatch.setattr(providers, "asyncio", _Forward(asyncio, sleep=fake.sleep))
+    monkeypatch.setattr(providers, "time", _Forward(time, monotonic=fake.monotonic))
+    monkeypatch.setattr(providers, "_ASKNEWS_LAST_CALL_TS", 0.0)
+    yield fake
 
 
 def _make_q(text: str) -> MagicMock:
@@ -17,14 +57,14 @@ def _make_q(text: str) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_asknews_rate_limiting_delay():
+async def test_asknews_rate_limiting_delay(clock: _Clock):
     """Test that AskNews provider waits between API calls to respect rate limits."""
 
     # Mock the AsyncAskNewsSDK to track timing
     call_times = []
 
     async def mock_search_news(*args, **kwargs):
-        call_times.append(asyncio.get_event_loop().time())
+        call_times.append(clock.now)
         # Create a minimal mock response
         mock_response = AsyncMock()
         mock_response.as_dicts = []
@@ -54,7 +94,7 @@ async def test_asknews_rate_limiting_delay():
 
 
 @pytest.mark.asyncio
-async def test_asknews_calls_both_endpoints():
+async def test_asknews_calls_both_endpoints(clock: _Clock):
     """Test that AskNews provider calls both latest and historical news endpoints."""
 
     search_calls = []
