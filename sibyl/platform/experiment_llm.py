@@ -102,7 +102,7 @@ class FundedGeneralLlm(GeneralLlm):
             if isinstance(exc, Exception):
                 raise GrantCallError(f"OpenRouter grant call failed ({diagnostic}); charge uncertain") from None
             raise
-        resolution = await resolve_grant_cost(capture, response.cost, session.key)
+        resolution = await resolve_grant_cost(capture, response.cost)
         if resolution.billable is None:
             # The answer is paid for, so it is kept; the full reservation stays held.
             session.ledger.mark_cost_unknown(

@@ -1,7 +1,10 @@
-"""Local, transactional accounting for a separately funded OpenRouter grant.
+"""Local, transactional accounting for every paid call, whichever key pays.
 
-The $100 allocation is a local envelope, not a claim about provider account balance.
-Pending and uncertain requests retain their full reservation after a crash.
+Each attempt is recorded under the source that paid for it. Only the OpenRouter
+grant has a spending limit here: its $100 allocation is a local envelope, not a
+claim about the provider account balance, and pending or uncertain grant requests
+retain their full reservation after a crash. The other sources are recorded for the
+audit and never refused.
 """
 
 from __future__ import annotations
@@ -16,23 +19,31 @@ from pathlib import Path
 from typing import Iterator
 
 GRANT_KEY_ENV = "SIBYL_EXPERIMENT_OPENROUTER_API_KEY"
-# Evidence that establishes a real charge, as opposed to a local guess.
-#
-# `provider_response` is OpenRouter's usage accounting on the completion response, used
-# only when it states `is_byok` and so carries the full BYOK split. Accepting it means a
-# confirmed charge does not wait on the eventually-consistent /generation GET.
-# `provider_response_partial` (a bare `usage.cost`, possibly just the BYOK fee) and
-# `framework_estimate` (LiteLLM token maths) are NOT here: they must not discharge a
-# reservation.
-CONFIRMING_EVIDENCE: frozenset[str] = frozenset({"provider_response", "provider_generation", "provider_reconciliation"})
+# Evidence that can establish a real charge, as opposed to a local guess. Each source
+# confirms only when it carries every billing component (see provider_billable_cost):
+# a response's `usage.cost` with the BYOK route unknown is still an estimate.
+# `framework_estimate` (LiteLLM token maths) is never here: a guess must not discharge
+# a reservation.
+CONFIRMING_EVIDENCE: frozenset[str] = frozenset({"provider_response", "provider_reconciliation"})
 
 GRANT_ALLOCATION_USD = Decimal("100")
 GRANT_RESERVE_USD = Decimal("5")
 
 
+# ``runs.source`` for a run with no grant budget: it may draw only on the ordinary keys.
+# Not a FundingSource, because no attempt is ever paid by "ordinary keys" as such.
+RUN_WITHOUT_GRANT = "ordinary-keys"
+
+
 class FundingSource(StrEnum):
-    EXISTING = "existing"
+    """Who paid for an attempt. The values are stored in the ledger; do not rename them."""
+
     EXPERIMENT_GRANT = "experiment-grant"
+    METACULUS_KEY = "metaculus-key"
+    PERSONAL_KEY = "personal-key"
+    DIRECT_SERVICE = "direct-service"
+    # Retained so rows written under the earlier two-source scheme still parse.
+    EXISTING = "existing"
 
 
 class GrantExecutionError(RuntimeError):
@@ -41,6 +52,34 @@ class GrantExecutionError(RuntimeError):
 
 class BudgetExceeded(GrantExecutionError):
     """A local spend limit has insufficient unreserved capacity."""
+
+
+def _cost(value: Decimal) -> Decimal:
+    try:
+        amount = Decimal(value)
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("Cost must be a finite nonnegative decimal") from exc
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("Cost must be a finite nonnegative decimal")
+    return amount
+
+
+def provider_billable_cost(
+    openrouter_charge: Decimal | None, upstream_cost: Decimal | None, is_byok: bool | None
+) -> Decimal | None:
+    """The whole charge for one call, or None while any part of it is unknown.
+
+    A BYOK call bills twice: OpenRouter's fee from the key, and the upstream provider
+    on the operator's own account. Counting only one of them is how a BYOK run once
+    read as free. With the route unknown, neither component alone is the total.
+    """
+    charge = _cost(openrouter_charge) if openrouter_charge is not None else None
+    upstream = _cost(upstream_cost) if upstream_cost is not None else None
+    if is_byok is True and charge is not None and upstream is not None:
+        return charge + upstream
+    if is_byok is False:
+        return charge
+    return None
 
 
 def _amount(value: Decimal) -> Decimal:
@@ -115,6 +154,27 @@ class SpendLedger:
             if "is_byok" not in columns:
                 db.execute("ALTER TABLE attempts ADD COLUMN is_byok INTEGER")
 
+            # Earlier versions confirmed a charge from incomplete provider evidence: a
+            # response fee with the BYOK route unknown, or a BYOK upstream cost without
+            # OpenRouter's fee. Reopen those rows so their reservation is held again and
+            # reconciliation can confirm them; the original evidence is kept. Rows closed
+            # without provider evidence -- a rejected request, an operator write-off --
+            # carry no billing components by design and stay closed.
+            db.execute("BEGIN IMMEDIATE")
+            for attempt, charged, charge, upstream, byok in db.execute(
+                """SELECT attempt_id, charged_usd, openrouter_charge_usd, upstream_cost_usd, is_byok
+                FROM attempts WHERE certainty = 'confirmed'
+                AND evidence_source IN ('provider_response', 'provider_generation', 'provider_reconciliation')"""
+            ).fetchall():
+                expected = provider_billable_cost(
+                    Decimal(charge) if charge is not None else None,
+                    Decimal(upstream) if upstream is not None else None,
+                    bool(byok) if byok in (0, 1) else None,
+                )
+                if expected is None or charged is None or Decimal(charged) != expected:
+                    db.execute("UPDATE attempts SET certainty = 'estimated' WHERE attempt_id = ?", (attempt,))
+            db.commit()
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
@@ -125,8 +185,9 @@ class SpendLedger:
         finally:
             db.close()
 
-    def start_run(self, run_id: str, limit_usd: Decimal) -> None:
-        limit = _amount(limit_usd)
+    def start_run(self, run_id: str, limit_usd: Decimal = Decimal(0)) -> None:
+        """Register a run and its grant limit. Zero means the run may not use the grant."""
+        limit = _cost(limit_usd)
         if not run_id.strip():
             raise ValueError("run_id is required")
         with self._connect() as db:
@@ -137,14 +198,17 @@ class SpendLedger:
                 raise ValueError("Existing run has a different budget")
             db.execute(
                 "INSERT OR IGNORE INTO runs (run_id, source, limit_usd) VALUES (?, ?, ?)",
-                (run_id, FundingSource.EXPERIMENT_GRANT, str(limit)),
+                # What the run may draw on: the grant when it has a budget, else only the ordinary keys.
+                (run_id, FundingSource.EXPERIMENT_GRANT if limit > 0 else RUN_WITHOUT_GRANT, str(limit)),
             )
             db.commit()
 
     @staticmethod
-    def _liability(db: sqlite3.Connection, *, run_id: str | None = None) -> Decimal:
+    def _liability(
+        db: sqlite3.Connection, *, run_id: str | None = None, source: FundingSource = FundingSource.EXPERIMENT_GRANT
+    ) -> Decimal:
         query = "SELECT reserved_usd, charged_usd, certainty FROM attempts WHERE source = ?"
-        args: tuple[str, ...] = (FundingSource.EXPERIMENT_GRANT,)
+        args: tuple[str, ...] = (source,)
         if run_id is not None:
             query += " AND run_id = ?"
             args += (run_id,)
@@ -156,7 +220,7 @@ class SpendLedger:
                 if certainty == "confirmed" and charge is not None
                 else max(Decimal(reserve), Decimal(charge) if charge is not None else Decimal(0))
             )
-        if run_id is None:
+        if run_id is None and source is FundingSource.EXPERIMENT_GRANT:
             for (amount,) in db.execute(
                 "SELECT amount_usd FROM adjustments WHERE source = ?", (FundingSource.EXPERIMENT_GRANT,)
             ):
@@ -173,10 +237,20 @@ class SpendLedger:
         *,
         question_id: str | None = None,
         arm_id: str | None = None,
+        source: FundingSource = FundingSource.EXPERIMENT_GRANT,
     ) -> None:
-        reserve = _amount(reserve_usd)
-        if not attempt_id or not model or not model.startswith("openrouter/") or not stage:
-            raise ValueError("OpenRouter model, stage, and attempt ID are required")
+        """Open an attempt before the request is sent.
+
+        A grant attempt holds ``reserve_usd`` against the run limit and the allocation,
+        and raises BudgetExceeded when either cannot cover it. Every other source is
+        recorded without a limit, so accounting can never refuse a call it pays for.
+        """
+        grant = source is FundingSource.EXPERIMENT_GRANT
+        reserve = _amount(reserve_usd) if grant else _cost(reserve_usd)
+        if not attempt_id or not model or not stage:
+            raise ValueError("Model or service, stage, and attempt ID are required")
+        if grant and not model.startswith("openrouter/"):
+            raise ValueError("Grant attempts require an OpenRouter model")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             prior = db.execute("SELECT run_id FROM attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
@@ -187,10 +261,10 @@ class SpendLedger:
             if row is None:
                 db.rollback()
                 raise ValueError("Run has not been started")
-            if self._liability(db, run_id=run_id) + reserve > Decimal(row[0]):
+            if grant and self._liability(db, run_id=run_id) + reserve > Decimal(row[0]):
                 db.rollback()
                 raise BudgetExceeded("Run budget exhausted")
-            if self._liability(db) + reserve > GRANT_ALLOCATION_USD - GRANT_RESERVE_USD:
+            if grant and self._liability(db) + reserve > GRANT_ALLOCATION_USD - GRANT_RESERVE_USD:
                 db.rollback()
                 raise BudgetExceeded("Local grant allocation exhausted")
             db.execute(
@@ -201,12 +275,12 @@ class SpendLedger:
                 (
                     attempt_id,
                     run_id,
-                    FundingSource.EXPERIMENT_GRANT,
+                    source,
                     model,
                     stage,
                     question_id,
                     arm_id,
-                    "experiment-grant",
+                    source,
                     str(reserve),
                 ),
             )
@@ -226,13 +300,15 @@ class SpendLedger:
         upstream_cost_usd: Decimal | None = None,
         is_byok: bool | None = None,
     ) -> None:
-        charge = Decimal(charged_usd)
-        if not charge.is_finite() or charge < 0:
-            raise ValueError("Settled cost must be a finite nonnegative decimal")
+        charge = _cost(charged_usd)
         if certainty not in {"confirmed", "estimated"} or not evidence_source:
             raise ValueError("Settlement requires a valid certainty and evidence source")
         if certainty == "confirmed" and evidence_source not in CONFIRMING_EVIDENCE:
             raise ValueError("Confirmed cost requires provider billing evidence")
+        if certainty == "confirmed" and charge != provider_billable_cost(
+            openrouter_charge_usd, upstream_cost_usd, is_byok
+        ):
+            raise ValueError("Confirmed total requires complete, matching provider billing components")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -322,9 +398,9 @@ class SpendLedger:
         hot path, and reads the provider's record without a second paid request. Until
         then the estimate holds its reservation and blocks its question's publication.
         """
-        charge = Decimal(billable_usd)
-        if not charge.is_finite() or charge < 0:
-            raise ValueError("Reconciled cost must be a finite nonnegative decimal")
+        charge = _cost(billable_usd)
+        if charge != provider_billable_cost(openrouter_charge_usd, upstream_cost_usd, is_byok):
+            raise ValueError("Reconciliation requires complete, matching provider billing components")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT 1 FROM attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
@@ -354,7 +430,9 @@ class SpendLedger:
         with self._connect() as db:
             return db.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone() is not None
 
-    def unreconciled(self, run_id: str) -> list[tuple[str, str | None]]:
+    def unreconciled(
+        self, run_id: str, *, source: FundingSource = FundingSource.EXPERIMENT_GRANT
+    ) -> list[tuple[str, str | None]]:
         """Attempts whose real cost is still unknown, as (attempt_id, provider_request_id).
 
         These hold their full reservation against the budget until reconciled, which is
@@ -366,7 +444,7 @@ class SpendLedger:
                 for row in db.execute(
                     """SELECT attempt_id, provider_request_id FROM attempts
                     WHERE run_id = ? AND source = ? AND certainty != 'confirmed'""",
-                    (run_id, FundingSource.EXPERIMENT_GRANT),
+                    (run_id, source),
                 )
             ]
 
@@ -430,10 +508,14 @@ class SpendLedger:
                 (adjustment_id, FundingSource.EXPERIMENT_GRANT, str(amount), note),
             )
 
-    def summary(self, run_id: str | None = None) -> dict[str, str | int]:
+    def summary(
+        self, run_id: str | None = None, *, source: FundingSource = FundingSource.EXPERIMENT_GRANT
+    ) -> dict[str, str | int]:
+        """Totals for one source. ``remaining_local_usd`` is reported for the grant only."""
+        grant = source is FundingSource.EXPERIMENT_GRANT
         with self._connect() as db:
             query = "SELECT status, reserved_usd, charged_usd, certainty FROM attempts WHERE source = ?"
-            args: tuple[str, ...] = (FundingSource.EXPERIMENT_GRANT,)
+            args: tuple[str, ...] = (source,)
             if run_id is not None:
                 query += " AND run_id = ?"
                 args += (run_id,)
@@ -448,7 +530,7 @@ class SpendLedger:
             pending = sum((Decimal(r) for status, r, c, _ in rows if status == "reserved" and c is None), Decimal(0))
             uncertain = sum((Decimal(r) for status, r, c, _ in rows if status != "reserved" and c is None), Decimal(0))
             adjustments = Decimal(0)
-            if run_id is None:
+            if run_id is None and grant:
                 adjustments = sum(
                     (
                         Decimal(row[0])
@@ -458,36 +540,43 @@ class SpendLedger:
                     ),
                     Decimal(0),
                 )
-            return {
+            totals: dict[str, str | int] = {
                 "attempts": len(rows),
+                "unconfirmed_attempts": sum(certainty != "confirmed" for _, _, _, certainty in rows),
                 "charged_usd": str(charged),
                 "confirmed_usd": str(confirmed),
                 "estimated_usd": str(estimated),
                 "reserved_usd": str(pending),
                 "uncertain_usd": str(uncertain),
                 "adjustments_usd": str(adjustments),
-                "remaining_local_usd": str(GRANT_ALLOCATION_USD - GRANT_RESERVE_USD - self._liability(db)),
             }
+            if grant:
+                totals["remaining_local_usd"] = str(GRANT_ALLOCATION_USD - GRANT_RESERVE_USD - self._liability(db))
+            return totals
+
+    def sources(self, run_id: str | None = None) -> list[FundingSource]:
+        """Every source with at least one attempt, in a stable order."""
+        with self._connect() as db:
+            query = "SELECT DISTINCT source FROM attempts" + (" WHERE run_id = ?" if run_id is not None else "")
+            found = {row[0] for row in db.execute(query, (run_id,) if run_id is not None else ())}
+        return [source for source in FundingSource if source in found]
 
     def breakdown(self, run_id: str | None = None) -> list[dict[str, str | int]]:
-        """Accounted calls grouped by run, model and stage, without request data."""
+        """Accounted calls grouped by run, source, model and stage, without request data."""
         with self._connect() as db:
-            query = (
-                "SELECT run_id, model, stage, status, reserved_usd, charged_usd, certainty "
-                "FROM attempts WHERE source = ?"
-            )
-            args: tuple[str, ...] = (FundingSource.EXPERIMENT_GRANT,)
+            query = "SELECT run_id, source, model, stage, status, reserved_usd, charged_usd, certainty FROM attempts"
+            args: tuple[str, ...] = ()
             if run_id is not None:
-                query += " AND run_id = ?"
+                query += " WHERE run_id = ?"
                 args += (run_id,)
-            groups: dict[tuple[str, str, str], dict[str, str | int]] = {}
-            for item_run, model, stage, status, reserved, charged, certainty in db.execute(query, args):
-                key = (item_run, model, stage)
+            groups: dict[tuple[str, str, str, str], dict[str, str | int]] = {}
+            for item_run, source, model, stage, status, reserved, charged, certainty in db.execute(query, args):
+                key = (item_run, source, model, stage)
                 group = groups.setdefault(
                     key,
                     {
                         "run_id": item_run,
-                        "source": FundingSource.EXPERIMENT_GRANT,
+                        "source": source,
                         "model": model,
                         "stage": stage,
                         "attempts": 0,
