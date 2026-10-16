@@ -2,6 +2,7 @@
 paths:
   - "sibyl/telemetry/**"
   - "sibyl/cli.py"
+  - "sibyl/forecasting/bot.py"
   - "sibyl/forecasting/value_extraction.py"
   - "sibyl/forecasting/numeric/diagnostics.py"
   - "sibyl/research/agentic/loop.py"
@@ -10,6 +11,7 @@ paths:
   - "sibyl/aggregation/agreement.py"
   - "sibyl/aggregation/resolution_guard.py"
   - "sibyl/publishing/close_margin.py"
+  - "sibyl/publishing/comment/markers.py"
   - "sibyl/platform/key_fallback.py"
 ---
 
