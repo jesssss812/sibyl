@@ -207,6 +207,8 @@ GEMINI.md.OLD
 gha-creds-*.json
 scratch/*
 scorecard.png
-# Local Claude Code state stays out; the path-scoped agent rules are shared.
-.claude/*
-!.claude/rules/
+# Claude Code: shared config under .claude/ is tracked; per-machine state is not.
+# settings.json is the shared project config, un-ignored from the blanket *.json above.
+!.claude/settings.json
+.claude/settings.local.json
+.claude/worktrees/
