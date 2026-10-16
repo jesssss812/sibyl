@@ -525,7 +525,7 @@ The paid run is the operator's last step.
   `make audit`, `make precommit*`.
 - Read-only Metaculus and GitHub-artifact pulls: `make sync_all` and its parts
   (`sync_research`, `sync_telemetry`, `sync_raw_research`, the `download_*` and
-  `backfill_*` targets), the `performance_analysis` package and its width
+  `backfill_*` targets), the `sibyl/eval/performance/` package and its width
   monitor, `make score_ghosts`, and `make close_margin_watch`.
 - `make ablation_score` — `--stages score` hydrates every artifact off disk
   (`_hydrate_working_set_from_cache`) and makes no provider call.
