@@ -5,10 +5,6 @@ repos:
       - id: ruff
         args: [--fix, --unsafe-fixes]
       - id: ruff-format
-  # basedpyright is not a hook. The codebase is type-clean and CI's `lint` job
-  # fails on any error; locally, `make typecheck` runs before every commit
-  # (AGENTS.md). Whether to add it here is in docs/roadmap.md.
-
   # The full suite, gated on push rather than commit: minutes are too much friction
   # per commit (agents commit often) but are the right price per push, which is
   # where a red run first becomes a reviewer's problem. Same command CI runs, so
@@ -37,6 +33,17 @@ repos:
         entry: scripts/hooks/no_staged_secrets.sh
         language: script
         stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+
+      # The type check, also on push and with the command CI's `lint` job runs, so a
+      # type error stops the push instead of turning the PR red. About 15s; agents
+      # also run `make typecheck` before every commit (AGENTS.md).
+      - id: basedpyright
+        name: basedpyright (same command as CI)
+        entry: uv run --frozen basedpyright
+        language: system
+        stages: [pre-push]
         pass_filenames: false
         always_run: true
 

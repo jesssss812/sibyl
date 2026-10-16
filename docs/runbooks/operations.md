@@ -61,7 +61,8 @@ the first):
   the checkout is clean and that exact tree already passed, under `make test` or an
   earlier push: `scripts/hooks/tested_tree.sh` keeps the tree id in the git dir, and a
   dirty checkout or a failed run always runs the suite. To force a run, delete the stamp
-  at `git rev-parse --git-path sibyl-tested-tree`.
+  at `git rev-parse --git-path sibyl-tested-tree`. `basedpyright` runs at push too, the
+  same command as CI's `lint` job.
 
 Two things can block or stale the install on a checkout that predates the uv migration:
 
