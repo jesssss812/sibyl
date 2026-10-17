@@ -278,6 +278,10 @@ def _isolate_spend_ledger(tmp_path_factory: pytest.TempPathFactory, monkeypatch:
     monkeypatch.setattr(funding, "_ORIGINAL_DIRECT_CALL", funding._ORIGINAL_DIRECT_CALL)
     yield
     funding.configure_funding(None)
+    # cli.main() also fixes the run's tier for the process.
+    from sibyl.config.models import set_run_tier
+
+    set_run_tier(None)
 
 
 # Shared failure fixtures

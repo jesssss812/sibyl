@@ -56,8 +56,19 @@ FREE_TIER_DISABLED_PROVIDERS: frozenset[str] = frozenset(
 )
 
 
+# Set once by the CLI from --tier, so every reader of active_tier() -- research gating,
+# the financial classifier, degradation alerting -- agrees with the roster the run built.
+_RUN_TIER: ModelTier | None = None
+
+
+def set_run_tier(tier: ModelTier | None) -> None:
+    """Fix this process's tier, overriding ``SIBYL_MODEL_TIER``. None restores the env lookup."""
+    global _RUN_TIER
+    _RUN_TIER = tier
+
+
 def active_tier() -> ModelTier:
-    """The tier for this run, from ``SIBYL_MODEL_TIER``. Defaults to FREE.
+    """The tier for this run: the CLI's ``--tier`` when set, else ``SIBYL_MODEL_TIER``. Defaults to FREE.
 
     FREE is the default on purpose, and it is the one deliberate behaviour change this
     phase makes to an existing entry point. A local run that forgets the flag should be
@@ -73,6 +84,8 @@ def active_tier() -> ModelTier:
     # handful of provider flags, and a patched getenv answers "" for every name it was
     # not told about -- which would silently drop those tests onto the free tier and
     # take their providers with it. Reading the mapping directly is unaffected.
+    if _RUN_TIER is not None:
+        return _RUN_TIER
     raw = os.environ.get(MODEL_TIER_ENV, "").strip().lower()
     if not raw:
         return ModelTier.FREE
@@ -87,6 +100,7 @@ __all__ = [
     "ModelTier",
     "Roster",
     "active_tier",
+    "set_run_tier",
     "get_roster",
     "FREE_FORECASTER_MODELS",
     "FREE_UTILITY_MODEL",

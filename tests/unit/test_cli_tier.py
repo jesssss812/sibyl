@@ -142,3 +142,17 @@ class TestTierResolutionThroughArgv:
         argv = ["test", "--tier", "prod", "--grant-budget-usd", "5", "--run-id", "r1", "--archive-dir", str(tmp_path)]
         assert self._run(argv, None, monkeypatch) == 2
         assert not (tmp_path / "r1").exists(), "a rerun with the same run ID must not be blocked"
+
+    def test_the_tier_flag_governs_research_gating_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`--tier prod` with SIBYL_MODEL_TIER unset must not gate research as free."""
+        from sibyl.config.models import ModelTier, active_tier
+
+        seen: list[ModelTier] = []
+
+        def record_then_stop(tier: ModelTier) -> None:
+            seen.append(active_tier())
+            raise SystemExit(0)  # the tier is settled by now; nothing after it matters here
+
+        monkeypatch.setattr(cli_module, "_log_tier_banner", record_then_stop)
+        self._run(["test", "--tier", "prod"], None, monkeypatch)
+        assert seen == [ModelTier.PROD]

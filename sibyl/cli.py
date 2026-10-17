@@ -17,6 +17,7 @@ from sibyl.config.models import (
     ModelTier,
     active_tier,
     get_roster,
+    set_run_tier,
 )
 from sibyl.config.settings import (
     BOT_TESTING_AREA_ID,
@@ -225,6 +226,10 @@ def main() -> None:
     # constructed has already done the thing it was meant to prevent in every case where
     # construction is the expensive part.
     tier = ModelTier(args.tier) if args.tier else active_tier()
+    # Research gating and the other tier readers call active_tier(); without this a
+    # `--tier prod` run with SIBYL_MODEL_TIER unset built the prod roster but gated its
+    # research as free.
+    set_run_tier(tier)
     _refuse_free_tier_on_scored_tournament(tier, run_mode)
     if run_mode == "tournament":
         from sibyl.config.settings import TOURNAMENT_ENABLED
