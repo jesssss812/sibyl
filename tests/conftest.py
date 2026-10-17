@@ -199,6 +199,45 @@ def _block_network_egress(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
 
 
 # ---------------------------------------------------------------------------
+# Repository-locating git variables (data-safety backstop)
+
+# What git sets inside a hook to point every git command at the repository being
+# committed or pushed (``git rev-parse --local-env-vars``).
+_GIT_REPO_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_INTERNAL_SUPER_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_from_the_enclosing_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a test's own git commands in its own throwaway repo.
+
+    The pre-push hook runs this suite inside git, which exports ``GIT_DIR`` and friends
+    for the repository being pushed. The hook tests pass ``os.environ`` to git, so with
+    those set their ``init``/``add``/``commit`` in a temp dir act on the real repository
+    instead: one such push made the shared repo bare, wrote a test identity into its
+    config, and committed a tree with every file deleted onto the branch being pushed.
+    """
+    for name in _GIT_REPO_ENV:
+        monkeypatch.delenv(name, raising=False)
+
+
+# ---------------------------------------------------------------------------
 # Persisted-artifact-store guard (data-safety backstop)
 
 
