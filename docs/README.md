@@ -38,7 +38,7 @@ when one is not.
 | --- | --- |
 | [runbooks/operations.md](runbooks/operations.md) | Running it: `uv` setup, the shared-vs-fallback key model, workflows and their env flags, credit telemetry, backtesting, and the cost gate (any live or paid run needs operator approval). |
 | [runbooks/experiment-funding.md](runbooks/experiment-funding.md) | Which key pays for each call, using the OpenRouter grant, and the spend ledger every run writes. |
-| [runbooks/minibench-readiness.md](runbooks/minibench-readiness.md) | October 2026 launch checks and the statistical limits of the first MiniBench round. |
+| [runbooks/minibench-readiness.md](runbooks/minibench-readiness.md) | Running a MiniBench round with the polling loop: launch checks, rehearsals, spend stops, and what the first round can establish. |
 | [runbooks/performance-analysis.md](runbooks/performance-analysis.md) | Evaluating the live bot's calibration against real resolutions, and recovering per-model forecasts from published Metaculus comments. Both pulls are read-only and free. |
 
 ## Planning and evaluation strategy
@@ -75,6 +75,7 @@ point-in-time audits and design arguments from before the fork.
 | [decisions/2026-08-31-anthropic-direct-swap.md](decisions/2026-08-31-anthropic-direct-swap.md) | *2026-08-31.* Moving Anthropic off OpenRouter and Gemini search off Google: why the Anthropic slots routed direct, and what silently breaks if the OpenRouter kwargs come along. *Superseded for the model slots by the one-forecast-route change.* |
 | [decisions/2026-10-08-model-refresh.md](decisions/2026-10-08-model-refresh.md) | *2026-10-08.* Production model refresh: GPT-6 Sol, GPT-6 Luna and Opus 5.5, and what was deliberately left alone. |
 | [decisions/2026-10-14-one-forecast-route.md](decisions/2026-10-14-one-forecast-route.md) | *2026-10-14.* One forecast route: grant-funded runs use the ordinary pipeline, and funding only picks which key pays. |
+| [decisions/2026-10-18-first-minibench-round.md](decisions/2026-10-18-first-minibench-round.md) | *2026-10-18.* The first scored MiniBench round: Sonnet 5.5 for Gemini, every model call on OpenRouter, one question at a time, and the polling loop. |
 
 ## Plans
 
