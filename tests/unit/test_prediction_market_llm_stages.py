@@ -96,12 +96,12 @@ class TestMarketLlmStages:
         assert set(by_label) == {"market_query_author", "market_ranker"}
 
         author = by_label["market_query_author"]
-        assert author["config"] is MARKET_QUERY_AUTHOR_LLM_CONFIG
+        assert author["config"] == MARKET_QUERY_AUTHOR_LLM_CONFIG
         assert author["wall_timeout"] == MARKET_QUERY_AUTHOR_WALL_TIMEOUT
         assert author["backoffs"] == MARKET_QUERY_AUTHOR_BACKOFFS
 
         ranker = by_label["market_ranker"]
-        assert ranker["config"] is MARKET_RANKER_LLM_CONFIG
+        assert ranker["config"] == MARKET_RANKER_LLM_CONFIG
         assert ranker["wall_timeout"] == MARKET_RANKER_WALL_TIMEOUT
         assert ranker["backoffs"] == MARKET_RANKER_BACKOFFS
 

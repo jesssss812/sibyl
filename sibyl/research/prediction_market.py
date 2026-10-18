@@ -64,7 +64,7 @@ import openai
 from forecasting_tools.data_models.questions import MetaculusQuestion
 
 from sibyl.common.time_utils import _as_utc
-from sibyl.config.models import MARKET_QUERY_AUTHOR_LLM_CONFIG, MARKET_RANKER_LLM_CONFIG
+from sibyl.config.models import active_tier, get_roster
 from sibyl.config.settings import (
     KALSHI_CATALOGUE_WALL_TIMEOUT,
     MARKET_QUERY_AUTHOR_BACKOFFS,
@@ -281,6 +281,16 @@ def _get_session() -> aiohttp.ClientSession:
 # ---------------------------------------------------------------------------
 
 
+def _query_author_config() -> dict:
+    """The query author's config for this run's tier (a `:free` model on the free tier)."""
+    return get_roster(active_tier()).market_query_author_config
+
+
+def _ranker_config() -> dict:
+    """The market ranker's config for this run's tier (a `:free` model on the free tier)."""
+    return get_roster(active_tier()).market_ranker_config
+
+
 async def _invoke_market_llm(
     config: dict, prompt: str, *, wall_timeout: float, backoffs: tuple[float, ...], label: str
 ) -> str:
@@ -408,7 +418,7 @@ async def _authored_queries(title: str, resolution_criteria: str) -> tuple[tuple
     catalogue IS the venue, and the settlement join keys on domains.
     """
     completion = await _invoke_market_llm(
-        MARKET_QUERY_AUTHOR_LLM_CONFIG,
+        _query_author_config(),
         build_query_author_prompt(title, resolution_criteria),
         wall_timeout=MARKET_QUERY_AUTHOR_WALL_TIMEOUT,
         backoffs=MARKET_QUERY_AUTHOR_BACKOFFS,
@@ -475,7 +485,7 @@ async def _rank_pool(question: Any, pool: generation.PoolResult) -> tuple[list[M
         pool.candidates,
     )
     completion = await _invoke_market_llm(
-        MARKET_RANKER_LLM_CONFIG,
+        _ranker_config(),
         prompt,
         wall_timeout=MARKET_RANKER_WALL_TIMEOUT,
         backoffs=MARKET_RANKER_BACKOFFS,

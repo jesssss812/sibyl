@@ -578,9 +578,7 @@ async def _fetch_from_metaculus(query: str, limit: int) -> list[Candidate]:
 
 async def _rank_with_llm(prompt: str) -> str:
     """Single ranking call, under the same elapsed-gated retry wrapper the market ranker uses."""
-    from sibyl.config.models import (  # noqa: PLC0415
-        MARKET_RANKER_LLM_CONFIG,
-    )
+    from sibyl.config.models import active_tier, get_roster  # noqa: PLC0415
     from sibyl.platform.key_fallback import (  # noqa: PLC0415
         build_llm_with_openrouter_fallback,
     )
@@ -591,8 +589,10 @@ async def _rank_with_llm(prompt: str) -> str:
 
     # Reuses the market ranker's slot rather than adding a roster entry: identical job
     # (rank a candidate pool, emit a small JSON array) and identical output budget, so a
-    # separate config would be a duplicate that could silently drift.
-    llm = label_stage(build_llm_with_openrouter_fallback(**MARKET_RANKER_LLM_CONFIG), "reference_class_ranker")
+    # separate config would be a duplicate that could silently drift. Read from the
+    # run's roster, so the free tier gets its `:free` model.
+    config = get_roster(active_tier()).market_ranker_config
+    llm = label_stage(build_llm_with_openrouter_fallback(**config), "reference_class_ranker")
     return await invoke_with_transient_retry(
         lambda: llm.invoke(prompt),
         wall_timeout=REFERENCE_CLASS_RANKER_WALL_TIMEOUT,
