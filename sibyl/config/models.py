@@ -166,7 +166,8 @@ FORECASTER_LLMS: list[GeneralLlm] = [
     # grok (x-ai, 404s on the primary key) also ends routine fallback-key forecaster
     # spend: only the gemini-3.1-pro-preview fallback-key PIN bills
     # OPENROUTER_API_KEY now; the other two slots route via the primary key.
-    # (Dates anchor config eras for residual analysis.)
+    # (Dates anchor config eras for residual analysis.) 2026-10-18: the Google slot is
+    # gone; see the third slot below.
     #
     # OpenAI Sol slot (GPT-6 since 2026-10-08). 2026-07-20: effort xhigh -> high. The
     # reasoning-effort audit (bottega:scratch/reasoning_effort_audit_2026-07-20/) found
@@ -203,14 +204,18 @@ FORECASTER_LLMS: list[GeneralLlm] = [
         reasoning={"effort": "xhigh"},
         **_FORECASTER_CONFIG,
     ),
-    # Google slot. No explicit reasoning-effort kwarg — gemini-3.1-pro-preview has
-    # no xhigh tier and uses provider defaults. PINNED to the fallback
-    # OPENROUTER_API_KEY via the OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist in
-    # key_fallback (the primary key routes it through a free-tier Google
-    # AI Studio BYOK integration with quota 0, so it would 429 there); see the
-    # OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS default, pending the Metaculus-side BYOK fix.
+    # Third slot. 2026-10-18: gemini-3.1-pro-preview -> claude-sonnet-5.5, a config-era
+    # boundary. The grant's OpenRouter account routes Google only through a BYOK
+    # integration with no quota, so Gemini 429'd instantly on every grant call and fell
+    # back to OPENROUTER_API_KEY (the ledger's two grant demos, 2026-10-17); the account
+    # routes only OpenAI, Anthropic and Google, so the slot had to be one of the other
+    # two. Sonnet 5.5 costs about what Gemini did. Unmeasured: the July composition
+    # screen (bottega:scratch/ensemble_composition_2026-07-15/) found dropping Gemini
+    # cost ~2 log points even with a second OpenAI and Anthropic member present, so a
+    # same-vendor third member may not replace its diversity. Effort high, like Sol.
     build_llm_with_openrouter_fallback(
-        model="openrouter/google/gemini-3.1-pro-preview",
+        model="openrouter/anthropic/claude-sonnet-5.5",
+        reasoning={"effort": "high"},
         **_FORECASTER_CONFIG,
     ),
 ]
