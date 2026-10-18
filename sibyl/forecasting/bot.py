@@ -67,6 +67,13 @@ from sibyl.telemetry.drops import (
 
 logger = logging.getLogger(__name__)
 
+
+def _close_order(question: MetaculusQuestion) -> tuple[bool, datetime]:
+    """Sort key: soonest scheduled close first, questions with no close time last."""
+    close_time = question.close_time
+    return (close_time is None, close_time or datetime.max.replace(tzinfo=timezone.utc))
+
+
 load_environment()
 
 
@@ -93,6 +100,7 @@ class SibylBot(CompactLoggingForecastBot):
         min_forecasters_to_publish: int | None = None,
         research_sink: Any | None = None,
         selection_sink: Callable[[Sequence[MetaculusQuestion]], None] | None = None,
+        one_question_at_a_time: bool = False,
     ) -> None:
         if not isinstance(aggregation_strategy, AggregationStrategy):
             raise ValueError(f"aggregation_strategy must be an AggregationStrategy enum, got {aggregation_strategy}")
@@ -101,6 +109,10 @@ class SibylBot(CompactLoggingForecastBot):
         # Called with the exact questions a batch will forecast, after every filter and
         # the cap, before the first is started (the CLI's run archive freezes them).
         self.selection_sink = selection_sink
+        # Forecast the batch one question at a time, soonest close first, instead of all at
+        # once. For MiniBench, whose questions are open for about three hours: one
+        # question's calls in flight at a time, and the one that closes first goes first.
+        self.one_question_at_a_time = one_question_at_a_time
         self.aggregation_strategy: AggregationStrategy = aggregation_strategy
 
         setup = prepare_llm_config(
@@ -379,6 +391,10 @@ class SibylBot(CompactLoggingForecastBot):
                 logger.info(f"Skipping {len(questions) - len(unforecasted_questions)} previously forecasted questions")
             questions = unforecasted_questions
 
+        if self.one_question_at_a_time:
+            # Before the cap, so the cap keeps the questions that close soonest.
+            questions = sorted(questions, key=_close_order)
+
         # Enforce max questions per run safety cap
         if self.max_questions_per_run is not None and len(questions) > self.max_questions_per_run:
             logger.info(f"Limiting to first {self.max_questions_per_run} questions out of {len(questions)}")
@@ -399,7 +415,10 @@ class SibylBot(CompactLoggingForecastBot):
         reset_pchip_stats()
         self._research.reset_run_degradation_counters()
 
-        results = await super().forecast_questions(questions, return_exceptions)
+        if self.one_question_at_a_time:
+            results = await self._forecast_one_at_a_time(questions, return_exceptions)
+        else:
+            results = await super().forecast_questions(questions, return_exceptions)
 
         log_pchip_summary()
 
@@ -420,6 +439,21 @@ class SibylBot(CompactLoggingForecastBot):
         # "no provider degraded" is a recorded fact rather than an absent line.
         self._research.log_provider_degradation_summary()
 
+        return results
+
+    async def _forecast_one_at_a_time(
+        self, questions: Sequence[MetaculusQuestion], return_exceptions: bool
+    ) -> list[ForecastReport | BaseException]:
+        results: list[ForecastReport | BaseException] = []
+        for position, question in enumerate(questions, start=1):
+            close_time = question.close_time
+            if close_time is not None and close_time <= datetime.now(timezone.utc):
+                logger.warning(f"Skipping {question.page_url}: it closed at {close_time.isoformat()} before its turn")
+                continue
+            logger.info(
+                f"Forecasting question {position} of {len(questions)}: {question.page_url}, closes {close_time}"
+            )
+            results.extend(await super().forecast_questions([question], return_exceptions))
         return results
 
     @property
