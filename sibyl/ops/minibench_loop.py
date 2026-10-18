@@ -83,6 +83,9 @@ class LoopConfig:
     max_personal_usd: Decimal
     run_timeout: timedelta = timedelta(hours=3)
     round_budget_usd: Decimal | None = None
+    # "test" forecasts the unscored bot-testing area instead: a rehearsal of the same path.
+    mode: str = "minibench"
+    once: bool = False
 
 
 def run_command(config: LoopConfig, run_id: str) -> list[str]:
@@ -90,7 +93,7 @@ def run_command(config: LoopConfig, run_id: str) -> list[str]:
         sys.executable,
         "-m",
         "sibyl",
-        "minibench",
+        config.mode,
         "--tier",
         "prod",
         "--one-at-a-time",
@@ -210,6 +213,8 @@ def run_loop(
         elif code != 0:
             say(f"[loop] run {run_id} exited {code} (a degraded run still published what it could); continuing")
 
+        if config.once:
+            return "ran once (--once)"
         pull_at, passed = next_pull(started, clock(), config.interval)
         if passed > boundary:
             say(f"[loop] skipped {passed - boundary} pull(s) while the queue was still running")
@@ -269,6 +274,13 @@ def _parser() -> argparse.ArgumentParser:
         "--round-budget-usd", type=Decimal, default=None, help="Most of the grant this loop may use, in total"
     )
     parser.add_argument("--run-timeout-minutes", type=float, default=180, help="Stop a run that takes longer")
+    parser.add_argument(
+        "--mode",
+        choices=["minibench", "test"],
+        default="minibench",
+        help="test forecasts the unscored bot-testing area: a rehearsal of the same path",
+    )
+    parser.add_argument("--once", action="store_true", help="Make one pull and stop")
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--loop-id", default=None)
     return parser
@@ -308,6 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         max_personal_usd=args.max_personal_usd,
         run_timeout=timedelta(minutes=args.run_timeout_minutes),
         round_budget_usd=args.round_budget_usd,
+        mode=args.mode,
+        once=args.once,
     )
     env = {**os.environ, **workflow_settings(), SPEND_LEDGER_ENV: str(ledger_path.resolve()), "PYTHONUNBUFFERED": "1"}
     args.archive_dir.mkdir(parents=True, exist_ok=True)
