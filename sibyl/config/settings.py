@@ -588,11 +588,12 @@ GEMINI_SEARCH_TIMEOUT: int = 360
 # Only the DEFAULT moved.
 ANTHROPIC_SEARCH_ENABLED_ENV: str = "ANTHROPIC_SEARCH_ENABLED"
 ANTHROPIC_SEARCH_MODEL_ENV: str = "ANTHROPIC_SEARCH_MODEL"
-# The operator's Anthropic API key (console.anthropic.com). NOTE: this is NOT a
-# Claude.ai Pro/Max subscription — those are separate products and a subscription
-# grants no API access. Same no-primary-key situation as GOOGLE_API_KEY.
+# The operator's Anthropic API key (console.anthropic.com). Claude search no longer
+# uses it: since 2026-10-18 it runs on OpenRouter (research/anthropic_search.py).
 ANTHROPIC_API_KEY_ENV: str = "ANTHROPIC_API_KEY"
-# Sonnet 5 ($2/$10 per 1M) is the deliberate middle tier, matching the role the
+# 2026-10-18: claude-sonnet-5 -> claude-sonnet-5.5, the current Sonnet on the grant's
+# OpenRouter account, with the move to OpenRouter's native web search.
+# Sonnet ($2/$10 per 1M) is the deliberate middle tier, matching the role the
 # gemini-3-flash slot played: this provider RETRIEVES and synthesises, it does not
 # forecast. Two constraints pin it above the cheapest option — the dynamic-filtering
 # `web_search_20260209` tool variant requires Opus 4.6+/Sonnet 4.6+ (Haiku 4.5 only
@@ -600,12 +601,12 @@ ANTHROPIC_API_KEY_ENV: str = "ANTHROPIC_API_KEY"
 # forecasters, so it is a leverage point rather than a volume slot. Opus would be
 # 2.5x the price for a task that is search-and-summarise. Override via
 # ANTHROPIC_SEARCH_MODEL.
-ANTHROPIC_SEARCH_DEFAULT_MODEL: str = "claude-sonnet-5"
+ANTHROPIC_SEARCH_DEFAULT_MODEL: str = "claude-sonnet-5.5"
 # Effort tier for the search call. `medium` mirrors the flash-tier intent of the
 # Gemini slot it replaces: enough reasoning to rank and reconcile sources, not the
 # deep-deliberation tier the forecasters run at.
 ANTHROPIC_SEARCH_EFFORT: str = "medium"
-# Ceiling on server-side searches per call. Each search is billed on top of tokens
+# Ceiling on searches per call, sent as the web plugin's max_results. Each search is billed on top of tokens
 # ($10/1k searches), so this is the provider's hard cost bound: 15 searches is
 # $0.15 worst case. Gemini's AFC loop had no equivalent knob and could chain 10
 # round-trips invisibly.
