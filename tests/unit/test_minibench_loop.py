@@ -237,3 +237,20 @@ def test_a_rehearsal_is_one_pull_on_the_testing_area():
     assert commands[0][3] == "test"
     assert "--one-at-a-time" in commands[0]
     assert "once" in reason
+
+
+def test_a_free_rehearsal_runs_the_free_tier_without_a_grant():
+    config = _config(mode="test", once=True, tier="free", round_budget_usd=Decimal("1"))
+    reason, starts, commands, _ = _drive(config, _Ledger([Decimal(1)], per_run=Decimal("50")), [1])
+    command = commands[0]
+    assert command[command.index("--tier") + 1] == "free"
+    assert "--grant-budget-usd" not in command
+    assert len(starts) == 1  # grant floors and round caps do not apply to a free run
+    assert "once" in reason
+
+
+def test_the_free_tier_is_refused_on_minibench(tmp_path: Path, capsys):
+    ledger = tmp_path / "ledger.sqlite3"
+    ledger.write_bytes(b"")
+    assert loop.main(["--ledger", str(ledger), "--tier", "free"]) == loop.REFUSED_EXIT_CODE
+    assert "--mode test" in capsys.readouterr().out

@@ -86,26 +86,30 @@ class LoopConfig:
     # "test" forecasts the unscored bot-testing area instead: a rehearsal of the same path.
     mode: str = "minibench"
     once: bool = False
+    # "free" runs the free roster with no grant: a rehearsal that costs nothing. The bot
+    # refuses scored modes on the free tier, so it goes with mode "test".
+    tier: str = "prod"
 
 
 def run_command(config: LoopConfig, run_id: str) -> list[str]:
-    return [
+    command = [
         sys.executable,
         "-m",
         "sibyl",
         config.mode,
         "--tier",
-        "prod",
+        config.tier,
         "--one-at-a-time",
         "--max-questions",
         str(config.max_questions),
-        "--grant-budget-usd",
-        str(config.grant_budget_usd),
         "--run-id",
         run_id,
         "--archive-dir",
         str(config.archive_dir),
     ]
+    if config.tier == "prod":
+        command += ["--grant-budget-usd", str(config.grant_budget_usd)]
+    return command
 
 
 def next_pull(started: datetime, now: datetime, interval: timedelta) -> tuple[datetime, int]:
@@ -180,12 +184,17 @@ def run_loop(
             # Without the ledger the limits below cannot be checked, so start no run.
             remaining = personal = round_spend = None
             say(f"[loop] could not read the spend ledger ({type(exc).__name__}: {exc}); skipping this pull")
-        if remaining is not None and remaining - config.grant_budget_usd < config.stop_below_usd:
+        if (
+            config.tier == "prod"
+            and remaining is not None
+            and remaining - config.grant_budget_usd < config.stop_below_usd
+        ):
             return f"grant remaining ${remaining} would fall below --stop-below-usd ${config.stop_below_usd}"
         # A run must start with its whole budget available: a run that exhausts its grant
         # budget sends its remaining calls to the personal key.
         if (
-            config.round_budget_usd is not None
+            config.tier == "prod"
+            and config.round_budget_usd is not None
             and round_spend is not None
             and round_spend + config.grant_budget_usd > config.round_budget_usd
         ):
@@ -281,6 +290,12 @@ def _parser() -> argparse.ArgumentParser:
         help="test forecasts the unscored bot-testing area: a rehearsal of the same path",
     )
     parser.add_argument("--once", action="store_true", help="Make one pull and stop")
+    parser.add_argument(
+        "--tier",
+        choices=["prod", "free"],
+        default="prod",
+        help="free runs the free roster with no grant (only with --mode test): a rehearsal that costs nothing",
+    )
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--loop-id", default=None)
     return parser
@@ -301,8 +316,13 @@ def main(argv: list[str] | None = None) -> int:
     from sibyl.config.env import load_environment  # noqa: PLC0415
 
     load_environment()
+    if args.tier == "free" and args.mode != "test":
+        print("ERROR: the free tier cannot forecast a scored tournament; use --mode test")
+        return REFUSED_EXIT_CODE
     missing = missing_secrets(os.environ)
-    if GRANT_KEY_ENV in missing:
+    if args.tier == "free":
+        missing = [key for key in missing if key != GRANT_KEY_ENV]
+    elif GRANT_KEY_ENV in missing:
         print(f"ERROR: {GRANT_KEY_ENV} is not set; the loop runs on the grant")
         return REFUSED_EXIT_CODE
     if missing:
@@ -322,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         round_budget_usd=args.round_budget_usd,
         mode=args.mode,
         once=args.once,
+        tier=args.tier,
     )
     env = {**os.environ, **workflow_settings(), SPEND_LEDGER_ENV: str(ledger_path.resolve()), "PYTHONUNBUFFERED": "1"}
     args.archive_dir.mkdir(parents=True, exist_ok=True)
