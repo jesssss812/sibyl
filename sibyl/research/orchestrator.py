@@ -34,7 +34,6 @@ from sibyl.config.settings import (
     NATIVE_SEARCH_ENABLED_ENV,
     NATIVE_SEARCH_MODEL_ENV,
     OPENROUTER_API_KEY_ENV,
-    PERPLEXITY_API_KEY_ENV,
     PERPLEXITY_RESEARCH_MODEL,
     PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER,
     PERPLEXITY_WALL_TIMEOUT,
@@ -533,8 +532,8 @@ class ResearchOrchestrator:
         if self._custom_provider is not None:
             return self._custom_provider, "custom"
 
-        # The primary ladder is AskNews, then Exa, then Perplexity (direct, then via
-        # OpenRouter). Every rung is paid, and unlike the add-ons below it runs with no
+        # The primary ladder is AskNews, then Exa, then Perplexity via OpenRouter. Every
+        # rung is paid, and unlike the add-ons below it runs with no
         # flag to switch it off -- so a free run would otherwise bill on the one provider
         # nobody opted into. This is the paid path the tier guard would most easily miss.
         if active_tier() is ModelTier.FREE:
@@ -547,12 +546,9 @@ class ResearchOrchestrator:
         provider, provider_name = choose_provider_with_name(
             self._default_llm,
             exa_callback=self._call_exa_smart_searcher,
-            # Each rung gets the vendor its env var pays for. Binding the bare
-            # ``_call_perplexity`` here would hand priority 3 the method's
-            # OpenRouter-first default — deliberate on the AskNews-fallback path
-            # (_attempt_research_fallback prefers the cheap route), wrong here,
-            # where it collapses the ladder's two Perplexity rungs into one and
-            # passes api_key=None whenever only PERPLEXITY_API_KEY is set.
+            # Each route gets the vendor its env var pays for: the direct callback is
+            # reached only by RESEARCH_PROVIDER=perplexity, the OpenRouter one by the
+            # automatic ladder.
             perplexity_callback=self._call_perplexity_direct,
             openrouter_callback=self._call_perplexity_openrouter,
             is_benchmarking=self._is_benchmarking,
@@ -834,12 +830,11 @@ class ResearchOrchestrator:
         published comment and in the archive.
         """
         # Ordering intentionally differs from the primary selector
-        # (choose_provider_with_name: AskNews -> Exa -> Perplexity -> OpenRouter).
+        # (choose_provider_with_name: AskNews -> Exa -> OpenRouter Perplexity).
         # This fallback only fires when AskNews (always the primary in prod) has
         # already failed, so AskNews is excluded. Among the remaining options we
         # prefer the Perplexity-via-OpenRouter route first (cheap, prose-returning,
-        # routed through the primary-key wrapper), then direct Perplexity, then
-        # Exa last (SmartSearcher spins up its own multi-search/LLM loop, the most
+        # routed through the primary-key wrapper), then Exa last (SmartSearcher spins up its own multi-search/LLM loop, the most
         # expensive path). The primary selector orders by index quality, not cost,
         # which is why the two lists diverge by design.
         #
@@ -849,9 +844,6 @@ class ResearchOrchestrator:
             if os.getenv(OPENROUTER_API_KEY_ENV):
                 logger.info("Falling back to openrouter/perplexity for research")
                 return (await self._call_perplexity(question_text, use_open_router=True), "openrouter")
-            if os.getenv(PERPLEXITY_API_KEY_ENV):
-                logger.info("Falling back to Perplexity for research")
-                return (await self._call_perplexity(question_text, use_open_router=False), "perplexity")
             if os.getenv(EXA_API_KEY_ENV):
                 logger.info("Falling back to Exa search for research")
                 return (await self._call_exa_smart_searcher(question_text), "exa")
