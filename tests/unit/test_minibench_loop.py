@@ -229,3 +229,11 @@ def test_loop_ledger_reads_the_real_ledger(tmp_path: Path):
     assert view.grant_spend_usd(["mb-1", "mb-2"]) == Decimal("2")
     assert view.personal_spend_usd(["mb-1"]) == Decimal("0")
     assert view.grant_remaining_usd() == Decimal("93")
+
+
+def test_a_rehearsal_is_one_pull_on_the_testing_area():
+    reason, starts, commands, _ = _drive(_config(mode="test", once=True), _Ledger([Decimal(90)]), [1])
+    assert len(starts) == 1
+    assert commands[0][3] == "test"
+    assert "--one-at-a-time" in commands[0]
+    assert "once" in reason
