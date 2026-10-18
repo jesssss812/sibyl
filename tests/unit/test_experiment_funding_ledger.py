@@ -422,3 +422,26 @@ def test_a_write_off_stays_written_off_when_the_ledger_reopens(tmp_path: Path) -
     reopened = SpendLedger(path)
     assert reopened.summary()["remaining_local_usd"] == "94.5", "the hold must not come back"
     assert reopened.unreconciled("run-a") == []
+
+
+def test_run_liability_counts_confirmed_charges_and_whole_holds(tmp_path: Path) -> None:
+    ledger = SpendLedger(tmp_path / "spend.sqlite3")
+    ledger.start_run("run-a", Decimal("10"))
+    ledger.start_run("run-b", Decimal("10"))
+    ledger.reserve("a", "run-a", "openrouter/test", "forecast", Decimal("2"))
+    ledger.settle(
+        "a",
+        Decimal("0.4"),
+        10,
+        5,
+        certainty="confirmed",
+        evidence_source="provider_response",
+        openrouter_charge_usd=Decimal("0.4"),
+        is_byok=False,
+    )
+    ledger.reserve("b", "run-a", "openrouter/test", "forecast", Decimal("2"))  # still in flight
+    ledger.reserve("c", "run-b", "openrouter/test", "forecast", Decimal("2"))
+    ledger.mark_uncertain("c")
+    assert ledger.run_liability_usd("run-a") == Decimal("2.4")
+    assert ledger.run_liability_usd("run-b") == Decimal("2")
+    assert ledger.run_liability_usd("never-started") == Decimal("0")

@@ -489,6 +489,11 @@ class SpendLedger:
                 (adjustment_id, FundingSource.EXPERIMENT_GRANT, str(amount), note),
             )
 
+    def run_liability_usd(self, run_id: str) -> Decimal:
+        """What one run holds against the grant: confirmed charges plus every unconfirmed hold."""
+        with self._connect() as db:
+            return self._liability(db, run_id=run_id)
+
     def summary(
         self, run_id: str | None = None, *, source: FundingSource = FundingSource.EXPERIMENT_GRANT
     ) -> dict[str, str | int]:
