@@ -11,7 +11,8 @@ interval.
 Each run gets the MiniBench workflow's own settings (the literal ``env`` of its "Run
 bot" step), so a local run uses the method the workflow would. Secrets still come from
 ``.env``; a missing provider credential is reported at start and does not stop the
-loop, but a missing grant key does. The loop stops when the grant's local remaining allocation falls below
+loop, but a missing grant key does. The loop stops before a run whose budget would
+take this loop's grant use past ``--round-budget-usd``, when the grant's local remaining allocation falls below
 ``--stop-below-usd``, when this loop's runs have paid more than
 ``--max-personal-usd`` from the personal key, when a run is refused (exit 2), or at
 ``--until``.
@@ -81,6 +82,7 @@ class LoopConfig:
     stop_below_usd: Decimal
     max_personal_usd: Decimal
     run_timeout: timedelta = timedelta(hours=3)
+    round_budget_usd: Decimal | None = None
 
 
 def run_command(config: LoopConfig, run_id: str) -> list[str]:
@@ -115,6 +117,8 @@ class SpendView(Protocol):
 
     def personal_spend_usd(self, run_ids: list[str]) -> Decimal: ...
 
+    def grant_spend_usd(self, run_ids: list[str]) -> Decimal: ...
+
 
 @dataclass
 class Ledger:
@@ -129,6 +133,10 @@ class Ledger:
 
     def grant_remaining_usd(self) -> Decimal:
         return Decimal(str(self._open().summary()["remaining_local_usd"]))
+
+    def grant_spend_usd(self, run_ids: list[str]) -> Decimal:
+        ledger = self._open()
+        return sum((ledger.run_liability_usd(run_id) for run_id in run_ids), Decimal(0))
 
     def personal_spend_usd(self, run_ids: list[str]) -> Decimal:
         from sibyl.platform.experiment_funding import FundingSource  # noqa: PLC0415
@@ -164,12 +172,24 @@ def run_loop(
         try:
             remaining = ledger.grant_remaining_usd()
             personal = ledger.personal_spend_usd(run_ids)
+            round_spend = ledger.grant_spend_usd(run_ids)
         except Exception as exc:
             # Without the ledger the limits below cannot be checked, so start no run.
-            remaining = personal = None
+            remaining = personal = round_spend = None
             say(f"[loop] could not read the spend ledger ({type(exc).__name__}: {exc}); skipping this pull")
         if remaining is not None and remaining - config.grant_budget_usd < config.stop_below_usd:
             return f"grant remaining ${remaining} would fall below --stop-below-usd ${config.stop_below_usd}"
+        # A run must start with its whole budget available: a run that exhausts its grant
+        # budget sends its remaining calls to the personal key.
+        if (
+            config.round_budget_usd is not None
+            and round_spend is not None
+            and round_spend + config.grant_budget_usd > config.round_budget_usd
+        ):
+            return (
+                f"this loop has used ${round_spend} of the grant; another run's ${config.grant_budget_usd} "
+                f"would pass --round-budget-usd ${config.round_budget_usd}"
+            )
         if personal is not None and personal > config.max_personal_usd:
             return f"personal key paid ${personal} in this loop, over --max-personal-usd ${config.max_personal_usd}"
 
@@ -233,11 +253,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--interval-minutes", type=float, default=15)
     parser.add_argument("--until", type=_utc, default=None, help="Stop starting runs at this UTC time")
-    parser.add_argument("--max-questions", type=int, default=10, help="Per-run question cap (soonest close first)")
-    parser.add_argument("--grant-budget-usd", type=Decimal, default=Decimal("15"), help="Grant budget for each run")
+    parser.add_argument("--max-questions", type=int, default=5, help="Per-run question cap (soonest close first)")
+    parser.add_argument(
+        "--grant-budget-usd",
+        type=Decimal,
+        default=Decimal("20"),
+        # About $1.30 a question, plus up to about $10 held by calls in flight. A run that
+        # exhausts its grant budget sends the rest of its calls to the personal key.
+        help="Grant budget for each run; cover --max-questions with room for in-flight holds",
+    )
     parser.add_argument("--archive-dir", type=Path, default=Path("backtests/minibench_runs"))
     parser.add_argument("--stop-below-usd", type=Decimal, default=Decimal("20"), help="Grant headroom to keep")
     parser.add_argument("--max-personal-usd", type=Decimal, default=Decimal("2"), help="Personal-key spend cap")
+    parser.add_argument(
+        "--round-budget-usd", type=Decimal, default=None, help="Most of the grant this loop may use, in total"
+    )
     parser.add_argument("--run-timeout-minutes", type=float, default=180, help="Stop a run that takes longer")
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--loop-id", default=None)
@@ -277,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         stop_below_usd=args.stop_below_usd,
         max_personal_usd=args.max_personal_usd,
         run_timeout=timedelta(minutes=args.run_timeout_minutes),
+        round_budget_usd=args.round_budget_usd,
     )
     env = {**os.environ, **workflow_settings(), SPEND_LEDGER_ENV: str(ledger_path.resolve()), "PYTHONUNBUFFERED": "1"}
     args.archive_dir.mkdir(parents=True, exist_ok=True)

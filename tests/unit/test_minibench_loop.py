@@ -23,9 +23,13 @@ class _Clock:
 
 
 class _Ledger:
-    def __init__(self, remaining: list[Decimal], personal: Decimal = Decimal(0)) -> None:
+    def __init__(self, remaining: list[Decimal], personal: Decimal = Decimal(0), per_run: Decimal = Decimal(0)) -> None:
         self.remaining = remaining
         self.personal = personal
+        self.per_run = per_run
+
+    def grant_spend_usd(self, run_ids: list[str]) -> Decimal:
+        return self.per_run * len(run_ids)
 
     def grant_remaining_usd(self) -> Decimal:
         return self.remaining.pop(0) if len(self.remaining) > 1 else self.remaining[0]
@@ -204,3 +208,24 @@ def test_refuses_without_the_grant_key(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv(loop.GRANT_KEY_ENV, "")
     assert loop.main(["--ledger", str(ledger)]) == loop.REFUSED_EXIT_CODE
     assert loop.GRANT_KEY_ENV in capsys.readouterr().out
+
+
+def test_stops_before_a_run_could_pass_the_round_budget():
+    config = _config(round_budget_usd=Decimal("50"), grant_budget_usd=Decimal("20"))
+    reason, starts, _, _ = _drive(config, _Ledger([Decimal(90)], per_run=Decimal("12")), [1, 1, 1, 1])
+    # 0+20, 12+20 and 24+20 fit under 50; 36+20 would not.
+    assert len(starts) == 3
+    assert "--round-budget-usd" in reason
+
+
+def test_loop_ledger_reads_the_real_ledger(tmp_path: Path):
+    from sibyl.platform.experiment_funding import SpendLedger
+
+    path = tmp_path / "spend.sqlite3"
+    ledger = SpendLedger(path)
+    ledger.start_run("mb-1", Decimal("20"))
+    ledger.reserve("a", "mb-1", "openrouter/test", "forecast", Decimal("2"))
+    view = loop.Ledger(path)
+    assert view.grant_spend_usd(["mb-1", "mb-2"]) == Decimal("2")
+    assert view.personal_spend_usd(["mb-1"]) == Decimal("0")
+    assert view.grant_remaining_usd() == Decimal("93")
