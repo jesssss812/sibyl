@@ -48,5 +48,8 @@
   so a rate limit on the grant's Anthropic route would push both to the personal key.
 - A page that blocks the bot's own fetches now blocks the document reader too; Gemini
   used to fetch from Google's side.
-- A free-tier run used to pay for GPT-6 Luna in the prediction-market and
-  reference-class rankers; those stages now follow the run's tier.
+- A free-tier run given prod flags used to pay for GPT-6 Luna in the prediction-market
+  and reference-class rankers and for GPT-5.6 Terra in both gap-fill passes (the free
+  rehearsal of 2026-10-18 spent about $0.07–0.35 on the personal key before it was
+  stopped). The rankers now follow the run's tier, and both gap-fill passes and the
+  crux-targeted search are off on the free tier whatever their flags say.
