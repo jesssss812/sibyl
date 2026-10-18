@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import ipaddress
 import logging
 import os
@@ -23,7 +24,6 @@ from sibyl.config.settings import (
     EXA_API_KEY_ENV,
     GAP_FILL_V2_MIN_CONTENT_CHARS,
     GAP_FILL_V2_READER_MODEL,
-    GOOGLE_API_KEY_ENV,
     RESOLUTION_SOURCE_MAX_RESPONSE_BYTES,
 )
 from sibyl.platform.funding import record_direct_call
@@ -31,7 +31,6 @@ from sibyl.research import providers as research_providers
 from sibyl.research import resolution_source
 from sibyl.research.agentic.types import ToolOutcome, ToolSpec
 from sibyl.research.http_fetch import BROWSER_HEADERS, MAX_REDIRECTS, REDIRECT_STATUSES, read_body_capped
-from sibyl.research.url_context_telemetry import extract_url_context_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,8 @@ _READ_DOCUMENT_TIMEOUT_S = 60.0
 # underlying socket is torn down before the loop's asyncio.wait_for fires — a
 # hung endpoint then frees its slot instead of pinning it to the wall deadline.
 _EXA_HTTP_TIMEOUT_S = 18.0  # under search_web's ToolSpec timeout_s in build_gap_fill_tools
-_READ_DOCUMENT_HTTP_TIMEOUT_MS = 55_000  # under _READ_DOCUMENT_TIMEOUT_S, read_document's own deadline
+# Page text passed to the reader; GPT-6 Luna's context is far larger, this bounds cost.
+_READ_DOCUMENT_MAX_CHARS = 200_000
 _EXA_RETRY_DELAYS_S = (1.0, 4.0)
 _EXA_GLOBAL_SEMAPHORE = asyncio.Semaphore(4)
 # Process-global cap on concurrent headless Chromium launches. Module-level, so
@@ -159,6 +159,8 @@ class PlainFetchResult:
     url: str
     content_type: str | None = None
     escalate_rendered: bool = False
+    # The bytes of a PDF or image (method "document_needed"), for read_document.
+    body: bytes | None = None
 
 
 class _LinkCollector(HTMLParser):
@@ -493,7 +495,7 @@ async def _fetch_plain(url: str) -> PlainFetchResult:
     # all from our IP, on the same host the critical API calls use. Blocking here
     # (before _get_session) kills both our-IP rungs; rendered only runs after a
     # plain fetch. The brief already embeds the resolution criteria these URLs
-    # would yield. (read_document is Gemini's IP, not ours, so it is not gated.)
+    # would yield. read_document fetches through here too, so it is gated the same.
     if resolution_source.is_metaculus_self_ref(url):
         return PlainFetchResult(
             status="blocked",
@@ -564,7 +566,8 @@ async def _fetch_plain(url: str) -> PlainFetchResult:
                                 url=current_url,
                                 content_type=content_type or None,
                             )
-                        if _content_type_is_document(content_type):
+                        body = await _read_response_body(resp, f"agentic fetch {urlparse(current_url).netloc}")
+                        if _content_type_is_document(content_type) and body is not None:
                             return PlainFetchResult(
                                 status="ok",
                                 method="document_needed",
@@ -572,8 +575,8 @@ async def _fetch_plain(url: str) -> PlainFetchResult:
                                 links=[],
                                 url=current_url,
                                 content_type=content_type or None,
+                                body=body,
                             )
-                        body = await _read_response_body(resp, f"agentic fetch {urlparse(current_url).netloc}")
                         if body is None:
                             return PlainFetchResult(
                                 status="error",
@@ -591,6 +594,7 @@ async def _fetch_plain(url: str) -> PlainFetchResult:
                                 links=[],
                                 url=current_url,
                                 content_type=content_type or None,
+                                body=body,
                             )
 
                         html = body.decode("utf-8", errors="replace")
@@ -881,35 +885,37 @@ def _build_document_prompt(ask: str) -> str:
     )
 
 
-def _run_document_read_sync(url: str, ask: str) -> tuple[str, int]:
-    """Read ``url`` via Gemini url_context. Returns ``(text, n_url_retrievals_that_succeeded)``.
+def _document_parts(url: str, ask: str, fetched: PlainFetchResult) -> list[dict[str, Any]] | None:
+    """The reader's message content for what was actually retrieved, or None when nothing was."""
+    prompt = f"{_build_document_prompt(ask)}\n\nURL: {url}"
+    if fetched.method == "document_needed" and fetched.body:
+        body = fetched.body
+        encoded = base64.b64encode(body).decode("ascii")
+        if body.startswith(b"%PDF"):
+            name = urlparse(fetched.url).path.rsplit("/", 1)[-1] or "document.pdf"
+            file_part = {"filename": name, "file_data": f"data:application/pdf;base64,{encoded}"}
+            return [{"type": "text", "text": prompt}, {"type": "file", "file": file_part}]
+        media_type = (fetched.content_type or "").split(";")[0].strip()
+        if media_type.startswith("image/"):
+            image_part = {"url": f"data:{media_type};base64,{encoded}"}
+            return [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": image_part}]
+        return None
+    if fetched.status == "ok" and fetched.text.strip():
+        text = fetched.text[:_READ_DOCUMENT_MAX_CHARS]
+        return [{"type": "text", "text": f"{prompt}\n\nDocument text:\n{text}"}]
+    return None
 
-    The retrieval count is returned, not discarded, because the text alone cannot tell a
-    real document read from a fluent answer out of parametric memory — Gemini produces
-    both happily, and ``read_document`` grants the highest verification tier the artifact
-    renderer has. Same reader the grounded-search provider uses for the same reason (see
-    ``research/url_context_telemetry``).
-    """
-    from google import genai  # noqa: PLC0415
-    from google.genai import types as genai_types  # noqa: PLC0415
 
-    api_key = os.getenv(GOOGLE_API_KEY_ENV)
-    if not api_key:
-        raise ValueError(f"Missing Google API key: {GOOGLE_API_KEY_ENV}")
-    # Client-side timeout (ms) so a hung Gemini endpoint returns the thread —
-    # read_document runs this sync call under asyncio.to_thread, and wait_for
-    # cancels the coroutine but can't cancel the thread; without this ceiling a
-    # stuck endpoint leaks the worker into the shared ThreadPoolExecutor.
-    client = genai.Client(api_key=api_key, http_options=genai_types.HttpOptions(timeout=_READ_DOCUMENT_HTTP_TIMEOUT_MS))
-    tools: list[Any] = [{"url_context": {}}]
-    config = genai_types.GenerateContentConfig(tools=tools)
-    response = client.models.generate_content(
-        model=GAP_FILL_V2_READER_MODEL,
-        contents=f"{_build_document_prompt(ask)}\n\nURL: {url}",
-        config=config,
+async def _ask_reader(content: list[dict[str, Any]]) -> str:
+    """One OpenRouter call to the reader model, paid like every other model call."""
+    from sibyl.research.agentic.llm import build_default_llm_call  # noqa: PLC0415
+    from sibyl.research.agentic.types import LoopConfig  # noqa: PLC0415
+
+    call = build_default_llm_call(
+        LoopConfig(model=GAP_FILL_V2_READER_MODEL, reasoning_effort="low"), stage="gap_fill_v2_read_document"
     )
-    _, _, n_url_success, _ = extract_url_context_telemetry(response)
-    return (_stringify(getattr(response, "text", "")) or "", n_url_success)
+    response = await call([{"role": "user", "content": content}], None)
+    return _stringify(response.choices[0].message.content).strip()
 
 
 async def search_news(query: str) -> ToolOutcome:
@@ -976,43 +982,41 @@ async def fetch(url: str, start_char: int = 0, *, question_topic: str = "") -> T
 
 
 async def read_document(url: str, ask: str) -> ToolOutcome:
-    """Read a document via Gemini url_context, granting the ``fetched`` tier only on a real read.
+    """Fetch a document and have the OpenRouter reader answer ``ask`` from it.
 
-    ``method="document"`` maps to the ``fetched`` tier (``loop._METHOD_TO_TIER``), which is
-    the highest authority the artifact renderer has: only a ``fetched`` discrepancy enters
-    the SUPERSEDE block that tells every forecaster to override the briefing. So a
-    fluent-but-ungrounded answer here is the Q38195 failure mode with a bigger blast
-    radius, and the quote check can't catch it — it is deliberately WARN-only for this
-    tool (paraphrase and ellipsis-joined quotes make a hard gate too false-positive-prone).
-
-    Hence the retrieval-count guard below, mirroring the grounded-chunk floor
-    ``gemini_search`` already applies: zero successful url_context retrievals withholds the
-    tier exactly like the empty-text guard does, rather than laundering parametric recall
-    as a primary-source read.
+    ``method="document"`` maps to the ``fetched`` tier (``loop._METHOD_TO_TIER``), the
+    highest authority the artifact renderer has: only a ``fetched`` discrepancy enters
+    the SUPERSEDE block that tells every forecaster to override the briefing. A fluent
+    answer from memory standing in for a read (the Q38195 failure mode) would therefore
+    do the most damage here, so the model is only asked about content this function
+    actually retrieved, through the same public-URL and redirect guards as ``fetch``:
+    PDFs and images are attached, pages are passed as their extracted text. With
+    nothing retrieved, no model is asked and the tier is withheld.
     """
-    if not os.getenv(GOOGLE_API_KEY_ENV):
-        return _format_fetch_error(f"Google API key is not configured; set {GOOGLE_API_KEY_ENV}.", method="document")
-    try:
-        text, n_url_success = await record_direct_call(
-            f"google/{GAP_FILL_V2_READER_MODEL}",
-            "gap_fill_v2_read_document",
-            lambda: asyncio.wait_for(
-                asyncio.to_thread(_run_document_read_sync, url, ask), timeout=_READ_DOCUMENT_TIMEOUT_S
-            ),
+    fetched = await _fetch_plain(url)
+    if fetched.status == "blocked":
+        return ToolOutcome(content_markdown=fetched.text, method="document", status="blocked")
+    if fetched.method != "document_needed" and not (fetched.status == "ok" and fetched.text.strip()):
+        rendered = await _try_rendered_fetch(fetched.url)
+        if rendered is not None and rendered.status == "ok" and rendered.text.strip():
+            fetched = rendered
+    content = _document_parts(url, ask, fetched)
+    if content is None:
+        # Greppable, so the rate is measurable from the archived run logs.
+        logger.warning(f"AGENTIC_DOCUMENT_UNGROUNDED_SUPPRESSED: url={url}")
+        return _format_fetch_error(
+            f"Document read retrieved no readable content from {url}, so any answer would be "
+            "unsourced recall rather than a read of the document.",
+            method="document",
         )
+    try:
+        text = await asyncio.wait_for(_ask_reader(content), timeout=_READ_DOCUMENT_TIMEOUT_S)
     except asyncio.TimeoutError:
         return _format_fetch_error("Document read timed out.", method="document")
     except Exception as exc:
         return _format_fetch_error(f"Document read failed: {type(exc).__name__}: {exc}", method="document")
-    if n_url_success == 0:
-        # Greppable, mirroring gemini_search's GEMINI_UNGROUNDED_SUPPRESSED so the rate is
-        # measurable from the archived run logs.
-        logger.warning(f"AGENTIC_DOCUMENT_UNGROUNDED_SUPPRESSED: url={url}")
-        return _format_fetch_error(
-            f"Document read retrieved no URL content: Gemini's url_context tool fetched nothing from {url}, "
-            "so any answer would be unsourced recall rather than a read of the document.",
-            method="document",
-        )
+    if not text:
+        return _format_fetch_error("Document read returned no answer.", method="document")
     return ToolOutcome(content_markdown=text, method="document")
 
 

@@ -702,21 +702,14 @@ GAP_FILL_V2_ENABLED_ENV: str = "GAP_FILL_V2_ENABLED"
 # OpenRouter key.
 GAP_FILL_V2_DRIVER_MODEL: str = os.getenv("GAP_FILL_V2_DRIVER_MODEL") or "openai/gpt-5.6-terra"
 GAP_FILL_V2_DRIVER_EFFORT: str = os.getenv("GAP_FILL_V2_DRIVER_EFFORT") or "low"
-# read_document backend model on the NATIVE google-genai path (tools.py
-# _run_document_read_sync). CAUTION: this id is UNVERIFIED on the native
-# AI Studio API until the paid smoke test — the repo's verified-model notes
-# ("gemini-3.5-flash works") all refer to the OpenRouter slug route, which maps
-# ids differently; the only id verified on the native SDK here is
-# GEMINI_SEARCH_DEFAULT_MODEL ("gemini-3-flash-preview"). A wrong id soft-fails
-# read_document (model-not-found -> error outcome), silently disabling the
-# directed-reading rung.
-# 2026-08-27: gemini-3.5-flash -> gemini-3.7-flash. Strictly better on both axes,
-# verified against the live OpenRouter catalogue: newer (2026-08-13 vs 3.5), and
-# HALF the price — $0.75/M in vs $1.50, $3.75/M out vs $9.00 — with the same 1M
-# context, same 65k max output, and the same reasoning-parameter support. This is
-# the rare change that is both an upgrade and a cost cut, so it needs no trade-off
-# argument; it only needs to not be forgotten.
-GAP_FILL_V2_READER_MODEL: str = os.getenv("GAP_FILL_V2_READER_MODEL") or "gemini-3.7-flash"
+# read_document's reader, on OpenRouter like every other model call. 2026-10-18:
+# gemini-3.7-flash on the native Google API -> gpt-6-luna on OpenRouter. The grant's
+# OpenRouter account reaches Google only through a BYOK route with no quota, and the
+# native path billed GOOGLE_API_KEY outside the grant. read_document now fetches the
+# document itself and attaches PDFs and images (OpenAI models read PDFs natively on
+# OpenRouter) or passes a page's extracted text; Luna is the cheapest OpenAI model with
+# a 1M context. Previously (2026-08-27) gemini-3.5-flash -> gemini-3.7-flash.
+GAP_FILL_V2_READER_MODEL: str = os.getenv("GAP_FILL_V2_READER_MODEL") or "openai/gpt-6-luna"
 # Parallel tool calls each count against the cap; steps are where latency
 # lives, so batching is encouraged rather than rationed. Raised with the W2
 # ambition floor (2026-07-21): v2 runs 41-60s of the GAP_FILL_V2_WALL_DEADLINE

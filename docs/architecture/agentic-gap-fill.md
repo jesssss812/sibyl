@@ -116,15 +116,16 @@ and turns a breach into an error `ToolOutcome` rather than a crash.
   reads: over-cap content is truncated with a `start_char=N` marker, and
   continuations are served from cache. Its `ToolSpec` timeout leaves headroom
   above its own fetch budget for the rung-3 document auto-escalation.
-- **`read_document`** — ask a specific question of a specific document. Gemini
-  reads the URL directly via the `url_context` tool on the native `google-genai`
-  SDK, handling PDFs, images, and JS pages. Slower and costlier than `fetch`, so
-  it is for targeted extraction from long or complex documents, or as a fallback
-  when `fetch` was blocked. Requires a precise `ask`. Its deadlines nest: the
-  `ToolSpec` timeout sits above Gemini's own read timeout
-  (`_READ_DOCUMENT_TIMEOUT_S` in `tools.py`), which in turn sits above the HTTP
-  timeout handed to the SDK, so the innermost one fires first and the driver gets
-  a clean error outcome instead of a tool-level kill.
+- **`read_document`** — ask a specific question of a specific document. It
+  fetches the URL through the same guards as `fetch` (plain, then headless
+  Chromium for an empty page), then asks `GAP_FILL_V2_READER_MODEL` on OpenRouter:
+  a PDF or image is attached (OpenAI models read PDFs natively there), a page is
+  passed as its extracted text, capped at `_READ_DOCUMENT_MAX_CHARS`. With nothing
+  retrieved no model is asked. It is for targeted extraction from long or complex
+  documents; a page that blocks `fetch` blocks it too, since both fetch from our
+  own address. Requires a precise `ask`. The `ToolSpec` timeout sits above the
+  reader's own deadline (`_READ_DOCUMENT_TIMEOUT_S` in `tools.py`), so the driver
+  gets a clean error outcome instead of a tool-level kill.
 
 ### The fetch ladder
 
@@ -322,22 +323,14 @@ Defaults are deliberately not reproduced here — read them off the definitions 
 | `GAP_FILL_V2_ENABLED` | Master switch. Off unless set; on in all four workflow yamls, live in prod since 2026-07-21 (`b4e9df0`). |
 | `GAP_FILL_V2_DRIVER_MODEL` | The driver LLM. Picked by the 2026-07-17 blind 5-arm replay eval. |
 | `GAP_FILL_V2_DRIVER_EFFORT` | Driver reasoning effort. |
-| `GAP_FILL_V2_READER_MODEL` | The `read_document` backend model on the native google-genai path. |
+| `GAP_FILL_V2_READER_MODEL` | The `read_document` model, on OpenRouter (default `openai/gpt-6-luna` since 2026-10-18). |
 | `GAP_FILL_V2_MAX_TOOL_CALLS` | Tool-call budget. |
 | `GAP_FILL_V2_MAX_GAPS` | Ranked gaps `set_research_plan` accepts; the excess is dropped from the low-relevance end. Independent of v1's `GAP_FILL_MAX_GAPS`. |
 | `GAP_FILL_V2_WALL_DEADLINE` | Hard wall for the whole loop, in seconds. |
 | `GAP_FILL_V2_CONCLUDE_THRESHOLD` | Seconds-remaining threshold below which only `conclude` is offered. |
 | `GAP_FILL_V2_MIN_CONTENT_CHARS` | Extracted-char floor below which `fetch` escalates plain HTTP to headless Chromium. |
 
-The driver and reader run on separate credentials. The driver goes through
-litellm/OpenRouter with primary-key-first routing (all eval candidates were
-OpenAI/Anthropic models). The `read_document` reader uses the fallback
-`GOOGLE_API_KEY` on the native google-genai SDK, and `search_web` (Exa) and
-`search_news` (AskNews) use their own fallback keys.
-
-One caveat worth flagging for operators: `GAP_FILL_V2_READER_MODEL`'s default id
-is noted in the constants file as unverified on the native AI Studio SDK. A wrong
-id soft-fails `read_document` (model-not-found becomes an
-error outcome), which silently disables the directed-reading rung without
-breaking anything else. If `read_document` never seems to work, check the reader
-model id first.
+The driver and the reader both go through litellm/OpenRouter and are paid like every
+other model call: the grant first when the run has one, then the ordinary keys. Their
+spend is recorded under the stages `gap_fill_v2` and `gap_fill_v2_read_document`.
+`search_web` (Exa) and `search_news` (AskNews) are search services with their own keys.
