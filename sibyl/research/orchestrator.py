@@ -287,10 +287,13 @@ class ResearchOrchestrator:
             # inside v1's worst-case envelope only under this parallelism).
             # Consequence: the v2 driver's brief sees the bundle WITHOUT v1's
             # addendum. v2's section appends after v1's.
+            # Through _provider_enabled, so the free tier's veto holds here too: both
+            # passes drive paid native search, and a free run handed prod flags paid
+            # for GPT-5.6 Terra when these read the flags directly.
             gap_fill_v1_active = (
-                env_flag_enabled(GAP_FILL_ENABLED_ENV) and len(research.strip()) >= GAP_FILL_MIN_RESEARCH_CHARS
+                self._provider_enabled(GAP_FILL_ENABLED_ENV) and len(research.strip()) >= GAP_FILL_MIN_RESEARCH_CHARS
             )
-            gap_fill_v2_active = env_flag_enabled(GAP_FILL_V2_ENABLED_ENV)
+            gap_fill_v2_active = self._provider_enabled(GAP_FILL_V2_ENABLED_ENV)
             gap_fill_v2_payload: dict | None = None
 
             if gap_fill_v1_active or gap_fill_v2_active:

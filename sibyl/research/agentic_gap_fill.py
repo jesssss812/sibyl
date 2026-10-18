@@ -20,6 +20,7 @@ from typing import Any
 
 from forecasting_tools.data_models.questions import MetaculusQuestion
 
+from sibyl.config.models import ModelTier, active_tier
 from sibyl.config.settings import (
     GAP_FILL_V2_CONCLUDE_THRESHOLD,
     GAP_FILL_V2_DRIVER_EFFORT,
@@ -83,6 +84,10 @@ async def run_gap_fill_v2(
     ``archive_sink`` callback pattern so the orchestrator stays thin.
     """
     if not env_flag_enabled(GAP_FILL_V2_ENABLED_ENV):
+        return ""
+    if active_tier() is ModelTier.FREE:
+        # The driver and its searches are paid; no :free model carries them.
+        logger.info("FREE TIER: gap-fill v2 skipped; its driver and searches are paid")
         return ""
     if is_benchmarking:
         # Same leakage rationale as the prediction-market provider: live search

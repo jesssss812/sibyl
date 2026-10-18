@@ -41,6 +41,7 @@ from sibyl.aggregation import stacking
 from sibyl.aggregation.agreement import format_spread_marker, question_type_label
 from sibyl.aggregation.spread import compute_spread
 from sibyl.aggregation.strategies import AggregationStrategy
+from sibyl.config.models import ModelTier, active_tier
 from sibyl.config.settings import (
     BINARY_STACKING_ENABLED_ENV,
     CRUX_SOFT_DEADLINE,
@@ -151,6 +152,10 @@ async def _targeted_research_for_crux(
     # Crux extraction under a soft deadline: without the wait_for the only bound is
     # the analyzer LLM's own litellm timeout (UTILITY_MODEL_CONFIG in
     # llm_configs.py), which is looser than CRUX_SOFT_DEADLINE on this critical path.
+    if active_tier() is ModelTier.FREE:
+        # The targeted search runs paid native search; a free run stacks on base research.
+        logger.info("FREE TIER: crux-targeted research skipped; its search is paid")
+        return ""
     base_texts = [stacking.strip_model_tag(pred.reasoning) for pred in valid_predictions]
     try:
         crux = await asyncio.wait_for(
