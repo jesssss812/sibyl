@@ -12,9 +12,10 @@ neither shows up as an exception.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from forecasting_tools import BinaryQuestion
 
 from sibyl.config import settings
 from sibyl.config.models import FREE_TIER_DISABLED_PROVIDERS, ModelTier, get_roster
@@ -302,3 +303,76 @@ class TestFreeTierDropsAreNotAlertable:
         monkeypatch.setenv(MODEL_TIER_ENV, ModelTier.FREE.value)
         summary = format_degradation_summary(self._Counters(_forecasters_dropped_count=3))  # type: ignore[arg-type]
         assert "forecasters_dropped=3" in summary
+
+
+class TestGapFillAndCruxSearchStayOffOnTheFreeTier:
+    """The research run itself must honour the veto, not only ``_provider_enabled``.
+
+    Both gap-fill passes read their flags directly, so a free run given the MiniBench
+    workflow's settings paid for GPT-5.6 Terra on the personal key (2026-10-18 free
+    rehearsal).
+    """
+
+    @staticmethod
+    async def _run(monkeypatch: pytest.MonkeyPatch) -> tuple[AsyncMock, AsyncMock]:
+        monkeypatch.setenv(settings.GAP_FILL_ENABLED_ENV, "true")
+        monkeypatch.setenv(settings.GAP_FILL_V2_ENABLED_ENV, "true")
+        orch = _orchestrator()
+        provider = AsyncMock(return_value="A" * 2000)
+        question = MagicMock(spec=BinaryQuestion)
+        question.id_of_question = 1
+        question.page_url = "https://example.com/q/1"
+        question.question_text = "Will X happen?"
+        v1 = AsyncMock(return_value="v1 addendum")
+        v2 = AsyncMock(return_value="v2 findings")
+        with (
+            patch.object(orch, "_select_research_providers", return_value=[(provider, "custom")]),
+            patch("sibyl.research.targeted.run_gap_fill_pass", v1),
+            patch("sibyl.research.agentic_gap_fill.run_gap_fill_v2", v2),
+        ):
+            await orch.run_research(question)
+        return v1, v2
+
+    @pytest.mark.asyncio
+    async def test_neither_gap_fill_pass_runs_on_the_free_tier(
+        self, monkeypatch: pytest.MonkeyPatch, free_tier: None
+    ) -> None:
+        v1, v2 = await self._run(monkeypatch)
+        v1.assert_not_awaited()
+        v2.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_both_run_on_the_prod_tier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(MODEL_TIER_ENV, ModelTier.PROD.value)
+        v1, v2 = await self._run(monkeypatch)
+        v1.assert_awaited_once()
+        v2.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_gap_fill_v2_refuses_the_free_tier_at_its_own_entry(
+        self, monkeypatch: pytest.MonkeyPatch, free_tier: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from sibyl.research import agentic_gap_fill
+
+        monkeypatch.setenv(settings.GAP_FILL_V2_ENABLED_ENV, "true")
+        loop = AsyncMock()
+        monkeypatch.setattr(agentic_gap_fill, "run_agentic_loop", loop)
+        with caplog.at_level("INFO", logger=agentic_gap_fill.__name__):
+            assert (
+                await agentic_gap_fill.run_gap_fill_v2(MagicMock(spec=BinaryQuestion), "bundle", is_benchmarking=False)
+                == ""
+            )
+        loop.assert_not_awaited()
+        assert "FREE TIER: gap-fill v2 skipped" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_crux_search_is_skipped_on_the_free_tier(
+        self, monkeypatch: pytest.MonkeyPatch, free_tier: None
+    ) -> None:
+        from sibyl.aggregation import routing
+
+        crux = AsyncMock(return_value="what they disagree about")
+        monkeypatch.setattr(routing, "extract_disagreement_crux", crux)
+        result = await routing._targeted_research_for_crux(MagicMock(), MagicMock(), MagicMock(), [])
+        assert result == ""
+        crux.assert_not_awaited()
