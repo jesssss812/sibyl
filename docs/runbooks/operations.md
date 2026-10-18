@@ -108,9 +108,10 @@ routing that trips people up is the two OpenRouter keys.
   operator's is exhausted. Gap-fill v2's reads are a different quota and still
   work, but this key is not a dependable capability right now. The billing
   mechanics are under [Google grounded-search billing](#google-grounded-search-billing-upstream-project).
-- **`ANTHROPIC_API_KEY` — the Claude web-search research provider.** From
-  2026-08-31 until the one-forecast-route change merged it also served the Anthropic
-  forecaster slot and the stacker. Those now route via OpenRouter: the grant pays on a
+- **`ANTHROPIC_API_KEY` — no longer read by a forecasting run.** It served the
+  Claude web-search provider from 2026-08-31 until 2026-10-18, when that moved to
+  OpenRouter, and the Anthropic forecaster slot and the stacker until the
+  one-forecast-route change merged. Those now route via OpenRouter: the grant pays on a
   grant run; otherwise the ordinary keys do, the Metaculus key first and
   `OPENROUTER_API_KEY` after it, and whichever pays must cover a 64k-token Opus
   reservation. An API key from
@@ -137,9 +138,9 @@ other easy thing to confuse.
   pin it to `'true'` explicitly.
 - **Gemini grounded search** (`research/gemini_search.py`) always used the
   fallback `GOOGLE_API_KEY`; the primary toggle never touched it. **Default-off
-  since 2026-08-31** — replaced by `research/anthropic_search.py`, which uses
-  `ANTHROPIC_API_KEY` and Anthropic's server-side `web_search` tool. The module is
-  retained and re-enables with one flag.
+  since 2026-08-31** — replaced by `research/anthropic_search.py`, Claude with
+  OpenRouter's native web search (on `ANTHROPIC_API_KEY` and the `anthropic` SDK until
+  2026-10-18). The module is retained and re-enables with one flag.
 
 **The Gemini Pro forecaster slot is pinned to the fallback key**, not merely allowed to
 fall back. It is on the `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` blocklist in
@@ -238,7 +239,7 @@ CI.
 | Flag | Code default | Prod value | What it gates |
 |---|---|---|---|
 | `NATIVE_SEARCH_ENABLED` | off | `true` | OpenAI native web search via OpenRouter (model and reasoning effort from `NATIVE_SEARCH_DEFAULT_MODEL` / `NATIVE_SEARCH_REASONING_EFFORT_DEFAULT`), running in parallel with the primary provider |
-| `ANTHROPIC_SEARCH_ENABLED` | off | `true` | Claude web search via Anthropic's server-side `web_search` tool (`anthropic` SDK). The active second search index since 2026-08-31 |
+| `ANTHROPIC_SEARCH_ENABLED` | off | `true` | Claude web search via OpenRouter's native web search on `claude-sonnet-5.5` (the `anthropic` SDK until 2026-10-18). The active second search index since 2026-08-31 |
 | `GEMINI_SEARCH_ENABLED` | off | **`false`** | First-party Google grounded search via `google-genai`. Turned off 2026-08-31 (monthly free grounding bucket exhausted); module retained |
 | `FINANCIAL_DATA_ENABLED` | off | `true` | yfinance + FRED data for questions an LLM classifier tags as financial |
 | `PREDICTION_MARKETS_ENABLED` | off | `true` | Polymarket / Kalshi / Manifold / PredictIt snapshot (suppressed under `is_benchmarking=True`) |
