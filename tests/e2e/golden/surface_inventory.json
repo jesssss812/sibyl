@@ -100,6 +100,7 @@
     "sibyl.eval.performance",
     "sibyl.eval.performance.width_monitor",
     "sibyl.ops.experiment_grant",
+    "sibyl.ops.minibench_loop",
     "sibyl.telemetry.check_credits"
   ],
   "telemetry_markers": [
