@@ -501,6 +501,7 @@ async def test_fetch_pdf_content_type_auto_escalates_to_document(monkeypatch: py
     session = _FakeSession(_FakeResponse(status=200, headers={"Content-Type": "application/pdf"}))
     monkeypatch.setattr("sibyl.research.resolution_source.is_public_http_url", AsyncMock(return_value=True))
     monkeypatch.setattr("sibyl.research.resolution_source._get_session", lambda: session)
+    monkeypatch.setattr(agentic_tools, "_read_response_body", AsyncMock(return_value=b"%PDF-1.7 body"))
     read_document = AsyncMock(
         return_value=agentic_tools.ToolOutcome(content_markdown="Extracted PDF content.", method="document")
     )
@@ -519,6 +520,7 @@ async def test_fetch_document_escalation_generic_ask_contains_topic(monkeypatch:
     session = _FakeSession(_FakeResponse(status=200, headers={"Content-Type": "application/pdf"}))
     monkeypatch.setattr("sibyl.research.resolution_source.is_public_http_url", AsyncMock(return_value=True))
     monkeypatch.setattr("sibyl.research.resolution_source._get_session", lambda: session)
+    monkeypatch.setattr(agentic_tools, "_read_response_body", AsyncMock(return_value=b"%PDF-1.7 body"))
     read_document = AsyncMock(
         return_value=agentic_tools.ToolOutcome(content_markdown="Extracted PDF content.", method="document")
     )
@@ -1667,184 +1669,142 @@ async def test_rendered_fetch_launches_with_host_resolver_pin(monkeypatch: pytes
     assert launch_args[0] == ["--host-resolver-rules=MAP example.com 93.184.216.34"]
 
 
-@pytest.mark.asyncio
-async def test_read_document_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GOOGLE_API_KEY", "key")
-    monkeypatch.setattr("asyncio.to_thread", AsyncMock(side_effect=lambda fn, *args: fn(*args)))
-    monkeypatch.setattr(
-        agentic_tools, "_run_document_read_sync", MagicMock(return_value=("Quoted answer with dates.", 1))
-    )
+class TestReadDocumentOnOpenRouter:
+    """read_document fetches the document itself and asks an OpenRouter model about it.
 
-    outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What does it say?")
-
-    assert outcome.status == "ok"
-    assert outcome.method == "document"
-    assert outcome.content_markdown == "Quoted answer with dates."
-
-
-@pytest.mark.asyncio
-async def test_read_document_genai_client_uses_bounded_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fix 2 (genai half): the genai Client is built with a client-side timeout
-    (ms) <= the read_document internal deadline, so a hung endpoint returns the
-    to_thread worker instead of stranding it in the shared ThreadPoolExecutor.
-
-    Patches the real ``google.genai.Client`` attribute and uses the real
-    ``HttpOptions`` so the asserted timeout is the value that would ship."""
-    monkeypatch.setenv("GOOGLE_API_KEY", "key")
-    captured: dict[str, Any] = {}
-
-    def fake_client(**kwargs: Any) -> Any:
-        captured.update(kwargs)
-        # Carries a SUCCESSFUL url_context retrieval: read_document now withholds the
-        # 'fetched' tier when nothing was actually retrieved, so a metadata-less response
-        # would (correctly) come back as an error and this timeout assertion would be
-        # asserting on the wrong outcome.
-        models = SimpleNamespace(generate_content=lambda **_: _document_response("Quoted answer."))
-        return SimpleNamespace(models=models)
-
-    monkeypatch.setattr("google.genai.Client", fake_client)
-    monkeypatch.setattr("asyncio.to_thread", AsyncMock(side_effect=lambda fn, *args: fn(*args)))
-
-    outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What does it say?")
-
-    assert outcome.status == "ok"
-    http_options = captured["http_options"]
-    # HttpOptions.timeout is in milliseconds; the read_document internal deadline is in seconds.
-    assert http_options.timeout is not None
-    assert http_options.timeout <= agentic_tools._READ_DOCUMENT_TIMEOUT_S * 1000
-
-
-@pytest.mark.asyncio
-async def test_read_document_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GOOGLE_API_KEY", "key")
-    monkeypatch.setattr(agentic_tools, "_READ_DOCUMENT_TIMEOUT_S", 0.01)
-
-    async def slow_to_thread(fn, *args):
-        await asyncio.sleep(0.05)
-        return fn(*args)
-
-    monkeypatch.setattr("asyncio.to_thread", slow_to_thread)
-    monkeypatch.setattr(agentic_tools, "_run_document_read_sync", MagicMock(return_value=("late result", 1)))
-
-    outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What does it say?")
-
-    assert outcome.status == "error"
-    assert "timed out" in outcome.content_markdown
-
-
-@pytest.mark.asyncio
-async def test_read_document_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-
-    outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What does it say?")
-
-    assert outcome.status == "error"
-    assert "GOOGLE_API_KEY" in outcome.content_markdown
-
-
-def _document_response(text: str, *statuses: str) -> Any:
-    """A fake Gemini response with the given text and url_context retrieval statuses.
-
-    Defaults to one SUCCESS entry (a genuine document read). Shape mirrors the typed SDK
-    models ``extract_url_context_telemetry`` reads: ``candidates[0].url_context_metadata
-    .url_metadata[i].url_retrieval_status`` / ``.retrieved_url``.
+    A ``document`` outcome earns the ``fetched`` tier, and only a ``fetched`` discrepancy
+    enters the SUPERSEDE block that tells every forecaster to override the briefing. So
+    the model is only asked when real content was retrieved: with nothing retrieved, no
+    call is made and the outcome is an error (the Q38195 failure mode was a fluent answer
+    from memory standing in for a read).
     """
-    statuses = statuses or ("URL_RETRIEVAL_STATUS_SUCCESS",)
-    url_metadata = [
-        SimpleNamespace(url_retrieval_status=status, retrieved_url=f"https://example.com/doc{i}")
-        for i, status in enumerate(statuses)
-    ]
-    candidate = SimpleNamespace(url_context_metadata=SimpleNamespace(url_metadata=url_metadata))
-    return SimpleNamespace(text=text, candidates=[candidate])
 
-
-class TestReadDocumentRequiresRealRetrieval:
-    """A ``document`` outcome earns the ``fetched`` tier, so it must be a real read.
-
-    ``method="document"`` maps to ``fetched`` (``loop._METHOD_TO_TIER``), and only a
-    ``fetched`` discrepancy enters the SUPERSEDE block that instructs every forecaster to
-    override the briefing (``artifact.render_findings``). Gemini answers fluently from
-    parametric memory when every url_context retrieval failed — the Q38195 failure mode —
-    and the quote check cannot catch it here (WARN-only for this tool by design). So the
-    retrieval count is the guard.
-    """
+    @staticmethod
+    def _reader(answer: str = "Quoted answer, dated 2026-10-01.") -> AsyncMock:
+        return AsyncMock(return_value=answer)
 
     @pytest.mark.asyncio
-    async def test_all_retrievals_failed_withholds_the_fetched_tier(
+    async def test_a_pdf_is_sent_as_a_file_to_the_openrouter_reader(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        pdf = b"%PDF-1.7 fake body"
+        monkeypatch.setattr(
+            agentic_tools,
+            "_fetch_plain",
+            AsyncMock(
+                return_value=agentic_tools.PlainFetchResult(
+                    status="ok",
+                    method="document_needed",
+                    text="",
+                    links=[],
+                    url="https://example.com/file.pdf",
+                    content_type="application/pdf",
+                    body=pdf,
+                )
+            ),
+        )
+        reader = self._reader()
+        monkeypatch.setattr(agentic_tools, "_ask_reader", reader)
+
+        outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What does it say?")
+
+        assert outcome.status == "ok" and outcome.method == "document"
+        assert outcome.content_markdown == "Quoted answer, dated 2026-10-01."
+        assert reader.await_args is not None
+        content = reader.await_args.args[0]
+        assert content[0]["type"] == "text" and "What does it say?" in content[0]["text"]
+        assert content[1]["type"] == "file"
+        assert content[1]["file"]["file_data"].startswith("data:application/pdf;base64,")
+
+    @pytest.mark.asyncio
+    async def test_a_web_page_is_sent_as_its_extracted_text(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            agentic_tools,
+            "_fetch_plain",
+            AsyncMock(
+                return_value=agentic_tools.PlainFetchResult(
+                    status="ok", method="plain", text="Revenue was $4.2B.", links=[], url="https://example.com/a"
+                )
+            ),
+        )
+        reader = self._reader()
+        monkeypatch.setattr(agentic_tools, "_ask_reader", reader)
+
+        outcome = await agentic_tools.read_document("https://example.com/a", "What is revenue?")
+
+        assert outcome.status == "ok"
+        assert reader.await_args is not None
+        content = reader.await_args.args[0]
+        assert len(content) == 1 and "Revenue was $4.2B." in content[0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_nothing_retrieved_asks_no_model_and_withholds_the_tier(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        monkeypatch.setenv("GOOGLE_API_KEY", "key")
-        # Non-empty, confident-looking text plus a FAILED retrieval: exactly the shape
-        # that used to be stamped `fetched` and could supersede the briefing.
         monkeypatch.setattr(
-            "google.genai.Client",
-            lambda **_: SimpleNamespace(
-                models=SimpleNamespace(
-                    generate_content=lambda **_kw: _document_response(
-                        "The filing states revenue of $4.2B.", "URL_RETRIEVAL_STATUS_ERROR"
-                    )
+            agentic_tools,
+            "_fetch_plain",
+            AsyncMock(
+                return_value=agentic_tools.PlainFetchResult(
+                    status="empty", method="plain", text="", links=[], url="https://example.com/a"
                 )
             ),
         )
-        monkeypatch.setattr("asyncio.to_thread", AsyncMock(side_effect=lambda fn, *args: fn(*args)))
+        monkeypatch.setattr(agentic_tools, "_try_rendered_fetch", AsyncMock(return_value=None))
+        reader = self._reader("The filing states revenue of $4.2B.")
+        monkeypatch.setattr(agentic_tools, "_ask_reader", reader)
 
         with caplog.at_level(logging.WARNING, logger=agentic_tools.__name__):
-            outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What is revenue?")
+            outcome = await agentic_tools.read_document("https://example.com/a", "What is revenue?")
 
-        assert outcome.status != "ok", "an unretrieved document must not come back as a successful read"
-        assert "The filing states revenue of $4.2B." not in outcome.content_markdown, (
-            "the ungrounded answer text must not reach the driver as document content"
-        )
-        assert "AGENTIC_DOCUMENT_UNGROUNDED_SUPPRESSED" in caplog.text, (
-            "the suppression must be greppable in the archived run logs, mirroring GEMINI_UNGROUNDED_SUPPRESSED"
-        )
-
-    @pytest.mark.asyncio
-    async def test_no_url_context_metadata_at_all_withholds_the_tier(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # url_context never reported back (tool didn't run / SDK attached nothing). Zero
-        # successful retrievals either way, so the tier is withheld the same.
-        monkeypatch.setenv("GOOGLE_API_KEY", "key")
-        monkeypatch.setattr(
-            "google.genai.Client",
-            lambda **_: SimpleNamespace(
-                models=SimpleNamespace(
-                    generate_content=lambda **_kw: SimpleNamespace(text="Confident recall.", candidates=[])
-                )
-            ),
-        )
-        monkeypatch.setattr("asyncio.to_thread", AsyncMock(side_effect=lambda fn, *args: fn(*args)))
-
-        outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What is revenue?")
         assert outcome.status != "ok"
+        reader.assert_not_awaited()
+        assert "AGENTIC_DOCUMENT_UNGROUNDED_SUPPRESSED: url=https://example.com/a" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_one_success_among_failures_still_counts_as_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The guard is "did ANY retrieval land", matching gemini_search's grounded-chunk
-        # floor. A partially-failed multi-URL read still rests on real retrieved content.
-        monkeypatch.setenv("GOOGLE_API_KEY", "key")
+    async def test_a_blocked_url_asks_no_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "google.genai.Client",
-            lambda **_: SimpleNamespace(
-                models=SimpleNamespace(
-                    generate_content=lambda **_kw: _document_response(
-                        "Quoted from the filing.",
-                        "URL_RETRIEVAL_STATUS_ERROR",
-                        "URL_RETRIEVAL_STATUS_SUCCESS",
-                    )
+            agentic_tools,
+            "_fetch_plain",
+            AsyncMock(
+                return_value=agentic_tools.PlainFetchResult(
+                    status="blocked", method="plain", text="Blocked.", links=[], url="http://10.0.0.1/"
                 )
             ),
         )
-        monkeypatch.setattr("asyncio.to_thread", AsyncMock(side_effect=lambda fn, *args: fn(*args)))
+        reader = self._reader()
+        monkeypatch.setattr(agentic_tools, "_ask_reader", reader)
 
-        outcome = await agentic_tools.read_document("https://example.com/file.pdf", "What is revenue?")
-        assert outcome.status == "ok"
-        assert outcome.method == "document"
-        assert outcome.content_markdown == "Quoted from the filing."
+        outcome = await agentic_tools.read_document("http://10.0.0.1/", "Anything?")
 
-    def test_document_method_still_maps_to_the_fetched_tier(self) -> None:
-        # If this ever stopped being true the guard above would be defending nothing;
-        # pin the coupling that makes it load-bearing.
-        assert _method_to_tier("document") == "fetched"
+        assert outcome.status == "blocked"
+        reader.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_slow_reader_times_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(agentic_tools, "_READ_DOCUMENT_TIMEOUT_S", 0.01)
+        monkeypatch.setattr(
+            agentic_tools,
+            "_fetch_plain",
+            AsyncMock(
+                return_value=agentic_tools.PlainFetchResult(
+                    status="ok", method="plain", text="Some text.", links=[], url="https://example.com/a"
+                )
+            ),
+        )
+
+        async def slow(_content: Any) -> str:
+            await asyncio.sleep(0.05)
+            return "late"
+
+        monkeypatch.setattr(agentic_tools, "_ask_reader", slow)
+
+        outcome = await agentic_tools.read_document("https://example.com/a", "What?")
+
+        assert outcome.status == "error" and "timed out" in outcome.content_markdown
+
+    def test_the_reader_model_routes_through_openrouter_off_google(self) -> None:
+        from sibyl.config.settings import GAP_FILL_V2_READER_MODEL
+
+        assert GAP_FILL_V2_READER_MODEL == "openai/gpt-6-luna"
 
 
 @pytest.mark.asyncio

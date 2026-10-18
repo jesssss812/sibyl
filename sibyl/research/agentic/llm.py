@@ -18,7 +18,7 @@ from sibyl.research.agentic.types import LoopConfig
 LlmCall = Callable[[list[dict[str, Any]], list[dict[str, Any]] | None], Awaitable[Any]]
 
 
-def build_default_llm_call(config: LoopConfig) -> LlmCall:
+def build_default_llm_call(config: LoopConfig, *, stage: str = "gap_fill_v2") -> LlmCall:
     model = config.model if config.model.startswith("openrouter/") else f"openrouter/{config.model}"
     primary_key = os.getenv(OAI_ANTH_OPENROUTER_KEY_ENV)
     fallback_key = os.getenv(OPENROUTER_API_KEY_ENV)
@@ -72,7 +72,7 @@ def build_default_llm_call(config: LoopConfig) -> LlmCall:
         # grant first when the run has one, then this caller's own key.
         return await funded_openrouter_call(
             model,
-            "gap_fill_v2",
+            stage,
             with_key=lambda key: _call_once(messages, tools_json, key),
             own_key=api_key,
             own_call=lambda: _call_once(messages, tools_json, api_key),
