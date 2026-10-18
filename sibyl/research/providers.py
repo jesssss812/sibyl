@@ -32,7 +32,6 @@ from sibyl.config.settings import (
     ASKNEWS_WALL_TIMEOUT,
     EXA_API_KEY_ENV,
     OPENROUTER_API_KEY_ENV,
-    PERPLEXITY_API_KEY_ENV,
     PERPLEXITY_RESEARCH_MODEL,
     PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER,
     PERPLEXITY_WALL_TIMEOUT,
@@ -549,9 +548,12 @@ def choose_provider_with_name(
     Priority order replicates pre-refactor behaviour:
     1. AskNews (ASKNEWS_CLIENT_ID & ASKNEWS_SECRET)
     2. Exa.ai (EXA_API_KEY)
-    3. Perplexity (PERPLEXITY_API_KEY)
-    4. Perplexity via OpenRouter (OPENROUTER_API_KEY)
-    5. Fallback stub that returns an empty string.
+    3. Perplexity via OpenRouter (OPENROUTER_API_KEY)
+    4. Fallback stub that returns an empty string.
+
+    Direct Perplexity (PERPLEXITY_API_KEY) left the automatic ladder on 2026-10-18 so
+    every model call goes through OpenRouter; ``RESEARCH_PROVIDER=perplexity`` still
+    forces it.
     """
     forced = os.getenv(RESEARCH_PROVIDER_ENV)
     if forced:
@@ -586,11 +588,6 @@ def choose_provider_with_name(
         if default_llm is None:
             raise ValueError("default_llm must be provided for Exa research provider")
         return _exa_provider(default_llm), "exa"
-
-    if os.getenv(PERPLEXITY_API_KEY_ENV):
-        if perplexity_callback is not None:
-            return perplexity_callback, "perplexity"
-        return _perplexity_provider(False, is_benchmarking), "perplexity"
 
     if os.getenv(OPENROUTER_API_KEY_ENV):
         if openrouter_callback is not None:

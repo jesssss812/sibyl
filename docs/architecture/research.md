@@ -49,15 +49,14 @@ priority order and returns the first provider whose credentials are present:
 1. **AskNews** if `ASKNEWS_CLIENT_ID` and `ASKNEWS_SECRET` are set. This is the
    production case.
 2. **Exa.ai** (`SmartSearcher`) if `EXA_API_KEY` is set.
-3. **Perplexity direct** if `PERPLEXITY_API_KEY` is set. Model:
-   `PERPLEXITY_RESEARCH_MODEL` (`constants.py`).
-4. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` is set. Same model,
-   prefixed for the OpenRouter route:
-   `PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER`.
-5. **Empty stub** if none of the above — research is just the add-on providers.
+3. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` is set. Model:
+   `PERPLEXITY_RESEARCH_MODEL_VIA_OPENROUTER`. Direct Perplexity
+   (`PERPLEXITY_API_KEY`) left this ladder on 2026-10-18 so that every model call
+   goes through OpenRouter; `RESEARCH_PROVIDER=perplexity` still forces it.
+4. **Empty stub** if none of the above — research is just the add-on providers.
 
-In production the AskNews credentials are present, so Exa and the two Perplexity
-routes never run as the primary. They are fallbacks, not peers. To force a
+In production the AskNews credentials are present, so Exa and Perplexity never run
+as the primary. They are fallbacks, not peers. To force a
 specific primary regardless of credentials, set `RESEARCH_PROVIDER=<name>`
 (`asknews` / `exa` / `perplexity` / `openrouter`); any other value behaves as
 auto. Forcing `asknews` without the AskNews creds fails loudly rather than
@@ -68,8 +67,7 @@ silently picking a different provider.
 AskNews is the only primary that gets a runtime fallback. If the AskNews fetch
 raises, `_fetch_research_with_fallback` (`research/orchestrator.py`) tries a
 prose provider instead, in a **different** order than the primary ladder:
-OpenRouter-Perplexity first (cheapest, prose-returning), then direct Perplexity,
-then Exa last (its `SmartSearcher` spins up its own multi-search loop, the most
+OpenRouter-Perplexity first (cheapest, prose-returning), then Exa last (its `SmartSearcher` spins up its own multi-search loop, the most
 expensive path). The primary ladder orders by index quality; this fallback list
 orders by cost, because it only ever fires after AskNews has already failed.
 
@@ -543,9 +541,8 @@ Orchestration in `_select_research_providers` (`research/orchestrator.py`).
 
 1. **AskNews** if `ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET` are set (the prod case): dual-phase search (HOT + HISTORICAL), rate-limited with retry/dedup (`_asknews_provider`, `research/providers.py`).
 2. **Exa.ai SmartSearcher** if `EXA_API_KEY` set (fallback when AskNews absent): generic rundown (`_exa_provider`, `research/providers.py`).
-3. **Perplexity direct** if `PERPLEXITY_API_KEY` set: `_perplexity_provider` in `research/providers.py`. Prompt explicitly requests prediction-market consideration unless benchmarking.
-4. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` set: same function, `use_open_router=True`.
-5. Empty stub.
+3. **Perplexity via OpenRouter** if `OPENROUTER_API_KEY` set: `_perplexity_provider` in `research/providers.py` with `use_open_router=True`. Prompt explicitly requests prediction-market consideration unless benchmarking. (Direct Perplexity left the automatic ladder on 2026-10-18.)
+4. Empty stub.
 
 In production (AskNews creds present) Exa/Perplexity/OpenRouter do NOT run. They're priority-ordered fallbacks, not peers. `RESEARCH_PROVIDER=<name>` forces a specific one.
 

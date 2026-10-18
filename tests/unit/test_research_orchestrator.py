@@ -524,21 +524,17 @@ class TestProviderSelection:
     @pytest.mark.parametrize(
         ("present_key", "expected_name", "expect_openrouter_slug"),
         [
-            ("PERPLEXITY_API_KEY", "perplexity", False),
             ("OPENROUTER_API_KEY", "openrouter", True),
         ],
     )
     async def test_perplexity_rungs_route_to_their_own_vendor(
         self, mock_llm, question, monkeypatch, present_key, expected_name, expect_openrouter_slug
     ):
-        """The two Perplexity rungs of the priority ladder must not collapse into one.
+        """The ladder's Perplexity rung reaches Perplexity through OpenRouter.
 
-        Priority 3 is direct Perplexity (billed to PERPLEXITY_API_KEY); priority 4 is
-        Perplexity via OpenRouter (billed to OPENROUTER_API_KEY). The orchestrator
-        injects one bound method as both selector callbacks, so a default argument on
-        that method decides which vendor each rung actually reaches — and with only
-        PERPLEXITY_API_KEY set, routing to OpenRouter passes api_key=None and the rung
-        is broken outright, not merely mis-billed.
+        Since 2026-10-18 the automatic ladder has no direct-Perplexity rung, so every
+        model call goes through OpenRouter; ``RESEARCH_PROVIDER=perplexity`` still forces
+        the direct route deliberately. The OpenRouter route needs its key.
         """
         for env_var in (
             "ASKNEWS_CLIENT_ID",
@@ -564,6 +560,22 @@ class TestProviderSelection:
         assert model_slug.startswith("openrouter/") is expect_openrouter_slug, model_slug
         # An OpenRouter route needs a key; the direct route must not smuggle one in.
         assert (general_llm.call_args.kwargs["api_key"] is not None) is expect_openrouter_slug
+
+    def test_a_perplexity_key_alone_is_not_used_by_the_automatic_ladder(self, mock_llm, monkeypatch):
+        for env_var in (
+            "ASKNEWS_CLIENT_ID",
+            "ASKNEWS_SECRET",
+            "EXA_API_KEY",
+            "OPENROUTER_API_KEY",
+            "RESEARCH_PROVIDER",
+        ):
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setenv("PERPLEXITY_API_KEY", "fake-key")
+
+        orch = ResearchOrchestrator(default_llm=mock_llm, summarizer_llm=mock_llm)
+        _, provider_name = orch._select_research_provider()
+
+        assert provider_name == "none"
 
     def test_resolution_source_body_composes_with_header_and_demoted_headings(self):
         """Body written by the resolution_source provider composes with the
