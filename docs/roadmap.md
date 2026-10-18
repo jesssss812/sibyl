@@ -144,6 +144,16 @@ primary contrast, tail measure, multiplicity rule, and power calculation for the
 bucket endpoint. Cross-tier disagreement alone cannot prove correlated error.
 No router is enabled. Pooled scoring remains pending a versioned definition.
 
+## After the first MiniBench round
+
+- Measure the Sonnet 5.5 third forecaster against the Gemini era once the round resolves; the July screen suggests a same-vendor member may not replace Gemini's diversity. `docs/decisions/2026-10-18-first-minibench-round.md`
+- Re-screen forecaster compositions offline once comment reads work again: `/api/comments/` returns 403 for the bot token, and the cached July dataset is gone. `docs/runbooks/performance-analysis.md`
+- Count Anthropic 429s in the round's logs: Opus and Sonnet now start together on every question, on one grant route. `docs/runbooks/minibench-readiness.md`
+- The polling loop has no supervisor: a sleeping or rebooted machine stops it silently. `sibyl/ops/minibench_loop.py`
+- `write-off` refuses a zero provider total, so the $2 hold on `grant-demo-20261017T003245Z` (a `:free` call that cost nothing) stays open. `docs/runbooks/experiment-funding.md`
+- Date and conditional questions are skipped as unsupported types. `sibyl/forecasting/bot.py`
+- `OPENROUTER_API_KEY` had $3.48 left on 2026-10-18; a run without the grant needs about $1.40 per Opus request. `docs/runbooks/operations.md`
+
 ## Repo standardization
 
 - Fold the five remaining "Agent-facing detail (relocated from `AGENTS.md`)" sections

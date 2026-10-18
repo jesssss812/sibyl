@@ -142,7 +142,7 @@ other easy thing to confuse.
   OpenRouter's native web search (on `ANTHROPIC_API_KEY` and the `anthropic` SDK until
   2026-10-18). The module is retained and re-enables with one flag.
 
-**The Gemini Pro forecaster slot is pinned to the fallback key**, not merely allowed to
+**No Gemini model is in the roster since 2026-10-18** (the grant cannot run Google models; see the [decision record](../decisions/2026-10-18-first-minibench-round.md)). Before that, **the Gemini Pro forecaster slot was pinned to the fallback key**, not merely allowed to
 fall back. It is on the `OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS` blocklist in
 `sibyl/platform/key_fallback.py` (read the blocklist for which models it currently
 covers), so `should_route_via_primary_key` returns `False` for it even with the toggle

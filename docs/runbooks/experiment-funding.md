@@ -14,7 +14,7 @@ flowchart TD
     C -->|served| R[Record attempt: source = grant]
     C -->|other failure| X[Raised as usual]
     E --> S[Record attempt: source = Metaculus key or personal key]
-    D[AskNews, Exa, Gemini, Claude search,<br/>document reader] --> T[Record attempt: source = direct service]
+    D[AskNews and Exa searches,<br/>Gemini search when on] --> T[Record attempt: source = direct service]
 ```
 
 ## Running with the grant
@@ -45,6 +45,15 @@ attempt until its charge is known, and stops being offered for the rest of the r
 
 A rate limit or key-scoped route refusal moves only that request. Any other failure is
 raised exactly as it would be without a grant, so the payer never adds a retry.
+
+**What the grant can reach.** The grant's OpenRouter account routes OpenAI, Anthropic
+and Google models only (checked 2026-10-18 with `GET /api/v1/models/user`, which makes
+no model call). Its Google route is a BYOK integration with no quota, so a Google model
+gets an immediate 429 and the call goes to the ordinary key; Gemini did on every
+question of both grant demos. Other vendors, Perplexity among them, get a 404 and go to
+the ordinary key too. That is why no Google model is in the prod roster and why the
+AskNews fallback, Perplexity, is the one model a grant run can still pay for from the
+personal key. The account's settings are not ours to change.
 
 ## What is recorded
 
