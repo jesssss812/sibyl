@@ -156,3 +156,34 @@ class TestTierResolutionThroughArgv:
         monkeypatch.setattr(cli_module, "_log_tier_banner", record_then_stop)
         self._run(["test", "--tier", "prod"], None, monkeypatch)
         assert seen == [ModelTier.PROD]
+
+
+class TestOneQuestionAtATime:
+    """`--one-at-a-time` reaches the bot; without it the batch runs as before."""
+
+    def _bot_kwargs(self, argv: list[str], monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+        seen: list[dict[str, object]] = []
+
+        def record_then_stop(*args: object, **kwargs: object) -> None:
+            seen.append(kwargs)
+            raise SystemExit(0)
+
+        monkeypatch.delenv(MODEL_TIER_ENV, raising=False)
+        monkeypatch.setattr(sys, "argv", ["cli", *argv])
+        with (
+            patch("sibyl.cli.SibylBot", side_effect=record_then_stop),
+            patch("sibyl.cli.MetaculusApi", MagicMock()),
+            patch("sibyl.cli.apply_publish_hardening"),
+            patch("sibyl.cli.apply_fetch_hardening"),
+            patch("sibyl.cli.verify_metaculus_api_identity"),
+            patch("sibyl.cli.CreditTelemetry", MagicMock()),
+            pytest.raises(SystemExit),
+        ):
+            cli_module.main()
+        return seen[0]
+
+    def test_the_flag_reaches_the_bot(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._bot_kwargs(["test", "--one-at-a-time"], monkeypatch)["one_question_at_a_time"] is True
+
+    def test_off_without_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._bot_kwargs(["test"], monkeypatch)["one_question_at_a_time"] is False

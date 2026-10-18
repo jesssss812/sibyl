@@ -215,6 +215,11 @@ def main() -> None:
         default=str(DEFAULT_GRANT_RESERVE_PER_CALL_USD),
         help="Amount held against the grant budget for each call until its charge is known",
     )
+    parser.add_argument(
+        "--one-at-a-time",
+        action="store_true",
+        help="Forecast the selected questions one at a time, soonest close first, instead of all at once",
+    )
     args = parser.parse_args()
 
     if args.mode is not None and args.mode_flag is not None and args.mode != args.mode_flag:
@@ -269,6 +274,7 @@ def main() -> None:
                     "tier": tier.value,
                     "max_questions": max_questions,
                     "grant_budget_usd": str(grant_budget) if grant_budget is not None else None,
+                    "one_question_at_a_time": args.one_at_a_time,
                 },
             )
         except ValueError as exc:
@@ -314,6 +320,7 @@ def main() -> None:
         research_sink=research_sink,
         selection_sink=archive.record_selection if archive is not None else None,
         llms=llms,
+        one_question_at_a_time=args.one_at_a_time,
     )
 
     # Credit-balance telemetry: CREDIT_BALANCE/CREDIT_SPEND marker lines land in
