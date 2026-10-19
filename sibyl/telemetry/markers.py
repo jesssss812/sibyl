@@ -458,8 +458,9 @@ MARKER_SPECS: list[MarkerSpec] = [
     MarkerSpec(
         "agentic_document_ungrounded_suppressed",
         # The read_document twin of the marker above (research/agentic/tools.py
-        # read_document): Gemini's url_context tool retrieved nothing, so the answer would
-        # be unsourced recall and the "fetched" verification tier is withheld. Worth
+        # read_document): nothing readable was retrieved, so no reader model is asked and
+        # the "fetched" verification tier is withheld (until 2026-10-18 the reader was
+        # Gemini's url_context tool, and the check was its retrieval count). Worth
         # measuring separately because a "fetched" document discrepancy is the only kind
         # that enters the artifact's SUPERSEDE block, i.e. the one that tells every
         # forecaster to override the briefing. Carries no question id — read_document is a

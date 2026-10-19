@@ -123,9 +123,8 @@ jobs:
           # 2026-06-16), Gemini OpenRouter calls prefer the Metaculus-primary
           # OAI_ANTH_OPENROUTER_KEY wrapper with fallback-key fallback. On because
           # Metaculus raised the Google rate limits — the primary key serves most
-          # Gemini now; gemini-3.1-pro-preview is pinned to the fallback key
-          # (OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist; no primary attempt, no
-          # 429) pending the Metaculus BYOK fix.
+          # Gemini now. Since 2026-10-18 no Google model is in the roster, so this
+          # routes nothing today; it applies again if a Gemini slot returns.
           GEMINI_USE_DONATED_OPENROUTER_KEY: 'true'
           # Second-pass gap-fill: analyzer identifies gaps in first-pass research,
           # parallel grounded Gemini searches resolve each. Fails soft.

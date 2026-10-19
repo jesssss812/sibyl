@@ -98,10 +98,9 @@ routing that trips people up is the two OpenRouter keys.
   (Grok, Qwen, Perplexity-via-OpenRouter) and serves as the fallback when the
   primary key hits a credential, credit, or allowed-providers error. The
   fallback wrapper is `FallbackOpenRouterLlm` in `sibyl/platform/key_fallback.py`.
-- **`GOOGLE_API_KEY` — fallback.** The operator's Google AI Studio key. Since
-  2026-08-31 its ONLY remaining use is gap-fill v2's document reads
-  (`read_document` via url_context); the Gemini grounded-search provider it also
-  powered is now off by default. There is no primary Google AI Studio path. In CI
+- **`GOOGLE_API_KEY` — fallback, unused today.** The operator's Google AI Studio key.
+  Its only user is the Gemini grounded-search provider, off since 2026-08-31; gap-fill
+  v2's `read_document` used it until 2026-10-18, when the reader moved to OpenRouter. There is no primary Google AI Studio path. In CI
   this is stored as the `GEMINI_API_KEY` secret and surfaced to the workflow as
   `GOOGLE_API_KEY` so the `google-genai` SDK picks it up.
   **Caveat:** Google meters grounded search on a MONTHLY free bucket, and the
@@ -119,7 +118,7 @@ routing that trips people up is the two OpenRouter keys.
   separate products, billed separately.
 
 Other keys, all fallback, no shared variants: `METACULUS_TOKEN`, `ASKNEWS_CLIENT_ID`
-+ `ASKNEWS_SECRET`, `EXA_API_KEY`, `PERPLEXITY_API_KEY`, `FRED_API_KEY`.
++ `ASKNEWS_SECRET`, `EXA_API_KEY`, `PERPLEXITY_API_KEY` (read only when `RESEARCH_PROVIDER=perplexity` forces the direct route), `FRED_API_KEY`.
 (`OPENAI_API_KEY` was listed here historically but is read nowhere in the codebase —
 OpenAI models all route through OpenRouter.)
 
@@ -223,8 +222,7 @@ scale) re-eats the same monthly pool.
 
 `gemini-3.5-flash` shares the same grounding pool (grounding = $0 to switch) but its
 tokens cost 3x `gemini-3-flash-preview`'s ($1.50/$9 vs $0.50/$3 per M). Gap-fill v2's
-`read_document` (url_context) uses the same key with no per-request fee; retrieved
-documents bill as input tokens.
+`read_document` used the same key until 2026-10-18; it now runs on OpenRouter.
 
 ## Environment flags
 

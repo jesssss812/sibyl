@@ -50,7 +50,7 @@ def gemini_use_primary_openrouter_key() -> bool:
     env var to a false-y value (``"false"`` / ``"0"`` / ``"no"``) to force
     fallback-key-only routing.
 
-    KNOWN EXCEPTION: ``gemini-3.1-pro-preview`` (our forecaster slot) is PINNED to
+    KNOWN EXCEPTION: ``gemini-3.1-pro-preview`` (a forecaster until 2026-10-18) is PINNED to
     the fallback key — not merely "falls back". It's on the
     ``OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS`` blocklist in ``key_fallback``, so
     ``should_route_via_primary_key`` returns False for it even when this toggle is
@@ -552,7 +552,7 @@ GOOGLE_API_KEY_ENV: str = "GOOGLE_API_KEY"
 # search provider — that always uses the fallback GOOGLE_API_KEY. Default ON
 # (2026-06-16): after Metaculus raised the Google rate limits, the primary key
 # serves most Gemini models (gemini-3.5-flash, gemini-3.1-flash-lite). The known
-# exception is gemini-3.1-pro-preview, which is PINNED to the fallback key via the
+# exception is gemini-3.1-pro-preview (a forecaster until 2026-10-18), PINNED to the fallback key via the
 # OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS blocklist (no primary attempt, no 429) pending
 # the Metaculus-side BYOK fix — see OPENROUTER_PRIMARY_KEY_BLOCKED_MODELS in key_fallback.
 GEMINI_USE_DONATED_OPENROUTER_KEY_ENV: str = "GEMINI_USE_DONATED_OPENROUTER_KEY"
@@ -595,10 +595,8 @@ ANTHROPIC_API_KEY_ENV: str = "ANTHROPIC_API_KEY"
 # OpenRouter account, with the move to OpenRouter's native web search.
 # Sonnet ($2/$10 per 1M) is the deliberate middle tier, matching the role the
 # gemini-3-flash slot played: this provider RETRIEVES and synthesises, it does not
-# forecast. Two constraints pin it above the cheapest option — the dynamic-filtering
-# `web_search_20260209` tool variant requires Opus 4.6+/Sonnet 4.6+ (Haiku 4.5 only
-# gets the older basic variant), and this one briefing conditions all three
-# forecasters, so it is a leverage point rather than a volume slot. Opus would be
+# forecast. It sits above the cheapest option because this one briefing conditions all
+# three forecasters, so it is a leverage point rather than a volume slot. Opus would be
 # 2.5x the price for a task that is search-and-summarise. Override via
 # ANTHROPIC_SEARCH_MODEL.
 ANTHROPIC_SEARCH_DEFAULT_MODEL: str = "claude-sonnet-5.5"

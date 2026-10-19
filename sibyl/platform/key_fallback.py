@@ -216,8 +216,8 @@ def primary_key_providers() -> frozenset[str]:
 # Google free tier (quota 0) → every primary-key call 429s (is_byok:true) and
 # falls back to the fallback key. Routing them straight to the fallback key
 # avoids the wasted primary→429→fallback round-trip on every call AND the
-# CI-red fallback-counter bump it causes (gemini-3.1-pro-preview is a core
-# forecaster that runs on every question). Matched by prefix (startswith) so the
+# CI-red fallback-counter bump it causes (gemini-3.1-pro-preview was a forecaster
+# on every question until 2026-10-18; no Google model is in the roster now). Matched by prefix (startswith) so the
 # bare GA slug and every suffixed variant (-preview, -preview-customtools,
 # OpenRouter :free/route suffixes) are all covered.
 #
