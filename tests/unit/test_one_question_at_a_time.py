@@ -87,3 +87,16 @@ async def test_question_closed_before_its_turn_is_skipped(forecast_calls):
 def test_off_by_default():
     bot = SibylBot(llms={"default": "mock", "summarizer": "s", "parser": "p", "researcher": "r"})
     assert bot.one_question_at_a_time is False
+
+
+@pytest.mark.asyncio
+async def test_question_closing_too_soon_to_finish_is_skipped(forecast_calls, caplog):
+    # A forecast takes about three minutes; one that cannot finish is wasted spend.
+    questions = [_question("closing", 2), _question("open", 60)]
+
+    with caplog.at_level("WARNING"):
+        results = await _bot().forecast_questions(questions, return_exceptions=True)
+
+    assert forecast_calls == [["open"]]
+    assert len(results) == 1
+    assert "too soon to finish" in caplog.text
