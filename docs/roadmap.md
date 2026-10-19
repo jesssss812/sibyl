@@ -152,6 +152,8 @@ No router is enabled. Pooled scoring remains pending a versioned definition.
 - The polling loop has no supervisor: a sleeping or rebooted machine stops it silently. `sibyl/ops/minibench_loop.py`
 - `write-off` refuses a zero provider total, so the $2 hold on `grant-demo-20261017T003245Z` (a `:free` call that cost nothing) stays open. `docs/runbooks/experiment-funding.md`
 - Date and conditional questions are skipped as unsupported types. `sibyl/forecasting/bot.py`
+- Re-measure stacking on binary and multiple choice: it was switched off on 2026-05-29 on a tie (p=0.496) with an Opus 4.5 stacker, never re-tested on the current stack. Numeric stays off (median beat stacking on CRPS, p=0.042). `docs/architecture/overview.md`
+- Price Opus 5.5 at `high` against `xhigh` with a paired run: an estimated $0.05–0.10 a question, about $3–6 a round, accuracy effect unknown. `sibyl/config/models.py`
 - `OPENROUTER_API_KEY` had $3.48 left on 2026-10-18; a run without the grant needs about $1.40 per Opus request. `docs/runbooks/operations.md`
 
 ## Repo standardization
