@@ -34,6 +34,7 @@ from sibyl.config.settings import (
     DEFAULT_MAX_QUESTIONS_PER_RUN,
     FORECASTER_SOFT_DEADLINE,
     MIN_FORECASTERS_TO_PUBLISH,
+    MIN_MINUTES_TO_FORECAST,
     PER_QUESTION_WALL_CLOCK_DEADLINE,
     STACKER_SOFT_DEADLINE,
     TS_ANCHOR_CHART_ENABLED_ENV,
@@ -447,9 +448,18 @@ class SibylBot(CompactLoggingForecastBot):
         results: list[ForecastReport | BaseException] = []
         for position, question in enumerate(questions, start=1):
             close_time = question.close_time
-            if close_time is not None and close_time <= datetime.now(timezone.utc):
-                logger.warning(f"Skipping {question.page_url}: it closed at {close_time.isoformat()} before its turn")
-                continue
+            if close_time is not None:
+                minutes_left = (close_time - datetime.now(timezone.utc)).total_seconds() / 60
+                if minutes_left <= 0:
+                    logger.warning(
+                        f"Skipping {question.page_url}: it closed at {close_time.isoformat()} before its turn"
+                    )
+                    continue
+                if minutes_left < MIN_MINUTES_TO_FORECAST:
+                    logger.warning(
+                        f"Skipping {question.page_url}: it closes in {minutes_left:.1f} min, too soon to finish a forecast"
+                    )
+                    continue
             logger.info(
                 f"Forecasting question {position} of {len(questions)}: {question.page_url}, closes {close_time}"
             )

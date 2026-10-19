@@ -800,6 +800,10 @@ FORECASTER_SOFT_DEADLINE: int = 600
 # stacking, because the spread_metrics helpers REQUIRE >=2 predictions and raise
 # otherwise; see the single-forecaster guard in _research_and_make_predictions.
 MIN_FORECASTERS_TO_PUBLISH: int = 1
+# One-at-a-time runs skip a question that closes sooner than this: a forecast takes
+# about three minutes (the first MiniBench pull, 2026-10-19), and one that cannot finish
+# before the close is rejected by Metaculus after its spend.
+MIN_MINUTES_TO_FORECAST: float = 5.0
 
 # The Metaculus close window each scheduled run has to finish inside: the prod
 # crons fire hourly, so a question's whole forecast-and-publish cycle must fit in
