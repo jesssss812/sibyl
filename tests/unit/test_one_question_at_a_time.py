@@ -16,14 +16,15 @@ from forecasting_tools.forecast_bots.forecast_bot import ForecastBot
 
 from sibyl.forecasting.bot import SibylBot
 
-_NOW = datetime.now(timezone.utc)
-
 
 def _question(name: str, closes_in_minutes: float | None) -> MetaculusQuestion:
     q = MagicMock(spec=BinaryQuestion)
     q.already_forecasted = False
     q.page_url = name
-    q.close_time = None if closes_in_minutes is None else _NOW + timedelta(minutes=closes_in_minutes)
+    # Measured from now, not from import: a slow suite would otherwise age these past
+    # their close before the test runs.
+    now = datetime.now(timezone.utc)
+    q.close_time = None if closes_in_minutes is None else now + timedelta(minutes=closes_in_minutes)
     return cast(MetaculusQuestion, q)
 
 
