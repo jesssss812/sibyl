@@ -237,10 +237,11 @@ CI.
 | Flag | Code default | Prod value | What it gates |
 |---|---|---|---|
 | `NATIVE_SEARCH_ENABLED` | off | `true` | OpenAI native web search via OpenRouter (model and reasoning effort from `NATIVE_SEARCH_DEFAULT_MODEL` / `NATIVE_SEARCH_REASONING_EFFORT_DEFAULT`), running in parallel with the primary provider |
+| `NATIVE_SEARCH_CONTEXT_SIZE` | `high` | `medium` in MiniBench only | How much of the retrieved pages OpenAI web search and gap-fill v1's searches read (`low`/`medium`/`high`); most of their input tokens. MiniBench runs at `medium` since 2026-10-18 to fit a round in the grant |
 | `ANTHROPIC_SEARCH_ENABLED` | off | `true` | Claude web search via OpenRouter's native web search on `claude-sonnet-5.5` (the `anthropic` SDK until 2026-10-18). The active second search index since 2026-08-31 |
 | `GEMINI_SEARCH_ENABLED` | off | **`false`** | First-party Google grounded search via `google-genai`. Turned off 2026-08-31 (monthly free grounding bucket exhausted); module retained |
 | `FINANCIAL_DATA_ENABLED` | off | `true` | yfinance + FRED data for questions an LLM classifier tags as financial |
-| `PREDICTION_MARKETS_ENABLED` | off | `true` | Polymarket / Kalshi / Manifold / PredictIt snapshot (suppressed under `is_benchmarking=True`) |
+| `PREDICTION_MARKETS_ENABLED` | off | `true` (`false` in MiniBench since 2026-10-18) | Polymarket / Kalshi / Manifold / PredictIt snapshot (suppressed under `is_benchmarking=True`) |
 | `RESOLUTION_SOURCE_ENABLED` | off | `true` | Tier-1 fetcher of URLs cited in the resolution criteria (plain HTTP + trafilatura, no LLM) |
 | `TS_ANCHOR_ENABLED` | off | `true` | Time-series empirical P10/P50/P90 band from a question's own resolution series |
 | `TS_ANCHOR_CHART_ENABLED` | off | `false` | Chart-image side-channel for the anchor (vision message to base models); held off pending a text-vs-image A/B |
@@ -256,7 +257,7 @@ primary, each independently gated.
 | Flag | Code default | Prod value | What it gates |
 |---|---|---|---|
 | `GAP_FILL_ENABLED` | off | `true` | v1 gap-fill: analyzer finds up to `GAP_FILL_MAX_GAPS` factual gaps, parallel native searches resolve each |
-| `GAP_FILL_V2_ENABLED` | off | `true` | v2 agentic research loop (`research/agentic/`); runs concurrently with v1 during the overlap window |
+| `GAP_FILL_V2_ENABLED` | off | `true` (`false` in MiniBench since 2026-10-18) | v2 agentic research loop (`research/agentic/`); runs concurrently with v1 during the overlap window |
 
 Both gap-fill passes run in prod as of 2026-07-21 (v2 was authored 2026-07-17 but reached
 `main` in merge `b4e9df0`; era analysis keys on the latter). Each soft-fails to an empty

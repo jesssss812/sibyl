@@ -561,3 +561,5 @@ In production (AskNews creds present) Exa/Perplexity/OpenRouter do NOT run. They
 
 **Production workflows** (`.github/workflows/run_bot_on_{tournament,metaculus_cup,minibench}.yaml`, `test_bot.yaml`) set `NATIVE_SEARCH_ENABLED=true`, `ANTHROPIC_SEARCH_ENABLED=true`, `GEMINI_SEARCH_ENABLED=false` (2026-08-31), `FINANCIAL_DATA_ENABLED=true`, `GAP_FILL_ENABLED=true`, `PREDICTION_MARKETS_ENABLED='true'`, `RESOLUTION_SOURCE_ENABLED='true'` (the last flipped in all three prod yamls 2026-07-10 after a live-output eyeball). So in prod the active stack is AskNews + OpenAI native search (on the `NATIVE_SEARCH_*` settings above) + Claude web search + financial-data (when classified as financial) + always-on OpenAI native-search gap-fill + the prediction-market snapshot + the Tier-1 resolution-source fetcher.
 
+**MiniBench differs** since 2026-10-18 ([decision record](../decisions/2026-10-18-first-minibench-round.md)): `GAP_FILL_V2_ENABLED='false'`, `PREDICTION_MARKETS_ENABLED='false'`, and `NATIVE_SEARCH_CONTEXT_SIZE='medium'` (the other workflows leave it unset, which means `high`), to fit a round in the grant.
+

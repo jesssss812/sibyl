@@ -320,7 +320,7 @@ Defaults are deliberately not reproduced here — read them off the definitions 
 
 | Env var | What it controls |
 | --- | --- |
-| `GAP_FILL_V2_ENABLED` | Master switch. Off unless set; on in all four workflow yamls, live in prod since 2026-07-21 (`b4e9df0`). |
+| `GAP_FILL_V2_ENABLED` | Master switch. Off unless set; on in the tournament, cup and test workflows, live in prod since 2026-07-21 (`b4e9df0`); off in MiniBench since 2026-10-18 to fit a round in the grant. |
 | `GAP_FILL_V2_DRIVER_MODEL` | The driver LLM. Picked by the 2026-07-17 blind 5-arm replay eval. |
 | `GAP_FILL_V2_DRIVER_EFFORT` | Driver reasoning effort. |
 | `GAP_FILL_V2_READER_MODEL` | The `read_document` model, on OpenRouter (default `openai/gpt-6-luna` since 2026-10-18). |
