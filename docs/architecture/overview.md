@@ -52,7 +52,7 @@ forecaster fan-out, aggregation, and publish all draw from that one budget.
         │  Providers fan out in parallel:                  │
         │    - AskNews (primary, summarized to a briefing) │
         │    - OpenAI native search                        │
-        │    - Claude web search (Anthropic web_search)    │
+        │    - Claude web search (OpenRouter, native)      │
         │    - financial data (yfinance / FRED)            │
         │    - prediction-market snapshot                  │
         │    - resolution-source fetcher                   │

@@ -1,13 +1,12 @@
 """Shared reader for Gemini's ``url_context`` retrieval telemetry.
 
-Two places in the bot hand a URL to Gemini's ``url_context`` tool and use the answer as
-evidence: the grounded-search provider (``research/gemini_search.py``) and gap-fill v2's
-``read_document`` tool (``research/agentic/tools.py``). Both need the same question
-answered — *did any URL actually get retrieved?* — because Gemini answers fluently from
-parametric memory when every retrieval failed. That is the Q38195 failure (2026-07-19: 30
-search queries, 0 grounding chunks, a confident fabricated contract table with fake
-``[primary]`` tags reached forecasters), and it is why this lives in one module rather
-than being reimplemented per caller: a fix to the check has to reach both.
+The grounded-search provider (``research/gemini_search.py``, off since 2026-08-31) hands
+URLs to Gemini's ``url_context`` tool and uses the answer as evidence, so it needs to know
+whether any URL was actually retrieved: Gemini answers fluently from parametric memory
+when every retrieval failed. That is the Q38195 failure (2026-07-19: 30 search queries,
+0 grounding chunks, a confident fabricated contract table with fake ``[primary]`` tags
+reached forecasters). Gap-fill v2's ``read_document`` used this too until 2026-10-18; it
+now fetches documents itself and reads them on OpenRouter.
 
 The extraction reads only declared fields on the typed SDK pydantic models
 (``url_context_metadata``, ``url_metadata``, and each ``UrlMetadata``'s

@@ -22,8 +22,9 @@ What is new here, relative to that upstream:
   harness can be validated without spending anything.
 - **Ensemble agreement telemetry** — measuring how much the forecasters actually disagree,
   which is what conditional stacking routes on.
-- **Anthropic direct routing and Claude web search** — off OpenRouter for the Anthropic
-  slots, after an exhausted key cost a run three forecasters.
+- **Claude web search** — a second search index alongside OpenAI's. The Anthropic slots
+  went direct for a while after an exhausted key cost a run three forecasters; since
+  2026-10-18 every model call goes through OpenRouter, the grant first.
 - **Model tiers and the spend guard** — see below.
 - **The free test lane** — the entire pipeline, end to end, at zero API spend.
 - **Eval consolidation** — one entry point, and a paired `compare` that refuses to report
