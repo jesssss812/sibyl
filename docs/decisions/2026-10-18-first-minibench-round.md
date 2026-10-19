@@ -40,6 +40,21 @@
    round grant budget, a grant floor, a personal-key spend cap, a refused run or an end
    time. Run, settings and stops: [minibench-readiness.md](../runbooks/minibench-readiness.md).
 
+5. **Three cost cuts, MiniBench only.** The paid rehearsal cost $1.61 a question on the
+   grant (about $1.85 with AskNews), and the grant had about $85 left, too little for a
+   60-question round. Most of that cost is search results read as input tokens: each
+   gap-fill v1 search read 40–70k, OpenAI web search 47–89k. The MiniBench workflow now:
+   - turns **gap-fill v2 off**. v1 has the only content evidence (the July audit: 59%
+     unique content, the deciding fact in most sampled questions); v2's comparison with
+     v1 was never run, and in the rehearsal it added 0–3 findings a question against
+     v1's 14–21k characters. It saves about $0.24 a question.
+   - runs web search at **`search_context_size: medium`** (`NATIVE_SEARCH_CONTEXT_SIZE`),
+     for OpenAI web search and gap-fill v1's searches. An estimated $0.30–0.45 a question.
+   - turns the **prediction-market section off**. The July audit put it first to cut in
+     every sampled question: irrelevant markets under a "weight these heavily" header.
+   Together about $1.25 a question. All three are unmeasured method changes; gap-fill
+   v1 stays, at four gaps.
+
 ## Consequences
 
 - The round starts a new configuration era for every comparison: new third forecaster,

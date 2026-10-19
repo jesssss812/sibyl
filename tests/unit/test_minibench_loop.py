@@ -116,7 +116,11 @@ def test_next_pull_counts_the_boundaries_passed_over():
 def test_workflow_settings_are_the_literal_flags_of_the_run_step():
     settings = loop.workflow_settings()
     assert settings["SIBYL_MODEL_TIER"] == "prod"
-    assert settings["GAP_FILL_V2_ENABLED"] == "true"
+    # The first round's cost cuts (docs/decisions/2026-10-18-first-minibench-round.md).
+    assert settings["GAP_FILL_ENABLED"] == "true"
+    assert settings["GAP_FILL_V2_ENABLED"] == "false"
+    assert settings["PREDICTION_MARKETS_ENABLED"] == "false"
+    assert settings["NATIVE_SEARCH_CONTEXT_SIZE"] == "medium"
     assert not [value for value in settings.values() if "${{" in value]
 
 
