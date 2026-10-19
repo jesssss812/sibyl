@@ -498,7 +498,28 @@ NATIVE_SEARCH_VERBOSITY_ENV: str = "NATIVE_SEARCH_VERBOSITY"
 NATIVE_SEARCH_VERBOSITY_DEFAULT: str = "low"
 # Native search web options (passed to OpenRouter plugins)
 NATIVE_SEARCH_MAX_RESULTS: int = 20
-NATIVE_SEARCH_CONTEXT_SIZE: str = "high"  # "low", "medium", "high"
+NATIVE_SEARCH_CONTEXT_SIZE_ENV: str = "NATIVE_SEARCH_CONTEXT_SIZE"
+_SEARCH_CONTEXT_SIZES = ("low", "medium", "high")
+
+
+def search_context_size(raw: str | None) -> str:
+    """OpenAI web search's ``search_context_size``: unset means ``high``.
+
+    It sets how much of the retrieved pages the search feeds the model, which is most of
+    a search call's input tokens. Both OpenAI web search and gap-fill v1's searches use
+    it. An unknown value is a configuration error rather than a silent default.
+    """
+    value = (raw or "").strip().lower()
+    if not value:
+        return "high"
+    if value not in _SEARCH_CONTEXT_SIZES:
+        raise ValueError(f"{NATIVE_SEARCH_CONTEXT_SIZE_ENV}={raw!r} is not one of {', '.join(_SEARCH_CONTEXT_SIZES)}")
+    return value
+
+
+# 2026-10-18: overridable, so the MiniBench workflow can run at "medium" (see
+# docs/decisions/2026-10-18-first-minibench-round.md). Default unchanged.
+NATIVE_SEARCH_CONTEXT_SIZE: str = search_context_size(os.getenv(NATIVE_SEARCH_CONTEXT_SIZE_ENV))
 
 # --- Perplexity (fallback research provider; dormant while AskNews wins the ladder) ---
 # The model both Perplexity call sites use (research/providers.py's provider factory
