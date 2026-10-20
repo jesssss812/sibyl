@@ -258,3 +258,15 @@ def test_the_free_tier_is_refused_on_minibench(tmp_path: Path, capsys):
     ledger.write_bytes(b"")
     assert loop.main(["--ledger", str(ledger), "--tier", "free"]) == loop.REFUSED_EXIT_CODE
     assert "--mode test" in capsys.readouterr().out
+
+
+def test_a_per_call_hold_is_passed_to_each_run():
+    config = _config(until=_T0 + timedelta(minutes=1), grant_reserve_per_call_usd=Decimal("1"))
+    _, _, commands, _ = _drive(config, _Ledger([Decimal(90)]), [1])
+    command = commands[0]
+    assert command[command.index("--grant-reserve-per-call-usd") + 1] == "1"
+
+
+def test_without_a_per_call_hold_the_run_keeps_its_default():
+    _, _, commands, _ = _drive(_config(until=_T0 + timedelta(minutes=1)), _Ledger([Decimal(90)]), [1])
+    assert "--grant-reserve-per-call-usd" not in commands[0]

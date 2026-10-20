@@ -83,6 +83,8 @@ class LoopConfig:
     max_personal_usd: Decimal
     run_timeout: timedelta = timedelta(hours=3)
     round_budget_usd: Decimal | None = None
+    # The grant's hold on each call until its charge is known; None keeps the run's default.
+    grant_reserve_per_call_usd: Decimal | None = None
     # "test" forecasts the unscored bot-testing area instead: a rehearsal of the same path.
     mode: str = "minibench"
     once: bool = False
@@ -109,6 +111,8 @@ def run_command(config: LoopConfig, run_id: str) -> list[str]:
     ]
     if config.tier == "prod":
         command += ["--grant-budget-usd", str(config.grant_budget_usd)]
+        if config.grant_reserve_per_call_usd is not None:
+            command += ["--grant-reserve-per-call-usd", str(config.grant_reserve_per_call_usd)]
     return command
 
 
@@ -282,6 +286,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--round-budget-usd", type=Decimal, default=None, help="Most of the grant this loop may use, in total"
     )
+    parser.add_argument(
+        "--grant-reserve-per-call-usd",
+        type=Decimal,
+        default=None,
+        # A call that charges more than its hold stops the grant for the rest of that run.
+        help="Grant hold on each call until its charge is known (default: the run's own default)",
+    )
     parser.add_argument("--run-timeout-minutes", type=float, default=180, help="Stop a run that takes longer")
     parser.add_argument(
         "--mode",
@@ -340,6 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         max_personal_usd=args.max_personal_usd,
         run_timeout=timedelta(minutes=args.run_timeout_minutes),
         round_budget_usd=args.round_budget_usd,
+        grant_reserve_per_call_usd=args.grant_reserve_per_call_usd,
         mode=args.mode,
         once=args.once,
         tier=args.tier,
