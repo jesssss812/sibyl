@@ -150,6 +150,7 @@ No router is enabled. Pooled scoring remains pending a versioned definition.
 - Re-screen forecaster compositions offline once comment reads work again: `/api/comments/` returns 403 for the bot token, and the cached July dataset is gone. `docs/runbooks/performance-analysis.md`
 - Count Anthropic 429s in the round's logs: Opus and Sonnet now start together on every question, on one grant route. `docs/runbooks/minibench-readiness.md`
 - The polling loop has no supervisor: a sleeping or rebooted machine stops it silently. `sibyl/ops/minibench_loop.py`
+- The polling loop stops when the grant less one full run budget falls below the floor, though a run spends one question at a time; on 2026-10-20 it stopped with $23 left and missed four questions. Size each run's budget to what is left (the round cap, the grant less the floor), and require only one question's peak in-flight holds (4 calls at $2, $8 measured) to start a run. `sibyl/ops/minibench_loop.py`
 - `write-off` refuses a zero provider total, so the $2 hold on `grant-demo-20261017T003245Z` (a `:free` call that cost nothing) stays open. `docs/runbooks/experiment-funding.md`
 - Date and conditional questions are skipped as unsupported types. `sibyl/forecasting/bot.py`
 - Re-measure stacking on binary and multiple choice: it was switched off on 2026-05-29 on a tie (p=0.496) with an Opus 4.5 stacker, never re-tested on the current stack. Numeric stays off (median beat stacking on CRPS, p=0.042). `docs/architecture/overview.md`
